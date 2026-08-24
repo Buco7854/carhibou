@@ -11,7 +11,7 @@ Updated: 2026-08-24
   continuous vehicle switcher, real route-first dashboard, telemetry ledger and
   searchable garage roster. Route/history charts, registry-based draggable dashboards,
   tracker administration, hooks and settings remain functional. Self-hosted IBM Plex
-  typography, an orange recorded-route accent, extensible English/French catalogs and
+  typography, a cobalt recorded-route accent, extensible English/French catalogs and
   persistent Light, Dark and Auto themes work across the application.
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,

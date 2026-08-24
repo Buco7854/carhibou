@@ -18,13 +18,13 @@ function update() {
   if (!map) return
   if (props.route?.length) {
     polyline?.remove()
-    polyline = L.polyline(props.route, { color: '#ff682d', weight: 4, opacity: 0.88 }).addTo(map)
+    polyline = L.polyline(props.route, { color: 'var(--accent)', weight: 4, opacity: 0.88 }).addTo(map)
     map.fitBounds(polyline.getBounds(), { padding: [28, 28], maxZoom: 15 })
   }
   if (props.position) {
     const point = L.latLng(props.position.latitude, props.position.longitude)
     marker?.remove()
-    marker = L.circleMarker(point, { radius: 8, color: '#ffffff', weight: 3, fillColor: '#ff682d', fillOpacity: 1 }).addTo(map)
+    marker = L.circleMarker(point, { radius: 8, color: '#ffffff', weight: 3, fillColor: 'var(--accent)', fillOpacity: 1 }).addTo(map)
     if (!props.route?.length) map.setView(point, 14)
   }
 }

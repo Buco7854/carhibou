@@ -84,7 +84,7 @@ onUnmounted(() => window.clearInterval(timer))
 
       <nav class="vehicle-switcher" :aria-label="t('dashboard.chooseVehicle')">
         <button v-for="vehicle in vehicles" :key="vehicle.id" type="button" :class="{ active: vehicle.id === selectedId }" @click="selectVehicle(vehicle.id)">
-          <span class="switch-color" :style="{ background: vehicle.color || '#f06432' }" />
+          <span class="switch-color" :style="{ background: vehicle.color || '#315fcf' }" />
           <span class="switch-copy"><strong>{{ vehicle.name }}</strong><small>{{ vehicle.manufacturer }} {{ vehicle.model }}</small></span>
           <span class="switch-soc"><b>{{ vehicleSoc(vehicle) ?? '—' }}%</b><i :class="{ online: vehicle.state?.online }" /></span>
         </button>
@@ -98,12 +98,12 @@ onUnmounted(() => window.clearInterval(timer))
           </header>
           <div class="map-stage">
             <VehicleMap :position="selected.state?.position" :route="routePoints" />
-            <div class="map-caption"><span :style="{ background: selected.color || '#f06432' }" /><strong>{{ selected.name }}</strong><small>{{ t('dashboard.latestPosition') }}</small></div>
+            <div class="map-caption"><span :style="{ background: selected.color || '#315fcf' }" /><strong>{{ selected.name }}</strong><small>{{ t('dashboard.latestPosition') }}</small></div>
           </div>
         </article>
 
         <aside class="state-ledger panel">
-          <div class="vehicle-portrait"><VehicleSilhouette :color="selected.color || '#f06432'" /></div>
+          <div class="vehicle-portrait"><VehicleSilhouette :color="selected.color || '#315fcf'" /></div>
           <div class="energy-state">
             <span>{{ t('dashboard.battery') }}</span>
             <div><strong>{{ soc === null ? '—' : Math.round(soc) }}</strong><em>%</em><small>{{ charging ? t('dashboard.active') : t('dashboard.notCharging') }}</small></div>

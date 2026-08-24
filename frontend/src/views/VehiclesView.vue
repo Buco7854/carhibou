@@ -14,7 +14,7 @@ const showForm = ref(false)
 const error = ref('')
 const search = ref('')
 const filter = ref<VehicleFilter>('all')
-const form = ref({ name: '', manufacturer: 'Citroën', model: 'C-Zero', year: new Date().getFullYear(), propulsion_type: 'electric', battery_nominal_capacity_kwh: 16, vehicle_profile: 'citroen-c-zero-v1', color: '#f06432' })
+const form = ref({ name: '', manufacturer: 'Citroën', model: 'C-Zero', year: new Date().getFullYear(), propulsion_type: 'electric', battery_nominal_capacity_kwh: 16, vehicle_profile: 'citroen-c-zero-v1', color: '#315fcf' })
 
 const onlineCount = computed(() => vehicles.value.filter((vehicle) => vehicle.state?.online).length)
 const averageSoc = computed(() => {
@@ -84,14 +84,14 @@ onMounted(load)
       </header>
 
       <div class="vehicle-list">
-        <article v-for="vehicle in filteredVehicles" :key="vehicle.id" class="vehicle-row" :style="{ '--vehicle-color': vehicle.color || '#f06432' }">
+        <article v-for="vehicle in filteredVehicles" :key="vehicle.id" class="vehicle-row" :style="{ '--vehicle-color': vehicle.color || '#315fcf' }">
           <div class="vehicle-identity">
             <div><h3>{{ vehicle.name }}</h3><span :class="['status',{online:vehicle.state?.online}]">{{ vehicle.state?.online ? t('common.online') : t('common.parked') }}</span></div>
             <p>{{ vehicle.manufacturer }} {{ vehicle.model }} · {{ vehicle.year ?? t('vehicles.yearUnknown') }}</p>
             <small><AppIcon :name="vehicle.propulsion_type === 'electric' ? 'charging' : 'vehicle'" :size="14" />{{ vehicle.propulsion_type }} · {{ vehicle.vehicle_profile || t('vehicles.noProfile') }}</small>
           </div>
 
-          <div class="vehicle-visual"><VehicleSilhouette :color="vehicle.color || '#f06432'" /></div>
+          <div class="vehicle-visual"><VehicleSilhouette :color="vehicle.color || '#315fcf'" /></div>
 
           <div class="vehicle-readings">
             <div class="charge-reading"><span>{{ t('vehicles.batteryLevel') }}</span><strong>{{ soc(vehicle) === null ? '—' : Math.round(soc(vehicle)!) }}<em>%</em></strong><i><b :style="{ width: `${soc(vehicle) ?? 0}%` }" /></i></div>

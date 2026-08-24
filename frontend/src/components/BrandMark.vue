@@ -12,6 +12,6 @@ withDefaults(defineProps<{ size?: number }>(), { size: 38 })
 </template>
 
 <style scoped>
-.brand-symbol{display:grid;place-items:center;border-radius:10px;color:white;background:linear-gradient(145deg,#ff9b62,#ff6128);box-shadow:0 8px 22px rgba(255,99,38,.24)}
+.brand-symbol{display:grid;place-items:center;border-radius:10px;color:var(--accent-contrast);background:var(--accent);box-shadow:0 8px 22px rgba(var(--accent-rgb),.22)}
 .brand-symbol svg{width:68%;height:68%}
 </style>

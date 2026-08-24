@@ -12,8 +12,8 @@ generic fleet SaaS template.
   identifiers, timestamps, units, metric names and coordinates.
 - The application sits in a restrained floating canvas over a flat slate surround.
   Light mode uses paper-white and cool neutral surfaces. Dark mode uses layered
-  green-black surfaces. Mandarin orange is the primary action, selection and route
-  color; green communicates healthy live state. Vehicle colors are preserved as data.
+  green-black surfaces. Cobalt blue is the primary action, selection and route color;
+  green communicates healthy live state. Vehicle colors are preserved as data.
 - A clear sidebar and quiet top bar frame the workspace. Active navigation uses a
   route-like edge marker rather than a raised navigation card. Containers use fine
   borders, modest radii and almost no decorative shadow.
@@ -23,7 +23,7 @@ generic fleet SaaS template.
   vehicle cards.
 
 The recorded route is the signature device. It is drawn from historical GPS samples
-and carries the same orange through battery progress, chart series and selected state.
+and carries the same cobalt through battery progress, chart series and selected state.
 It always corresponds to real data; avoid decorative telemetry ticks, arbitrary KPI
 cards and logistics concepts that do not exist in the product.
 
