@@ -12,7 +12,6 @@ router = APIRouter(prefix="/dashboards", tags=["dashboards"])
     "",
     response_model=list[DashboardResponse],
     response_model_exclude_none=True,
-    response_model_exclude_defaults=True,
 )
 def list_dashboards(db: Db, auth: CurrentUser) -> list[Dashboard]:
     return list(
@@ -28,7 +27,6 @@ def list_dashboards(db: Db, auth: CurrentUser) -> list[Dashboard]:
     "",
     response_model=DashboardResponse,
     response_model_exclude_none=True,
-    response_model_exclude_defaults=True,
     status_code=status.HTTP_201_CREATED,
 )
 def create_dashboard(data: DashboardWrite, db: Db, auth: CurrentUserWrite) -> Dashboard:
@@ -48,7 +46,6 @@ def create_dashboard(data: DashboardWrite, db: Db, auth: CurrentUserWrite) -> Da
     "/{dashboard_id}",
     response_model=DashboardResponse,
     response_model_exclude_none=True,
-    response_model_exclude_defaults=True,
 )
 def update_dashboard(
     dashboard_id: str, data: DashboardWrite, db: Db, auth: CurrentUserWrite

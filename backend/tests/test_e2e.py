@@ -133,7 +133,8 @@ def test_complete_simulator_dashboard_and_hook_scenario(
             json={"name": "Journey", "is_default": True, "layout": layout},
         )
         assert dashboard.status_code == 201
-        assert client.get("/api/v1/dashboards").json()[0]["layout"] == layout
+        saved_layout = client.get("/api/v1/dashboards").json()[0]["layout"]
+        assert saved_layout["widgets"][0] == {**layout["widgets"][0], "settings": {}}
 
         with db_factory() as db:
             jobs = list(

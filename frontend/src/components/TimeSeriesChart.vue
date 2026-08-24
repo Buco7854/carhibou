@@ -56,4 +56,4 @@ watch(resolvedTheme, () => window.requestAnimationFrame(render))
 onBeforeUnmount(() => { observer?.disconnect(); chart?.dispose() })
 </script>
 
-<template><div ref="element" :style="{ height: `${height ?? 280}px` }" aria-label="Telemetry chart" /></template>
+<template><div ref="element" :style="{ height: `${height ?? 280}px` }" role="img" aria-label="Telemetry chart" /></template>

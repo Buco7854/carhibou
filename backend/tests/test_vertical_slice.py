@@ -112,3 +112,11 @@ def test_idempotent_telemetry_current_state_history_and_dashboard(
     assert client.get("/api/v1/dashboards").json()[0]["layout"]["widgets"][0]["type"] == (
         "battery-gauge"
     )
+
+    empty_dashboard = client.post(
+        "/api/v1/dashboards",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "Empty workspace", "layout": {"widgets": []}},
+    )
+    assert empty_dashboard.status_code == 201, empty_dashboard.text
+    assert empty_dashboard.json()["layout"] == {"widgets": []}

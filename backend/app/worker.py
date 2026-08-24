@@ -10,6 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from backend.app.branding import APP_VERSION
+from backend.app.common import model_registry  # noqa: F401
 from backend.app.common.database import SessionLocal
 from backend.app.common.logging import configure_logging
 from backend.app.common.settings import get_settings

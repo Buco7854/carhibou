@@ -27,6 +27,12 @@ and carries the same cobalt through battery progress, chart series and selected 
 It always corresponds to real data; avoid decorative telemetry ticks, arbitrary KPI
 cards and logistics concepts that do not exist in the product.
 
+The VehiNode mark is an original three-node route forming a `V`. It remains legible as
+a favicon and uses a single solid accent rather than a decorative illustration. The
+map keeps the open Leaflet/OpenStreetMap stack, with neutralized tiles, a route halo,
+start/current markers, a metric scale and explicit loading, empty and tile-failure
+states. Do not replace it with a proprietary map service as a design shortcut.
+
 ## Anti-template rules
 
 - Do not open a page with a greeting or a four-card KPI strip.
@@ -48,3 +54,15 @@ animation stops when `prefers-reduced-motion` is enabled.
 
 The frontend packages fonts into the Vite build. Production still serves static files
 and does not need Node or a third-party font service.
+
+## Browser verification
+
+`cd frontend && npm run test:e2e` builds the SPA, migrates a disposable local SQLite
+database, launches the real FastAPI app and worker, and runs Playwright in Chromium;
+CI runs the same journey against PostgreSQL.
+The core journey covers first-account setup, vehicle creation, tracker enrollment,
+device/human authentication isolation, idempotent telemetry, live state, route
+history, dashboard persistence, hook execution/state, responsive localization,
+theme switching and automated axe checks. Install the browser once with
+`npx playwright install chromium`; CI installs the headless browser and Linux
+dependencies explicitly.

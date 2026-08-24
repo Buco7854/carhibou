@@ -11,8 +11,10 @@ Updated: 2026-08-24
   continuous vehicle switcher, real route-first dashboard, telemetry ledger and
   searchable garage roster. Route/history charts, registry-based draggable dashboards,
   tracker administration, hooks and settings remain functional. Self-hosted IBM Plex
-  typography, a cobalt recorded-route accent, extensible English/French catalogs and
-  persistent Light, Dark and Auto themes work across the application.
+  typography, an original node-route mark, a modern neutralized OpenStreetMap treatment,
+  a cobalt recorded-route accent, extensible English/French catalogs and persistent
+  Light, Dark and Auto themes work across the application. Login copy is operational
+  and instance-focused rather than promotional.
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,
   HTTP/geometry helpers, manual dry-run and execution history.
@@ -24,17 +26,22 @@ Updated: 2026-08-24
 
 ## Verification
 
-- Ruff, Ruff format, mypy: passing for 90 Python source files.
-- Backend/agent tests runnable without PostgreSQL: 33 passing, including the complete
+- Ruff, Ruff format, mypy: passing for 91 Python source files.
+- Backend/agent tests runnable without PostgreSQL: 34 passing, including the complete
   simulator-to-hook E2E scenario.
 - Frontend: ESLint and strict type check passing; 5 files / 8 behavior tests passing;
   production build passing.
+- Playwright: 2 Chromium scenarios passing locally against a fresh migrated database,
+  real API and worker. CI runs the same suite on PostgreSQL. They cover the primary
+  product journey, idempotency, auth-realm isolation, persistent hook state, mobile
+  reflow, EN/FR, themes and automated axe checks.
 - VitePress build and Python wheel build pass. Alembic upgrade/check/downgrade passes
   with the local SQLite migration smoke database.
 - The committed lockfiles install from a fresh checkout and `scripts/check.sh` resolves
   the checkout directly; no prior editable installation is required for validation.
-- PostgreSQL integration, Docker image/Compose smoke and GitHub publication are encoded
-  in CI but cannot run locally because this runner has no PostgreSQL or container engine.
+- PostgreSQL integration and Docker image/Compose smoke cannot run locally because this
+  runner has no PostgreSQL or container engine. Browser E2E is encoded in CI and runs
+  locally; GitHub publication still requires the remote repository.
 
 ## Broken or failing
 

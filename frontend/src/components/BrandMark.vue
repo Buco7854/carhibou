@@ -5,13 +5,15 @@ withDefaults(defineProps<{ size?: number }>(), { size: 38 })
 <template>
   <span class="brand-symbol" :style="{ width: `${size}px`, height: `${size}px` }" aria-hidden="true">
     <svg viewBox="0 0 32 32" fill="none">
-      <path d="M8 8h6v7h-3a3 3 0 0 1-3-3V8Zm10 0h6v13h-6V8Z" fill="currentColor" />
-      <path d="M11 17h5.5l4.8 7H16l-5-5.3V17Z" fill="currentColor" opacity=".88" />
+      <path d="M7.5 8.5 16 23.5 24.5 8.5" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+      <circle cx="7.5" cy="8.5" r="2.5" fill="currentColor" />
+      <circle cx="16" cy="23.5" r="2.5" fill="currentColor" />
+      <circle cx="24.5" cy="8.5" r="2.5" fill="currentColor" />
     </svg>
   </span>
 </template>
 
 <style scoped>
-.brand-symbol{display:grid;place-items:center;border-radius:10px;color:var(--accent-contrast);background:var(--accent);box-shadow:0 8px 22px rgba(var(--accent-rgb),.22)}
-.brand-symbol svg{width:68%;height:68%}
+.brand-symbol{display:grid;place-items:center;border-radius:10px;color:var(--accent-contrast);background:var(--accent);box-shadow:0 8px 22px rgba(var(--accent-rgb),.2)}
+.brand-symbol svg{width:72%;height:72%}
 </style>

@@ -12,3 +12,16 @@ cd frontend && npm ci && npm run dev
 Run `./scripts/check.sh` before committing. Backend tests use SQLite for fast feedback;
 CI additionally migrates and tests PostgreSQL. Follow `AGENTS.md` and keep `.agent/`
 truth current.
+
+Run the complete browser journey separately after installing Chromium once:
+
+```bash
+cd frontend
+npx playwright install chromium
+npm run test:e2e
+```
+
+Locally, the browser suite creates and removes its own temporary SQLite database and
+runs both the API and background hook worker. Set `VEHINODE_DATABASE_URL` to exercise
+another disposable database. CI runs the same journey against PostgreSQL. Failed runs
+retain a Playwright trace, screenshot and video under `frontend/test-results/`.

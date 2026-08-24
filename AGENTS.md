@@ -35,6 +35,7 @@ At session start read this file, `.agent/STATE.md`, relevant `.agent/PLAN.md`,
 pytest backend/tests agent/tests   # Python tests
 ruff check . && ruff format --check . && mypy backend agent
 cd frontend && npm test && npm run typecheck && npm run build
+cd frontend && npx playwright install chromium && npm run test:e2e
 cd docs && npm ci && npm run docs:build
 alembic upgrade head
 python -m backend.app.worker --once

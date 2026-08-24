@@ -63,15 +63,15 @@ onMounted(load)
     <form v-if="showForm" class="panel panel-pad vehicle-form" @submit.prevent="create">
       <div class="form-heading"><div><span class="eyebrow">{{ t('vehicles.add') }}</span><h2>{{ t('vehicles.create') }}</h2></div><button class="icon-button" type="button" :aria-label="t('common.close')" @click="showForm=false">×</button></div>
       <div class="form-grid">
-        <div class="field"><label>{{ t('vehicles.name') }}</label><input v-model="form.name" class="input" required /></div>
-        <div class="field"><label>{{ t('vehicles.manufacturer') }}</label><input v-model="form.manufacturer" class="input" /></div>
-        <div class="field"><label>{{ t('vehicles.model') }}</label><input v-model="form.model" class="input" /></div>
-        <div class="field"><label>{{ t('vehicles.year') }}</label><input v-model="form.year" class="input" type="number" min="1886" max="2200" /></div>
-        <div class="field"><label>{{ t('vehicles.propulsion') }}</label><select v-model="form.propulsion_type" class="select"><option>electric</option><option>hybrid</option><option>petrol</option><option>diesel</option><option>unknown</option></select></div>
-        <div class="field"><label>{{ t('vehicles.capacity') }}</label><input v-model="form.battery_nominal_capacity_kwh" class="input" type="number" step=".1" min="1" /></div>
-        <div class="field"><label>{{ t('vehicles.profile') }}</label><select v-model="form.vehicle_profile" class="select"><option value="citroen-c-zero-v1">{{ t('vehicles.profileExperimental') }}</option><option :value="null">{{ t('vehicles.none') }}</option></select></div>
-        <div class="field"><label>{{ t('vehicles.color') }}</label><input v-model="form.color" class="input color-input" type="color" /></div>
-      </div><p v-if="error" class="error">{{ error }}</p><div class="form-actions"><button class="button">{{ t('vehicles.create') }}</button></div>
+        <label class="field"><span>{{ t('vehicles.name') }}</span><input v-model="form.name" class="input" required /></label>
+        <label class="field"><span>{{ t('vehicles.manufacturer') }}</span><input v-model="form.manufacturer" class="input" /></label>
+        <label class="field"><span>{{ t('vehicles.model') }}</span><input v-model="form.model" class="input" /></label>
+        <label class="field"><span>{{ t('vehicles.year') }}</span><input v-model="form.year" class="input" type="number" min="1886" max="2200" /></label>
+        <label class="field"><span>{{ t('vehicles.propulsion') }}</span><select v-model="form.propulsion_type" class="select"><option>electric</option><option>hybrid</option><option>petrol</option><option>diesel</option><option>unknown</option></select></label>
+        <label class="field"><span>{{ t('vehicles.capacity') }}</span><input v-model="form.battery_nominal_capacity_kwh" class="input" type="number" step=".1" min="1" /></label>
+        <label class="field"><span>{{ t('vehicles.profile') }}</span><select v-model="form.vehicle_profile" class="select"><option value="citroen-c-zero-v1">{{ t('vehicles.profileExperimental') }}</option><option :value="null">{{ t('vehicles.none') }}</option></select></label>
+        <label class="field"><span>{{ t('vehicles.color') }}</span><input v-model="form.color" class="input color-input" type="color" /></label>
+      </div><p v-if="error" class="error" role="alert">{{ error }}</p><div class="form-actions"><button class="button">{{ t('vehicles.create') }}</button></div>
     </form>
 
     <section class="garage-roster panel">

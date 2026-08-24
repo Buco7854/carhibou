@@ -21,7 +21,7 @@
   --accent-contrast: #ffffff;
   --accent-soft: #e9efff;
   --accent-rgb: 49, 95, 207;
-  --success: #228454;
+  --success: #1b6f46;
   --success-soft: #e8f4ed;
   --blue: #75678c;
   --blue-soft: #f0ecf5;
@@ -192,7 +192,7 @@ a { color: inherit; }
   .page-header { flex-direction: column; }
   .page-header > :last-child { align-self: stretch; }
   .page-header > :last-child.button { width: 100%; }
-  .topbar-select { display: none; }
+  .topbar .topbar-select { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

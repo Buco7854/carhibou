@@ -17,9 +17,13 @@ the first public release.
   Light/Dark/Auto themes, plus history, maps, charts, dashboards and hook editor.
 - Docker/Compose deployment, CI and release workflows, VitePress documentation,
   recipes, operations scripts and security guidance.
+- Reproducible Playwright browser journey with axe accessibility checks, a disposable
+  migrated database and the real FastAPI app plus worker.
 
 ### Changed
 
-- Reworked the SPA into a responsive orange-accented vehicle control center with a
-  compact sidebar, fleet overview cards, dominant live map, telemetry console,
-  searchable vehicle catalog and card-based tracker management in both themes.
+- Reworked the SPA into an original cobalt-accented live routebook with a restrained
+  self-hosted login, custom node-route mark, modern open map, telemetry ledger,
+  searchable garage roster and responsive light/dark themes.
+- Dashboard responses now retain empty layout collections, and the standalone worker
+  loads the complete SQLAlchemy model registry before polling jobs.

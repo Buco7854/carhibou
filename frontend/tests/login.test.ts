@@ -30,6 +30,6 @@ describe('login', () => {
 
     i18n.global.locale.value = 'fr'
     await wrapper.vm.$nextTick()
-    expect(wrapper.text()).toContain('Votre véhicule produit des données.')
+    expect(wrapper.text()).toContain('Espace de télémétrie automobile')
   })
 })

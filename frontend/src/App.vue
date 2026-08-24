@@ -65,7 +65,7 @@ async function signOut() {
       </div>
     </aside>
     <section class="workspace">
-      <header class="topbar">
+      <header class="topbar" role="banner">
         <div class="section-title"><AppIcon :name="section.icon" :size="18" /><strong>{{ section.label }}</strong></div>
         <div class="topbar-actions">
           <span class="connection-chip"><i />{{ t('nav.secureConnection') }}</span>
