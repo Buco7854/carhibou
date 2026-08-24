@@ -22,6 +22,9 @@ Updated: 2026-08-24
   promotional. The live dashboard consumes an
   authenticated, session-revalidating SSE stream instead of browser polling, and its
   status badges keep a consistent rounded-rectangle shape at mobile widths.
+- Garage, live dashboard, history and custom widgets share a canonical propulsion-aware
+  display policy: EVs prioritize battery/charging, combustion vehicles fuel/engine data,
+  hybrids available signals from both, and missing readings remain neutral rather than 0%.
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,
   HTTP/geometry helpers, manual dry-run and execution history.
@@ -44,14 +47,15 @@ Updated: 2026-08-24
 - Backend/agent tests runnable without PostgreSQL: 40 passing, including vehicle photo
   validation/storage/ownership coverage and the complete
   simulator-to-hook E2E scenario.
-- Frontend: ESLint and strict type check passing; 5 files / 10 behavior tests passing;
+- Frontend: ESLint and strict type check passing; 6 files / 20 behavior tests passing;
   production build passing.
 - Playwright: 2 Chromium scenarios passing locally against a fresh migrated database,
   real API and worker. CI runs the same suite on PostgreSQL. They cover the primary
   product journey, idempotency, auth-realm isolation, live SSE state changes,
   environment-based admin bootstrap, rejection of later registration, file-backed photo
   upload/dashboard display, persistent hook state, mobile reflow/badge geometry, EN/FR,
-  themes and automated axe checks.
+  themes, propulsion-aware EV/combustion rendering and automated axe checks. The
+  expanded stale-vehicle check found and fixed a light-theme status contrast defect.
 - VitePress build (including the repository Compose import), secret-file generation
   smoke test and Python wheel build pass. Alembic upgrade/check/downgrade passes with
   the local SQLite migration smoke database.

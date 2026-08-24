@@ -40,6 +40,7 @@ function render() {
       showSymbol: false,
       smooth: 0.22,
       data: item.data,
+      tooltip: item.unit ? { valueFormatter: (value: unknown) => `${value} ${item.unit}` } : undefined,
       lineStyle: { width: 2.3, color: [accent, blue, success, amber][index % 4] },
       areaStyle: index === 0 ? { color: `${accent}18` } : undefined,
     })),

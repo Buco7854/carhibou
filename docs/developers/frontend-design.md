@@ -23,9 +23,15 @@ generic fleet SaaS template.
   vehicle cards.
 
 The recorded route is the signature device. It is drawn from historical GPS samples
-and carries the same cobalt through battery progress, chart series and selected state.
+and carries the same cobalt through energy progress, chart series and selected state.
 It always corresponds to real data; avoid decorative telemetry ticks, arbitrary KPI
 cards and logistics concepts that do not exist in the product.
+
+Vehicle displays consume canonical metrics through one propulsion-aware presentation
+policy. Propulsion chooses sensible priorities, but reported signals decide what can be
+shown: EV views prefer traction battery and charging, combustion views prefer fuel and
+engine data, and hybrid views can combine both. Unknown and missing values remain neutral
+instead of being coerced to an EV state or a false zero.
 
 The VehiNode mark is an original three-node route forming a `V`. It remains legible as
 a favicon and uses a single solid accent rather than a decorative illustration. The

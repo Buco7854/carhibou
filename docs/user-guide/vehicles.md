@@ -8,10 +8,13 @@ Live state shows the latest position, canonical metrics and device health. Onlin
 uses reporting freshness rather than assuming every parked vehicle reports rapidly.
 
 The vehicle catalog is arranged as a photographic garage: each card leads with the
-vehicle image, followed by identity, live battery/speed/contact readings and direct
-history/tracker actions. The compact overview above it shows fleet totals, connected
-vehicles and average battery state. Search is local and immediate; the All, Online and
-Parked filters only change the visible catalog and do not alter reporting configuration.
+vehicle image, followed by identity, live energy/speed/contact readings and direct
+history/tracker actions. Electric vehicles show traction-battery state; petrol and
+diesel vehicles show fuel level; hybrids use the available battery or fuel signal.
+VehiNode never turns a missing reading into `0%`. The compact overview above it shows
+fleet totals, connected vehicles and average reported energy. Search is local and
+immediate; the All, Online and Parked filters only change the visible catalog and do
+not alter reporting configuration.
 
 ## Vehicle photos
 

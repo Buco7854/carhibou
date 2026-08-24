@@ -37,6 +37,15 @@ withDefaults(defineProps<{ name: string; size?: number }>(), { size: 20 })
     <template v-else-if="name === 'battery'">
       <rect x="3" y="7" width="17" height="10" rx="2" /><path d="M22 10v4M6 10v4m3-4v4m3-4v4" />
     </template>
+    <template v-else-if="name === 'fuel'">
+      <path d="M5 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16M3 21h15M8 7h5v4H8Z" /><path d="m16 7 3 3v7.5a1.5 1.5 0 0 0 3 0V9l-2-2" />
+    </template>
+    <template v-else-if="name === 'temperature'">
+      <path d="M14 14.8V5a3 3 0 0 0-6 0v9.8a5 5 0 1 0 6 0Z" /><path d="M11 8v9" />
+    </template>
+    <template v-else-if="name === 'energy'">
+      <path d="M4.2 17.5a9 9 0 1 1 15.6 0" /><path d="M8 14h8M12 10v8" />
+    </template>
     <template v-else-if="name === 'speed'">
       <path d="M4.2 17.5a9 9 0 1 1 15.6 0" /><path d="m12 13 4-4" /><circle cx="12" cy="13" r="1.5" />
     </template>

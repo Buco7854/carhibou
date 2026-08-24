@@ -50,7 +50,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('filters the vehicle catalog by search and live status locally', async () => {
-    const parked = { ...vehicle, id:'vehicle-2', name:'Nimbus', state:{ ...vehicle.state, online:false } }
+    const parked = { ...vehicle, id:'vehicle-2', name:'Nimbus', propulsion_type:'petrol', battery_nominal_capacity_kwh:null, vehicle_profile:null, state:{ ...vehicle.state, online:false, metrics:{'fuel.level':48,'engine.rpm':900} } }
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([vehicle, parked])))
     const wrapper = mount(VehiclesView, { global:{plugins:[i18n],stubs:{RouterLink:{template:'<a><slot /></a>'}}} })
     await flushPromises()
@@ -61,6 +61,36 @@ describe('vehicle and dashboard management', () => {
     await wrapper.findAll('.filter-tabs button')[2]!.trigger('click')
     expect(wrapper.find('.vehicle-list').text()).toContain('Nimbus')
     expect(wrapper.find('.vehicle-list').text()).not.toContain('Éclair')
+    expect(wrapper.get('.vehicle-card').text()).toContain('Fuel level')
+    expect(wrapper.get('.vehicle-card').text()).toContain('48%')
+    expect(wrapper.get('.vehicle-card').text()).toContain('Petrol')
+    expect(wrapper.get('.vehicle-card').text()).not.toContain('Battery level')
+    i18n.global.locale.value = 'fr'
+    await flushPromises()
+    expect(wrapper.get('.vehicle-card').text()).toContain('Niveau de carburant')
+    expect(wrapper.get('.vehicle-card').text()).toContain('Essence')
+  })
+
+  it('removes EV-only creation fields when a combustion propulsion is selected', async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return Promise.resolve(jsonResponse(vehicle, 201))
+      return Promise.resolve(jsonResponse([]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(VehiclesView, { global:{plugins:[i18n],stubs:{RouterLink:{template:'<a><slot /></a>'}}} })
+    await flushPromises()
+    await wrapper.get('header button').trigger('click')
+    await wrapper.get('select').setValue('petrol')
+
+    expect(wrapper.find('input[type="number"][step=".1"]').exists()).toBe(false)
+    await wrapper.get('input[required]').setValue('Touring')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    const createCall = fetchMock.mock.calls.find((call) => call[1]?.method === 'POST')
+    const body = JSON.parse(createCall?.[1]?.body as string)
+    expect(body.propulsion_type).toBe('petrol')
+    expect(body.battery_nominal_capacity_kwh).toBeNull()
+    expect(body.vehicle_profile).toBeNull()
   })
 
   it('uploads and removes a vehicle photo through the media controls', async () => {
@@ -122,5 +152,38 @@ describe('vehicle and dashboard management', () => {
     const saveCall = fetchMock.mock.calls.find((call) => call[1]?.method === 'PUT')
     expect(saveCall?.[0]).toBe('/api/v1/dashboards/dash-1')
     expect(JSON.parse(saveCall?.[1]?.body as string).layout.widgets[0].type).toBe('metric-card')
+  })
+
+  it('suggests drivetrain metrics that match the selected vehicle', async () => {
+    const thermal = { ...vehicle, propulsion_type:'diesel', battery_nominal_capacity_kwh:null, vehicle_profile:null, state:{...vehicle.state,metrics:{'fuel.level':52,'engine.rpm':1400}} }
+    const dashboard = { id:'dash-1',name:'My dashboard',is_default:true,layout:{widgets:[]},created_at:'',updated_at:'' }
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
+      if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([thermal]))
+      return Promise.resolve(jsonResponse({}))
+    }))
+    const wrapper = mount(DashboardsView, { global:{plugins:[i18n]} })
+    await flushPromises()
+    await wrapper.get('header .button.secondary').trigger('click')
+    await wrapper.get('.modal select').setValue('multi-series')
+    expect((wrapper.get('.modal input[placeholder]').element as HTMLInputElement).value).toBe('fuel.level, engine.rpm')
+    expect(wrapper.get('.modal').text()).toContain('Energy gauge')
+  })
+
+  it('adapts the energy gauge to fuel for a combustion vehicle', async () => {
+    const thermal = { ...vehicle, propulsion_type:'petrol', battery_nominal_capacity_kwh:null, vehicle_profile:null, state:{...vehicle.state,metrics:{'fuel.level':52,'engine.rpm':1400}} }
+    const dashboard = { id:'dash-1',name:'My dashboard',is_default:true,layout:{widgets:[{id:'energy',type:'battery-gauge',vehicle_id:thermal.id,x:0,y:0,w:3,h:3}]},created_at:'',updated_at:'' }
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
+      if (url.endsWith(`/vehicles/${thermal.id}`)) return Promise.resolve(jsonResponse(thermal))
+      if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([thermal]))
+      return Promise.resolve(jsonResponse({}))
+    }))
+    const wrapper = mount(DashboardsView, { global:{plugins:[i18n]} })
+    await flushPromises()
+
+    expect(wrapper.get('.gauge').text()).toBe('52%')
+    expect(wrapper.get('.widget-card').text()).toContain('Fuel level')
+    expect(wrapper.get('.widget-card').text()).not.toContain('Battery level')
   })
 })

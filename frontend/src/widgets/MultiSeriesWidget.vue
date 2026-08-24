@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { DashboardWidget, History } from '../api/types'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
+import { metricDefinition, metricLabel } from '../vehicleDisplay'
 
 const props = defineProps<{widget:DashboardWidget}>()
+const { t } = useI18n()
 const history = ref<History|null>(null)
+const title = computed(() => props.widget.title || (props.widget.metrics ?? []).map((metric) => metricLabel(metricDefinition(metric), t)).join(' · '))
 const series = computed(() => (props.widget.metrics ?? []).map((metric) => ({
-  name: metric,
+  name: metricLabel(metricDefinition(metric), t),
+  unit: metricDefinition(metric).unit,
   data: (history.value?.points ?? []).flatMap((point) => {
     const value = metric === 'vehicle.speed' ? point.speed : point.metrics[metric]
     return typeof value === 'number' ? [[point.recorded_at, value] as [string, number]] : []
@@ -20,4 +25,4 @@ onMounted(async () => {
 })
 </script>
 
-<template><article class="widget-card"><span class="eyebrow">{{ widget.title || widget.metrics?.join(' · ') }}</span><TimeSeriesChart :series="series" :height="190" /></article></template>
+<template><article class="widget-card"><span class="eyebrow">{{ title }}</span><TimeSeriesChart :series="series" :height="190" /></article></template>

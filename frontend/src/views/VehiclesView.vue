@@ -1,12 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import VehicleMedia from '../components/VehicleMedia.vue'
+import { energySummary, metricLabel, metricNumber } from '../vehicleDisplay'
 
 type VehicleFilter = 'all' | 'online' | 'parked'
+type PropulsionType = 'electric' | 'hybrid' | 'petrol' | 'diesel' | 'unknown'
+
+interface VehicleForm {
+  name: string
+  manufacturer: string
+  model: string
+  year: number
+  propulsion_type: PropulsionType
+  battery_nominal_capacity_kwh: number | null
+  vehicle_profile: string | null
+  color: string
+}
 
 const vehicles = ref<Vehicle[]>([])
 const { t } = useI18n()
@@ -16,15 +29,20 @@ const photoBusyId = ref('')
 const photoNotice = ref<{ kind: 'error' | 'success'; message: string } | null>(null)
 const search = ref('')
 const filter = ref<VehicleFilter>('all')
-const form = ref({ name: '', manufacturer: 'Citroën', model: 'C-Zero', year: new Date().getFullYear(), propulsion_type: 'electric', battery_nominal_capacity_kwh: 16, vehicle_profile: 'citroen-c-zero-v1', color: '#315fcf' })
+const form = ref<VehicleForm>({ name: '', manufacturer: 'Citroën', model: 'C-Zero', year: new Date().getFullYear(), propulsion_type: 'electric', battery_nominal_capacity_kwh: 16, vehicle_profile: 'citroen-c-zero-v1', color: '#315fcf' })
 const photoTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const maxPhotoBytes = 25 * 1024 * 1024
+const propulsionTypes: PropulsionType[] = ['electric', 'hybrid', 'petrol', 'diesel', 'unknown']
 
 const onlineCount = computed(() => vehicles.value.filter((vehicle) => vehicle.state?.online).length)
-const averageSoc = computed(() => {
-  const values = vehicles.value.flatMap((vehicle) => typeof vehicle.state?.metrics['battery.soc'] === 'number' ? [vehicle.state.metrics['battery.soc'] as number] : [])
+const averageEnergy = computed(() => {
+  const values = vehicles.value.flatMap((vehicle) => {
+    const value = energySummary(vehicle).value
+    return typeof value === 'number' ? [value] : []
+  })
   return values.length ? Math.round(values.reduce((total, value) => total + value, 0) / values.length) : null
 })
+const hasTractionBattery = computed(() => ['electric', 'hybrid'].includes(form.value.propulsion_type))
 const filteredVehicles = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
   return vehicles.value.filter((vehicle) => {
@@ -34,14 +52,17 @@ const filteredVehicles = computed(() => {
   })
 })
 
-function soc(vehicle: Vehicle): number | null {
-  const value = vehicle.state?.metrics['battery.soc']
-  return typeof value === 'number' ? value : null
+function vehicleEnergy(vehicle: Vehicle) { return energySummary(vehicle) }
+function vehicleSpeed(vehicle: Vehicle): number | null { return metricNumber(vehicle, 'vehicle.speed') }
+function propulsionIcon(type: string): string {
+  if (type === 'electric') return 'charging'
+  if (type === 'petrol' || type === 'diesel') return 'fuel'
+  return type === 'hybrid' ? 'energy' : 'vehicle'
 }
-
-function speed(vehicle: Vehicle): number | null {
-  const value = vehicle.state?.position?.speed ?? vehicle.state?.metrics['vehicle.speed']
-  return typeof value === 'number' ? value : null
+function propulsionLabel(type: string): string {
+  return ['electric', 'hybrid', 'petrol', 'diesel', 'unknown'].includes(type)
+    ? t(`vehicles.propulsionTypes.${type}`)
+    : type
 }
 
 function lastContact(vehicle: Vehicle): string {
@@ -91,13 +112,18 @@ async function removePhoto(vehicle: Vehicle): Promise<void> {
     photoBusyId.value = ''
   }
 }
+watch(() => form.value.propulsion_type, (type) => {
+  if (type === 'electric' || type === 'hybrid') return
+  form.value.battery_nominal_capacity_kwh = null
+  if (form.value.vehicle_profile === 'citroen-c-zero-v1') form.value.vehicle_profile = null
+})
 onMounted(load)
 </script>
 
 <template>
   <div class="page vehicles-page">
     <header class="page-header">
-      <div><span class="eyebrow">{{ t('vehicles.garage') }}</span><h1>{{ t('vehicles.title') }}</h1><p>{{ t('vehicles.summary', { count: vehicles.length, online: onlineCount, soc: averageSoc ?? '—' }) }}</p></div>
+      <div><span class="eyebrow">{{ t('vehicles.garage') }}</span><h1>{{ t('vehicles.title') }}</h1><p>{{ t('vehicles.summary', { count: vehicles.length, online: onlineCount, energy: averageEnergy ?? '—' }) }}</p></div>
       <button class="button" @click="showForm = !showForm"><AppIcon name="plus" :size="15" />{{ showForm ? t('common.close') : t('vehicles.add') }}</button>
     </header>
 
@@ -107,9 +133,9 @@ onMounted(load)
         <label class="field"><span>{{ t('vehicles.name') }}</span><input v-model="form.name" class="input" required /></label>
         <label class="field"><span>{{ t('vehicles.manufacturer') }}</span><input v-model="form.manufacturer" class="input" /></label>
         <label class="field"><span>{{ t('vehicles.model') }}</span><input v-model="form.model" class="input" /></label>
-        <label class="field"><span>{{ t('vehicles.year') }}</span><input v-model="form.year" class="input" type="number" min="1886" max="2200" /></label>
-        <label class="field"><span>{{ t('vehicles.propulsion') }}</span><select v-model="form.propulsion_type" class="select"><option>electric</option><option>hybrid</option><option>petrol</option><option>diesel</option><option>unknown</option></select></label>
-        <label class="field"><span>{{ t('vehicles.capacity') }}</span><input v-model="form.battery_nominal_capacity_kwh" class="input" type="number" step=".1" min="1" /></label>
+        <label class="field"><span>{{ t('vehicles.year') }}</span><input v-model.number="form.year" class="input" type="number" min="1886" max="2200" /></label>
+        <label class="field"><span>{{ t('vehicles.propulsion') }}</span><select v-model="form.propulsion_type" class="select"><option v-for="type in propulsionTypes" :key="type" :value="type">{{ t(`vehicles.propulsionTypes.${type}`) }}</option></select></label>
+        <label v-if="hasTractionBattery" class="field"><span>{{ t('vehicles.capacity') }}</span><input v-model.number="form.battery_nominal_capacity_kwh" class="input" type="number" step=".1" min="1" /></label>
         <label class="field"><span>{{ t('vehicles.profile') }}</span><select v-model="form.vehicle_profile" class="select"><option value="citroen-c-zero-v1">{{ t('vehicles.profileExperimental') }}</option><option :value="null">{{ t('vehicles.none') }}</option></select></label>
         <label class="field"><span>{{ t('vehicles.color') }}</span><input v-model="form.color" class="input color-input" type="color" /></label>
       </div><p v-if="error" class="error" role="alert">{{ error }}</p><div class="form-actions"><button class="button">{{ t('vehicles.create') }}</button></div>
@@ -130,8 +156,8 @@ onMounted(load)
         <div><small>{{ t('vehicles.onlineVehicles') }}</small><strong>{{ onlineCount }}</strong></div>
       </div>
       <div class="overview-stat">
-        <span class="stat-icon"><AppIcon name="battery" :size="18" /></span>
-        <div><small>{{ t('vehicles.averageBattery') }}</small><strong>{{ averageSoc ?? '—' }}<em v-if="averageSoc !== null">%</em></strong></div>
+        <span class="stat-icon"><AppIcon name="energy" :size="18" /></span>
+        <div><small>{{ t('vehicles.averageBattery') }}</small><strong>{{ averageEnergy ?? '—' }}<em v-if="averageEnergy !== null">%</em></strong></div>
       </div>
     </section>
 
@@ -160,16 +186,16 @@ onMounted(load)
 
             <div class="vehicle-readings">
               <section class="charge-reading">
-                <div><span><AppIcon name="battery" :size="15" />{{ t('vehicles.batteryLevel') }}</span><strong :class="{ 'is-empty': soc(vehicle) === null }">{{ soc(vehicle) === null ? '—' : Math.round(soc(vehicle)!) }}<em v-if="soc(vehicle) !== null">%</em></strong></div>
-                <i><b :style="{ width: `${soc(vehicle) ?? 0}%` }" /></i>
+                <div><span><AppIcon :name="vehicleEnergy(vehicle).icon" :size="15" />{{ metricLabel(vehicleEnergy(vehicle), t) }}</span><strong :class="{ 'is-empty': vehicleEnergy(vehicle).value === null }">{{ vehicleEnergy(vehicle).value === null ? '—' : Math.round(vehicleEnergy(vehicle).value!) }}<em v-if="vehicleEnergy(vehicle).value !== null">{{ vehicleEnergy(vehicle).unit }}</em></strong></div>
+                <i><b :style="{ width: `${vehicleEnergy(vehicle).progress}%` }" /></i>
               </section>
               <dl>
-                <div><dt><AppIcon name="speed" :size="14" />{{ t('vehicles.currentSpeed') }}</dt><dd :class="{ 'is-empty': speed(vehicle) === null }">{{ speed(vehicle) === null ? '—' : Math.round(speed(vehicle)!) }} <small v-if="speed(vehicle) !== null">km/h</small></dd></div>
+                <div><dt><AppIcon name="speed" :size="14" />{{ t('vehicles.currentSpeed') }}</dt><dd :class="{ 'is-empty': vehicleSpeed(vehicle) === null }">{{ vehicleSpeed(vehicle) === null ? '—' : Math.round(vehicleSpeed(vehicle)!) }} <small v-if="vehicleSpeed(vehicle) !== null">km/h</small></dd></div>
                 <div><dt><AppIcon name="history" :size="14" />{{ t('vehicles.lastContact') }}</dt><dd class="contact-value">{{ lastContact(vehicle) }}</dd></div>
               </dl>
             </div>
 
-            <div class="vehicle-profile"><AppIcon :name="vehicle.propulsion_type === 'electric' ? 'charging' : 'vehicle'" :size="14" /><span>{{ vehicle.propulsion_type }}</span><i /> <span>{{ vehicle.vehicle_profile || t('vehicles.noProfile') }}</span></div>
+            <div class="vehicle-profile"><AppIcon :name="propulsionIcon(vehicle.propulsion_type)" :size="14" /><span>{{ propulsionLabel(vehicle.propulsion_type) }}</span><i /> <span>{{ vehicle.vehicle_profile || t('vehicles.noProfile') }}</span></div>
           </div>
 
           <footer><RouterLink class="row-action" :to="`/vehicles/${vehicle.id}/history`"><AppIcon name="history" :size="15" />{{ t('vehicles.history') }}</RouterLink><RouterLink class="row-action primary" to="/devices"><AppIcon name="devices" :size="15" />{{ t('vehicles.tracker') }}</RouterLink></footer>

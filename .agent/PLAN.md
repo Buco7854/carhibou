@@ -16,6 +16,7 @@
 - [x] Original node-route mark, instance-focused login and modern open map treatment
 - [x] Optional 25 MiB file-backed vehicle photos with an explicit missing-photo placeholder
 - [x] Authenticated SSE live state with resilient browser reconnection
+- [x] Propulsion-aware EV, combustion, hybrid and unknown vehicle presentation
 
 ## Phase 2 — history and dashboards
 

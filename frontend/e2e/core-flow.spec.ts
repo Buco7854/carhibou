@@ -96,6 +96,16 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(await vehiclePhoto.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1)
   const [vehicle] = await browserJson<VehicleRecord[]>(page, 'get', '/api/v1/vehicles')
   expect(vehicle?.name).toBe('Éclair')
+  await browserJson<VehicleRecord>(page, 'post', '/api/v1/vehicles', {
+    name: 'Touring', manufacturer: 'Peugeot', model: '508', year: 2022,
+    propulsion_type: 'diesel', battery_nominal_capacity_kwh: null,
+    vehicle_profile: null, color: '#315fcf',
+  })
+  await page.reload()
+  const thermalCard = page.locator('.vehicle-card', { hasText: 'Touring' })
+  await expect(thermalCard.getByText('Fuel level')).toBeVisible()
+  await expect(thermalCard.getByText('Diesel')).toBeVisible()
+  await expect(thermalCard.getByText('Battery level')).toHaveCount(0)
 
   await page.getByRole('link', { name: 'Devices' }).click()
   await page.getByRole('button', { name: 'Add tracker' }).click()
@@ -141,6 +151,14 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await expect(page.locator('.map-heading strong')).toContainText('48.86660')
   await expect(page.locator('.vehinode-position-marker')).toBeVisible()
   await expect(page.getByText('Live updates')).toBeVisible()
+  await page.locator('.vehicle-switcher button', { hasText: 'Touring' }).click()
+  await expect(page.locator('.energy-state')).toContainText('Fuel level')
+  await expect(page.locator('.energy-state strong')).toHaveText('—')
+  await expect(page.locator('.state-ledger')).not.toContainText('Traction battery')
+  const thermalDashboardAccessibility = await new AxeBuilder({ page }).analyze()
+  expect(thermalDashboardAccessibility.violations).toEqual([])
+  await page.locator('.vehicle-switcher button', { hasText: 'Éclair' }).click()
+  await expect(page.locator('.energy-state strong')).toHaveText('77')
 
   const liveSample = {
     id: randomUUID(),
@@ -217,7 +235,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(mobileDimensions.scroll).toBeLessThanOrEqual(mobileDimensions.viewport)
 
   await page.getByRole('link', { name: 'Vehicles', exact: true }).click()
-  await expect(page.locator('.vehicle-card')).toBeVisible()
+  await expect(page.locator('.vehicle-card').first()).toBeVisible()
   await expect(page.locator('.vehicle-card img')).toBeVisible()
   const mobileGarageDimensions = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, viewport: window.innerWidth }))
   expect(mobileGarageDimensions.scroll).toBeLessThanOrEqual(mobileGarageDimensions.viewport)

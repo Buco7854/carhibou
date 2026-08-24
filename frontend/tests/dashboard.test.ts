@@ -35,4 +35,46 @@ describe('live dashboard', () => {
     wrapper.unmount()
     expect(stream?.closed).toBe(true)
   })
+
+  it('renders fuel and engine telemetry instead of EV concepts for combustion vehicles', async () => {
+    TestEventSource.instances = []
+    const thermalVehicle = {
+      ...vehicle,
+      id: 'thermal-1',
+      name: 'Touring',
+      manufacturer: 'Peugeot',
+      model: '508',
+      propulsion_type: 'diesel',
+      battery_nominal_capacity_kwh: null,
+      vehicle_profile: null,
+      state: {
+        ...vehicle.state,
+        metrics: { 'fuel.level': 58, 'engine.rpm': 1850, 'engine.coolant_temperature': 91 },
+      },
+    }
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/history')) return Promise.resolve(jsonResponse({
+        vehicle_id: thermalVehicle.id,
+        start: '',
+        end: '',
+        available_metrics: ['engine.rpm', 'fuel.level'],
+        original_count: 1,
+        points: [{ id: 's1', recorded_at: new Date().toISOString(), latitude: 48, longitude: 2, speed: 88, heading: 90, metrics: { 'fuel.level': 58, 'engine.rpm': 1850 } }],
+      }))
+      return Promise.resolve(jsonResponse([thermalVehicle]))
+    }))
+    const wrapper = mount(DashboardView, {
+      global: { plugins: [i18n], stubs: { RouterLink: { template:'<a><slot /></a>' }, VehicleMap: { template:'<div data-map />' }, TimeSeriesChart: { template:'<div data-chart />' } } },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.energy-state').text()).toContain('Fuel level')
+    expect(wrapper.get('.energy-state strong').text()).toBe('58')
+    expect(wrapper.get('.telemetry-ledger').text()).toContain('Engine speed')
+    expect(wrapper.get('.telemetry-ledger').text()).toContain('1850')
+    expect(wrapper.get('.telemetry-ledger').text()).toContain('Coolant temperature')
+    expect(wrapper.text()).not.toContain('Traction battery')
+    expect(wrapper.text()).not.toContain('Battery power')
+    wrapper.unmount()
+  })
 })

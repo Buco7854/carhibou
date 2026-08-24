@@ -141,7 +141,7 @@ a { color: inherit; }
 .form-actions { display: flex; gap: 9px; align-items: center; margin-top: 17px; }
 .error { color: var(--danger); font-size: 11px; }
 .success { color: var(--success); }
-.status { width: max-content; min-height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; font-size: 9px; font-weight: 600; line-height: 1; white-space: nowrap; }
+.status { width: max-content; min-height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; font-size: 9px; font-weight: 600; line-height: 1; white-space: nowrap; }
 .status::before { content: ""; width: 5px; height: 5px; background: var(--muted-2); border-radius: 50%; }
 .status.online { color: var(--success); background: var(--success-soft); border-color: color-mix(in srgb, var(--success) 25%, var(--line)); }
 .status.online::before { background: var(--success); }
