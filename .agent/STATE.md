@@ -28,6 +28,8 @@ Updated: 2026-08-24
   production build passing.
 - VitePress build and Python wheel build pass. Alembic upgrade/check/downgrade passes
   with the local SQLite migration smoke database.
+- The committed lockfiles install from a fresh checkout and `scripts/check.sh` resolves
+  the checkout directly; no prior editable installation is required for validation.
 - PostgreSQL integration, Docker image/Compose smoke and GitHub publication are encoded
   in CI but cannot run locally because this runner has no PostgreSQL or container engine.
 
@@ -45,6 +47,7 @@ Updated: 2026-08-24
 
 ## Exact next action
 
-Run `./scripts/check.sh`, review the staged diff, and commit. On a machine with Docker,
-run the deployment smoke flow in `docs/operations/deployment.md`; then validate hardware
-using the ledger without promoting experimental signal status prematurely.
+On a machine with Docker and PostgreSQL, run the deployment smoke flow in
+`docs/operations/deployment.md`, then exercise backup/restore. Run the GitHub workflows
+from the remote repository. Validate hardware using the ledger without promoting
+experimental signal status prematurely.
