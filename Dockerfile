@@ -39,6 +39,7 @@ COPY --from=frontend-build /src/frontend/dist/ /app/frontend/dist/
 COPY --from=wheel-build /src/dist/vehinode-${VEHINODE_VERSION}-py3-none-any.whl /tmp/agent.whl
 COPY alembic.ini /app/alembic.ini
 COPY backend/migrations/ /app/backend/migrations/
+COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/vehinode-entrypoint
 RUN cp /tmp/agent.whl "/opt/vehinode-agent-releases/${VEHINODE_VERSION}/vehinode-${VEHINODE_VERSION}-py3-none-any.whl" \
     && cd "/opt/vehinode-agent-releases/${VEHINODE_VERSION}" \
     && sha256sum "vehinode-${VEHINODE_VERSION}-py3-none-any.whl" > "vehinode-${VEHINODE_VERSION}-py3-none-any.whl.sha256" \
@@ -48,4 +49,5 @@ USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=20s --timeout=5s --start-period=10s --retries=5 \
   CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+ENTRYPOINT ["vehinode-entrypoint"]
+CMD ["app"]

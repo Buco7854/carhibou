@@ -1,5 +1,3 @@
-name: vehinode
-
 x-app-environment: &app-environment
   VEHINODE_ENVIRONMENT: ${VEHINODE_ENVIRONMENT:-production}
   VEHINODE_DATABASE_URL: postgresql+psycopg://vehinode:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/vehinode
@@ -44,7 +42,6 @@ services:
 
   app:
     <<: *app-base
-    command: ["sh", "-c", "alembic upgrade head && exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,7 +50,7 @@ services:
 
   worker:
     <<: *app-base
-    command: ["python", "-m", "backend.app.worker"]
+    command: ["worker"]
     environment:
       <<: *app-environment
       VEHINODE_WORKER_ID: worker-1

@@ -23,6 +23,10 @@ and compiled Vue interface.
 The `app` and `worker` services use the same non-root image. Node is not present at
 runtime, and PostgreSQL is not exposed to the host.
 
+The image entrypoint exposes explicit `app` and `worker` roles. The default `app` role
+applies Alembic migrations before starting FastAPI; Compose only selects `worker` for
+the background service instead of embedding shell startup pipelines.
+
 ## Required environment
 
 Compose refuses to start without the database password, session pepper, master key and
