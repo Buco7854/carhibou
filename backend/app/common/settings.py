@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     bootstrap_admin_email: EmailStr | None = None
     bootstrap_admin_password: SecretStr | None = None
     bootstrap_admin_display_name: str = Field(default="Administrator", min_length=1, max_length=120)
-    max_request_bytes: int = Field(default=2_000_000, ge=1024)
+    max_request_bytes: int = Field(default=32 * 1024 * 1024, ge=1024)
+    media_dir: str = "./data/media"
     default_online_threshold_seconds: int = Field(default=180, ge=30)
     hook_timeout_seconds: int = Field(default=10, ge=1, le=120)
     hook_memory_mb: int = Field(default=128, ge=32, le=1024)

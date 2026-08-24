@@ -54,6 +54,7 @@ class VehicleResponse(BaseModel):
     timezone: str
     color: str
     icon: str
+    photo_url: str | None = None
     created_at: datetime
     updated_at: datetime
     state: StateResponse | None = None

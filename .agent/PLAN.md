@@ -14,7 +14,7 @@
 - [x] Tailwind design system, extensible i18n (English/French) and Light/Dark/Auto themes
 - [x] Original live-routebook workspace, route-first dashboard and garage roster
 - [x] Original node-route mark, instance-focused login and modern open map treatment
-- [x] Original solid profile saloon illustration for vehicle surfaces
+- [x] Optional 25 MiB file-backed vehicle photos with a neutral responsive placeholder
 - [x] Authenticated SSE live state with resilient browser reconnection
 
 ## Phase 2 — history and dashboards
@@ -62,7 +62,7 @@
 - [x] Operator-focused VitePress install, usage and operations documentation
 - [x] Canonical Compose file import and safe `.env` secret-generation workflow
 - [x] CI, GitHub Pages, GHCR and versioned agent release workflows
-- [x] Backup/restore scripts and security threat model
+- [x] Database/media backup and restore procedures plus security threat model
 - [x] Full API/agent/hook end-to-end scenario and frontend behavior tests
 - [x] Real-browser Playwright E2E with app/worker, mobile and accessibility coverage
 - [x] Lockfile-based local CI-equivalent checks available in `scripts/check.sh`

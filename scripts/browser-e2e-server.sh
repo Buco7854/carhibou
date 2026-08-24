@@ -25,6 +25,7 @@ if [ -z "${VEHINODE_DATABASE_URL:-}" ]; then
   export VEHINODE_DATABASE_URL="sqlite:///$E2E_RUNTIME/vehinode.sqlite3"
 fi
 export VEHINODE_FRONTEND_DIR="$PROJECT_ROOT/frontend/dist"
+export VEHINODE_MEDIA_DIR="$E2E_RUNTIME/media"
 export VEHINODE_PUBLIC_URL="http://127.0.0.1:18124"
 export VEHINODE_WORKER_ID="browser-e2e-worker"
 export VEHINODE_LOG_LEVEL="WARNING"

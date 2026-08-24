@@ -27,3 +27,20 @@ class Vehicle(TimestampMixin, Base):
     owner = relationship("User", back_populates="vehicles")
     devices = relationship("Device", back_populates="vehicle")
     state = relationship("VehicleState", back_populates="vehicle", uselist=False)
+    photo = relationship(
+        "VehiclePhoto", back_populates="vehicle", uselist=False, cascade="all, delete-orphan"
+    )
+
+
+class VehiclePhoto(TimestampMixin, Base):
+    __tablename__ = "vehicle_photos"
+
+    vehicle_id: Mapped[str] = mapped_column(
+        ForeignKey("vehicles.id", ondelete="CASCADE"), primary_key=True
+    )
+    media_type: Mapped[str] = mapped_column(String(20))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    etag: Mapped[str] = mapped_column(String(64))
+    storage_key: Mapped[str] = mapped_column(String(255))
+
+    vehicle = relationship("Vehicle", back_populates="photo")

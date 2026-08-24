@@ -5,6 +5,7 @@ x-app-environment: &app-environment
   VEHINODE_SESSION_COOKIE_SECURE: ${VEHINODE_SESSION_COOKIE_SECURE:-true}
   VEHINODE_SESSION_PEPPER: ${VEHINODE_SESSION_PEPPER:?Set VEHINODE_SESSION_PEPPER in .env}
   VEHINODE_MASTER_KEY: ${VEHINODE_MASTER_KEY:?Set VEHINODE_MASTER_KEY in .env}
+  VEHINODE_MEDIA_DIR: /var/lib/vehinode/media
   VEHINODE_BOOTSTRAP_ADMIN_EMAIL: ${VEHINODE_BOOTSTRAP_ADMIN_EMAIL:-}
   VEHINODE_BOOTSTRAP_ADMIN_PASSWORD: ${VEHINODE_BOOTSTRAP_ADMIN_PASSWORD:-}
   VEHINODE_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${VEHINODE_BOOTSTRAP_ADMIN_DISPLAY_NAME:-Administrator}
@@ -47,6 +48,8 @@ services:
         condition: service_healthy
     ports:
       - "${VEHINODE_PORT:-8000}:8000"
+    volumes:
+      - vehicle-media:/var/lib/vehinode/media
 
   worker:
     <<: *app-base
@@ -60,3 +63,4 @@ services:
 
 volumes:
   postgres-data:
+  vehicle-media:

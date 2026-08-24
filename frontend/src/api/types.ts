@@ -27,6 +27,7 @@ export interface Vehicle {
   timezone: string
   color: string
   icon: string
+  photo_url: string | null
   state: VehicleState | null
   created_at: string
   updated_at: string

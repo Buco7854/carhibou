@@ -8,6 +8,11 @@ interface EnrolledDevice { device_id: string; credential: string }
 interface HookRecord { id: string }
 interface HookExecution { status: string; logs: Array<Record<string, unknown>> }
 
+const ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2ZQAAAABJRU5ErkJggg==',
+  'base64',
+)
+
 async function csrfToken(page: Page): Promise<string> {
   const cookies = await page.context().cookies()
   const csrf = cookies.find((cookie) => cookie.name === 'vehinode_csrf')?.value
@@ -61,11 +66,16 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByLabel('Year').fill('2018')
   await page.getByRole('button', { name: 'Create vehicle' }).click()
   await expect(page.getByRole('heading', { name: 'Éclair' })).toBeVisible()
-  const vehicleSilhouette = page.locator('.vehicle-silhouette')
-  await expect(vehicleSilhouette).toBeVisible()
-  const silhouetteBounds = await vehicleSilhouette.boundingBox()
-  expect(silhouetteBounds?.width).toBeGreaterThan(180)
-  expect(silhouetteBounds?.height).toBeLessThan(120)
+  await expect(page.getByText('Add your own vehicle photo')).toBeVisible()
+  await page.locator('.vehicle-media input[type="file"]').setInputFiles({
+    name: 'eclair.png',
+    mimeType: 'image/png',
+    buffer: ONE_PIXEL_PNG,
+  })
+  await expect(page.getByText('Photo saved for Éclair.')).toBeVisible()
+  const vehiclePhoto = page.locator('.vehicle-media img')
+  await expect(vehiclePhoto).toBeVisible()
+  expect(await vehiclePhoto.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1)
   const [vehicle] = await browserJson<VehicleRecord[]>(page, 'get', '/api/v1/vehicles')
   expect(vehicle?.name).toBe('Éclair')
 
@@ -108,6 +118,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
 
   await page.getByRole('link', { name: 'Dashboard', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Éclair' })).toBeVisible()
+  await expect(page.locator('.vehicle-portrait img')).toBeVisible()
   await expect(page.locator('.energy-state strong')).toHaveText('77')
   await expect(page.locator('.map-heading strong')).toContainText('48.86660')
   await expect(page.locator('.vehinode-position-marker')).toBeVisible()

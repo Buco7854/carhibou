@@ -17,6 +17,7 @@ export const vehicle = {
   timezone: 'UTC',
   color: '#65e0ad',
   icon: 'car',
+  photo_url: null,
   state: {
     updated_at: new Date().toISOString(),
     online: true,

@@ -43,6 +43,10 @@ that privileged hooks are intentionally allowed to reach.
   the only default browser request to a third-party host.
 - API payloads and batch sizes are bounded. Validation rejects invalid GPS coordinates,
   infinities, oversized names and duplicate IDs within a batch.
+- Vehicle photos are owner-scoped JPEG, PNG or WebP files capped at 25 MiB and bounded
+  by declared image dimensions. They are served through authenticated API routes from a
+  private media directory, not a public static path. PostgreSQL stores metadata and a
+  storage key, never the image bytes.
 - Telemetry, state, triggers and jobs commit atomically. Hooks never run in the API.
   A crashed worker marks a leased execution failed for manual retry to avoid silently
   repeating external side effects.
@@ -60,7 +64,8 @@ that privileged hooks are intentionally allowed to reach.
 1. Provide unique session pepper, PostgreSQL password and Fernet master key.
 2. Serve only through trusted TLS and set `VEHINODE_SESSION_COOKIE_SECURE=true`.
 3. Restrict host/database ports and do not mount the Docker socket.
-4. Keep the database, master key and environment configuration in encrypted backups.
+4. Keep the database, vehicle media, master key and environment configuration in
+   encrypted backups.
 5. Review hook administrators, active browser sessions and tracker inventory regularly.
 6. Remove `VEHINODE_BOOTSTRAP_ADMIN_*` after provisioning the first administrator.
 7. Apply released security upgrades after testing backups and migrations.

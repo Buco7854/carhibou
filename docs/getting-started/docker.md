@@ -78,7 +78,9 @@ directly from the repository.
 
 ## Data and lifecycle
 
-PostgreSQL data lives in the named volume `postgres-data`. These commands preserve it:
+PostgreSQL data lives in the named volume `postgres-data`. User-uploaded vehicle photos
+live as files in the separate `vehicle-media` volume; image bytes are not stored in the
+database. These commands preserve both volumes:
 
 ```bash
 docker compose stop
@@ -87,9 +89,9 @@ docker compose start
 
 Apply edits to `.env` with `docker compose up -d`.
 
-::: danger Do not delete the database volume casually
-`docker compose down -v` deletes the PostgreSQL volume and all telemetry stored only
-there. Take and verify a [backup](../operations/backups.md) first.
+::: danger Do not delete data volumes casually
+`docker compose down -v` deletes both PostgreSQL telemetry and uploaded vehicle photos.
+Take and verify a [backup](../operations/backups.md) first.
 :::
 
 Building the image from a source checkout is a developer workflow, documented

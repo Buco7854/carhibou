@@ -63,6 +63,43 @@ describe('vehicle and dashboard management', () => {
     expect(wrapper.find('.vehicle-list').text()).not.toContain('Éclair')
   })
 
+  it('uploads and removes a vehicle photo through the media controls', async () => {
+    let photoUrl: string | null = null
+    const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url.endsWith('/vehicles/vehicle-1/photo') && options?.method === 'PUT') {
+        photoUrl = '/api/v1/vehicles/vehicle-1/photo?v=abc123'
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+      if (url.endsWith('/vehicles/vehicle-1/photo') && options?.method === 'DELETE') {
+        photoUrl = null
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+      return Promise.resolve(jsonResponse([{ ...vehicle, photo_url: photoUrl }]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    const wrapper = mount(VehiclesView, { global:{plugins:[i18n],stubs:{RouterLink:{template:'<a><slot /></a>'}}} })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Add your own vehicle photo')
+    const image = new File(['image-content'], 'eclair.webp', { type: 'image/webp' })
+    const input = wrapper.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [image] })
+    await input.trigger('change')
+    await flushPromises()
+
+    const upload = fetchMock.mock.calls.find((call) => call[1]?.method === 'PUT')
+    expect(upload?.[0]).toBe('/api/v1/vehicles/vehicle-1/photo')
+    expect(upload?.[1]?.body).toBe(image)
+    expect(new Headers(upload?.[1]?.headers).get('Content-Type')).toBe('image/webp')
+    expect(wrapper.find('img').attributes('src')).toContain('/api/v1/vehicles/vehicle-1/photo?v=abc123')
+
+    await wrapper.get('button[aria-label="Remove photo"]').trigger('click')
+    await flushPromises()
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === 'DELETE')).toBe(true)
+    expect(wrapper.find('.vehicle-photo-placeholder').exists()).toBe(true)
+  })
+
   it('persists the registry-backed custom dashboard layout', async () => {
     const dashboard = { id:'dash-1',name:'My dashboard',is_default:true,layout:{widgets:[{id:'soc',type:'metric-card',vehicle_id:vehicle.id,metric:'battery.soc',title:'SOC',unit:'%',x:0,y:0,w:3,h:2}]},created_at:'',updated_at:'' }
     const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {

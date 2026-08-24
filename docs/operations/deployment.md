@@ -61,6 +61,7 @@ worker heartbeat is current, and no jobs are unexpectedly pending or failed.
 Back up all of these together:
 
 - the PostgreSQL database;
+- the file-backed `vehicle-media` volume containing uploaded vehicle photos;
 - `.env`, especially `VEHINODE_MASTER_KEY` and `VEHINODE_SESSION_PEPPER`;
 - reverse-proxy and deployment configuration.
 

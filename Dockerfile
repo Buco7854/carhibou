@@ -29,11 +29,12 @@ LABEL org.opencontainers.image.title="VehiNode" \
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     VEHINODE_FRONTEND_DIR=/app/frontend/dist \
+    VEHINODE_MEDIA_DIR=/var/lib/vehinode/media \
     VEHINODE_AGENT_RELEASE_DIR=/opt/vehinode-agent-releases
 WORKDIR /app
 RUN groupadd --system --gid 10001 vehinode \
     && useradd --system --uid 10001 --gid vehinode --home-dir /app --shell /usr/sbin/nologin vehinode \
-    && mkdir -p /app/frontend/dist "/opt/vehinode-agent-releases/${VEHINODE_VERSION}"
+    && mkdir -p /app/frontend/dist /var/lib/vehinode/media "/opt/vehinode-agent-releases/${VEHINODE_VERSION}"
 COPY --from=python-deps /install/ /usr/local/
 COPY --from=frontend-build /src/frontend/dist/ /app/frontend/dist/
 COPY --from=wheel-build /src/dist/vehinode-${VEHINODE_VERSION}-py3-none-any.whl /tmp/agent.whl
@@ -44,7 +45,7 @@ RUN cp /tmp/agent.whl "/opt/vehinode-agent-releases/${VEHINODE_VERSION}/vehinode
     && cd "/opt/vehinode-agent-releases/${VEHINODE_VERSION}" \
     && sha256sum "vehinode-${VEHINODE_VERSION}-py3-none-any.whl" > "vehinode-${VEHINODE_VERSION}-py3-none-any.whl.sha256" \
     && rm /tmp/agent.whl \
-    && chown -R vehinode:vehinode /app /opt/vehinode-agent-releases
+    && chown -R vehinode:vehinode /app /opt/vehinode-agent-releases /var/lib/vehinode
 USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=20s --timeout=5s --start-period=10s --retries=5 \

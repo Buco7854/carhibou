@@ -15,7 +15,7 @@ Updated: 2026-08-24
   searchable garage roster. Route/history charts, registry-based draggable dashboards,
   tracker administration, hooks and settings remain functional. Self-hosted IBM Plex
   typography, an original node-route mark, a modern neutralized OpenStreetMap treatment,
-  an original solid profile saloon garage illustration, a cobalt recorded-route accent,
+  optional owner-scoped vehicle photos with a neutral media placeholder, a cobalt recorded-route accent,
   extensible English/French catalogs and persistent Light, Dark and Auto themes work
   across the application. Login copy is operational and instance-focused rather than
   promotional. The live dashboard consumes an
@@ -33,20 +33,24 @@ Updated: 2026-08-24
   `.env`; it does not retain the source tree or require helper scripts. The Docker guide
   imports the canonical Compose file and documents direct backup/restore commands. A
   role-aware image entrypoint owns migrations and app/worker startup; Compose contains
-  no project `name` or embedded shell startup pipeline.
+  no project `name` or embedded shell startup pipeline. Vehicle photo bytes are capped
+  at 25 MiB and stored in a dedicated filesystem volume; PostgreSQL stores metadata
+  only, and the backup/restore procedure covers both stores.
 
 ## Verification
 
 - Ruff, Ruff format, mypy: passing for 93 Python source files.
-- Backend/agent tests runnable without PostgreSQL: 37 passing, including the complete
+- Backend/agent tests runnable without PostgreSQL: 40 passing, including vehicle photo
+  validation/storage/ownership coverage and the complete
   simulator-to-hook E2E scenario.
-- Frontend: ESLint and strict type check passing; 5 files / 9 behavior tests passing;
+- Frontend: ESLint and strict type check passing; 5 files / 10 behavior tests passing;
   production build passing.
 - Playwright: 2 Chromium scenarios passing locally against a fresh migrated database,
   real API and worker. CI runs the same suite on PostgreSQL. They cover the primary
   product journey, idempotency, auth-realm isolation, live SSE state changes,
-  environment-based admin bootstrap, rejection of later registration, persistent hook
-  state, mobile reflow/badge geometry, EN/FR, themes and automated axe checks.
+  environment-based admin bootstrap, rejection of later registration, file-backed photo
+  upload/dashboard display, persistent hook state, mobile reflow/badge geometry, EN/FR,
+  themes and automated axe checks.
 - VitePress build (including the repository Compose import), secret-file generation
   smoke test and Python wheel build pass. Alembic upgrade/check/downgrade passes with
   the local SQLite migration smoke database.

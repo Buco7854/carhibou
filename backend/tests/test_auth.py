@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.auth.services import bootstrap_local_admin
+from backend.app.common.settings import get_settings
 
 
 def test_only_first_admin_can_register_then_use_session(client: TestClient) -> None:
@@ -51,8 +52,11 @@ def test_request_id_security_headers_and_payload_limit(client: TestClient) -> No
     assert generated.headers["X-Request-ID"] != "invalid request id"
     oversized = client.post(
         "/api/v1/auth/login",
-        content=b"x" * 2_000_001,
-        headers={"Content-Type": "application/json"},
+        content=b"",
+        headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(get_settings().max_request_bytes + 1),
+        },
     )
     assert oversized.status_code == 413
     assert oversized.json()["error"]["code"] == "payload_too_large"
