@@ -10,19 +10,17 @@ type VehicleFilter = 'all' | 'online' | 'parked'
 
 const vehicles = ref<Vehicle[]>([])
 const { t } = useI18n()
-const selectedId = ref('')
 const showForm = ref(false)
 const error = ref('')
 const search = ref('')
 const filter = ref<VehicleFilter>('all')
-const form = ref({ name: '', manufacturer: 'Citroën', model: 'C-Zero', year: new Date().getFullYear(), propulsion_type: 'electric', battery_nominal_capacity_kwh: 16, vehicle_profile: 'citroen-c-zero-v1', color: '#137d78' })
+const form = ref({ name: '', manufacturer: 'Citroën', model: 'C-Zero', year: new Date().getFullYear(), propulsion_type: 'electric', battery_nominal_capacity_kwh: 16, vehicle_profile: 'citroen-c-zero-v1', color: '#ff682d' })
 
 const onlineCount = computed(() => vehicles.value.filter((vehicle) => vehicle.state?.online).length)
 const averageSoc = computed(() => {
   const values = vehicles.value.flatMap((vehicle) => typeof vehicle.state?.metrics['battery.soc'] === 'number' ? [vehicle.state.metrics['battery.soc'] as number] : [])
   return values.length ? Math.round(values.reduce((total, value) => total + value, 0) / values.length) : null
 })
-const selected = computed(() => vehicles.value.find((vehicle) => vehicle.id === selectedId.value) ?? vehicles.value[0])
 const filteredVehicles = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
   return vehicles.value.filter((vehicle) => {
@@ -46,32 +44,21 @@ function lastContact(vehicle: Vehicle): string {
   return vehicle.state ? new Date(vehicle.state.updated_at).toLocaleString() : t('common.never')
 }
 
-async function load(): Promise<void> {
-  vehicles.value = await api<Vehicle[]>('/vehicles')
-  if (!selectedId.value && vehicles.value[0]) selectedId.value = vehicles.value[0].id
-}
-
+async function load(): Promise<void> { vehicles.value = await api<Vehicle[]>('/vehicles') }
 async function create(): Promise<void> {
   error.value = ''
-  try {
-    const created = await api<Vehicle>('/vehicles', { method: 'POST', body: JSON.stringify(form.value) })
-    selectedId.value = created.id
-    showForm.value = false
-    await load()
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
+  try { await api('/vehicles', { method: 'POST', body: JSON.stringify(form.value) }); showForm.value = false; await load() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
 }
 onMounted(load)
 </script>
 
 <template>
   <div class="page vehicles-page">
-    <header class="page-header">
-      <div><span class="eyebrow">02 / {{ t('vehicles.garage') }}</span><h1>{{ t('vehicles.title') }}</h1></div>
-      <button class="button" @click="showForm = !showForm">{{ showForm ? t('common.close') : t('vehicles.add') }}</button>
-    </header>
+    <header class="page-header"><div><span class="eyebrow">{{ t('vehicles.garage') }}</span><h1>{{ t('vehicles.title') }}</h1></div><button class="button" @click="showForm = !showForm">{{ showForm ? t('common.close') : t('vehicles.add') }}</button></header>
 
     <form v-if="showForm" class="panel panel-pad vehicle-form" @submit.prevent="create">
-      <div class="form-heading"><div><span class="eyebrow">{{ t('vehicles.newRecord') }}</span><h2>{{ t('vehicles.create') }}</h2></div><button class="icon-button" type="button" :aria-label="t('common.close')" @click="showForm=false">×</button></div>
+      <div class="form-heading"><div><span class="eyebrow">{{ t('vehicles.add') }}</span><h2>{{ t('vehicles.create') }}</h2></div><button class="icon-button" type="button" :aria-label="t('common.close')" @click="showForm=false">×</button></div>
       <div class="form-grid">
         <div class="field"><label>{{ t('vehicles.name') }}</label><input v-model="form.name" class="input" required /></div>
         <div class="field"><label>{{ t('vehicles.manufacturer') }}</label><input v-model="form.manufacturer" class="input" /></div>
@@ -84,56 +71,39 @@ onMounted(load)
       </div><p v-if="error" class="error">{{ error }}</p><div class="form-actions"><button class="button">{{ t('vehicles.create') }}</button></div>
     </form>
 
-    <section v-if="vehicles.length" class="garage-register">
-      <div><span>{{ t('vehicles.registered') }}</span><strong>{{ vehicles.length }}</strong></div>
-      <div><span>{{ t('vehicles.transmitting') }}</span><strong>{{ onlineCount }}</strong></div>
-      <div><span>{{ t('vehicles.fleetCharge') }}</span><strong>{{ averageSoc ?? '—' }}<em>%</em></strong></div>
-      <p>{{ t('vehicles.registerHint') }}</p>
-    </section>
-
-    <section v-if="vehicles.length" class="manifest-shell panel">
-      <header class="manifest-toolbar">
-        <div><span class="eyebrow">{{ t('vehicles.manifest') }}</span><h2>{{ t('vehicles.listTitle') }}</h2></div>
-        <div class="catalog-controls"><label class="search-field"><AppIcon name="search" :size="16" /><input v-model="search" :placeholder="t('vehicles.search')" /></label><div class="filter-tabs"><button :class="{ active: filter === 'all' }" @click="filter='all'">{{ t('vehicles.all') }}</button><button :class="{ active: filter === 'online' }" @click="filter='online'">{{ t('vehicles.onlineOnly') }}</button><button :class="{ active: filter === 'parked' }" @click="filter='parked'">{{ t('vehicles.parkedOnly') }}</button></div></div>
-      </header>
-      <div class="manifest-layout">
-        <div class="vehicle-manifest vehicle-grid">
-          <button v-for="(vehicle, index) in filteredVehicles" :key="vehicle.id" :class="['manifest-row', { active: vehicle.id === selected?.id }]" @click="selectedId = vehicle.id">
-            <span class="manifest-index">{{ String(index + 1).padStart(2, '0') }}</span>
-            <span class="row-vehicle"><strong>{{ vehicle.name }}</strong><small>{{ vehicle.manufacturer }} {{ vehicle.model }} · {{ vehicle.year ?? t('vehicles.yearUnknown') }}</small></span>
-            <span class="row-soc"><small>{{ t('dashboard.soc') }}</small><strong>{{ soc(vehicle) === null ? '—' : Math.round(soc(vehicle)!) }}%</strong><i><b :style="{ width: `${soc(vehicle) ?? 0}%` }" /></i></span>
-            <span :class="['row-state', { online: vehicle.state?.online }]" />
-          </button>
-          <div v-if="!filteredVehicles.length" class="empty catalog-empty"><h2>{{ t('vehicles.noMatch') }}</h2></div>
-        </div>
-
-        <article v-if="selected" class="vehicle-dossier">
-          <header><div><span class="eyebrow">{{ t('vehicles.selectedRecord') }}</span><h2>{{ selected.name }}</h2><p>{{ selected.manufacturer }} {{ selected.model }} / {{ selected.propulsion_type }}</p></div><span :class="['status',{online:selected.state?.online}]">{{ selected.state?.online ? t('common.online') : t('common.parked') }}</span></header>
-          <div class="dossier-visual"><VehicleSilhouette :color="selected.color || '#137d78'" /><span class="profile-stamp">{{ selected.vehicle_profile ?? t('vehicles.noProfile') }}</span></div>
-          <div class="dossier-snapshot">
-            <div class="dossier-battery"><span>{{ t('vehicles.batteryLevel') }}</span><strong>{{ soc(selected) === null ? '—' : Math.round(soc(selected)!) }}<em>%</em></strong><i><b :style="{ width: `${soc(selected) ?? 0}%` }" /></i></div>
-            <dl>
-              <div><dt>{{ t('vehicles.currentSpeed') }}</dt><dd>{{ speed(selected) === null ? '—' : Math.round(speed(selected)!) }} <em>km/h</em></dd></div>
-              <div><dt>{{ t('vehicles.lastContact') }}</dt><dd class="contact-value">{{ lastContact(selected) }}</dd></div>
-              <div><dt>{{ t('vehicles.capacity') }}</dt><dd>{{ selected.battery_nominal_capacity_kwh ?? '—' }} <em>kWh</em></dd></div>
-            </dl>
-          </div>
-          <footer><RouterLink class="button secondary" :to="`/vehicles/${selected.id}/history`"><AppIcon name="history" :size="14" />{{ t('vehicles.history') }}</RouterLink><RouterLink class="button" to="/devices"><AppIcon name="devices" :size="14" />{{ t('vehicles.tracker') }}</RouterLink></footer>
-        </article>
+    <section class="vehicles-overview">
+      <div class="section-heading"><h2>{{ t('vehicles.overview') }}</h2><span>{{ vehicles.length }}</span></div>
+      <div class="vehicles-overview-grid">
+        <article class="panel overview-stat"><span class="overview-stat-icon"><AppIcon name="vehicle" /></span><div><small>{{ t('vehicles.totalVehicles') }}</small><strong>{{ vehicles.length }}</strong><span>{{ t('dashboard.vehiclesCount', { count: vehicles.length }) }}</span></div><i><b style="width:100%" /></i></article>
+        <article class="panel overview-stat"><span class="overview-stat-icon green"><AppIcon name="signal" /></span><div><small>{{ t('vehicles.onlineVehicles') }}</small><strong>{{ onlineCount }}</strong><span>{{ t('dashboard.onlineCount', { count: onlineCount }) }}</span></div><i class="green"><b :style="{ width: `${vehicles.length ? onlineCount / vehicles.length * 100 : 0}%` }" /></i></article>
+        <article class="panel overview-stat"><span class="overview-stat-icon blue"><AppIcon name="battery" /></span><div><small>{{ t('vehicles.averageBattery') }}</small><strong>{{ averageSoc ?? '—' }}<em>%</em></strong><span>{{ t('vehicles.batteryLevel') }}</span></div><i class="blue"><b :style="{ width: `${averageSoc ?? 0}%` }" /></i></article>
       </div>
     </section>
 
-    <section v-else class="panel empty"><h2>{{ t('vehicles.noVehicles') }}</h2><p>{{ t('vehicles.noVehiclesHint') }}</p></section>
+    <section class="vehicle-catalog panel">
+      <header class="catalog-heading"><div><h2>{{ t('vehicles.listTitle') }}</h2><span>{{ filteredVehicles.length }} / {{ vehicles.length }}</span></div><div class="catalog-controls"><label class="search-field"><AppIcon name="search" :size="17" /><input v-model="search" :placeholder="t('vehicles.search')" /></label><div class="filter-tabs"><button :class="{ active: filter === 'all' }" @click="filter='all'">{{ t('vehicles.all') }}</button><button :class="{ active: filter === 'online' }" @click="filter='online'">{{ t('vehicles.onlineOnly') }}</button><button :class="{ active: filter === 'parked' }" @click="filter='parked'">{{ t('vehicles.parkedOnly') }}</button></div></div></header>
+      <div class="vehicle-grid">
+        <article v-for="vehicle in filteredVehicles" :key="vehicle.id" class="vehicle-card">
+          <header><div><h3>{{ vehicle.name }}</h3><p>{{ vehicle.manufacturer }} {{ vehicle.model }} · {{ vehicle.year ?? t('vehicles.yearUnknown') }}</p></div><span :class="['status',{online:vehicle.state?.online}]">{{ vehicle.state?.online ? t('common.online') : t('common.parked') }}</span></header>
+          <div class="vehicle-visual"><VehicleSilhouette :color="vehicle.color || '#ff682d'" /><span class="propulsion-tag"><AppIcon :name="vehicle.propulsion_type === 'electric' ? 'charging' : 'vehicle'" :size="13" />{{ vehicle.propulsion_type }}</span></div>
+          <div class="vehicle-facts">
+            <div><span>{{ t('vehicles.currentSpeed') }}</span><strong>{{ speed(vehicle) === null ? '—' : Math.round(speed(vehicle)!) }} <em>km/h</em></strong></div>
+            <div><span>{{ t('vehicles.lastContact') }}</span><strong class="contact-value">{{ lastContact(vehicle) }}</strong></div>
+          </div>
+          <div class="battery-strip"><div><span><AppIcon name="battery" :size="14" />{{ t('vehicles.batteryLevel') }}</span><strong>{{ soc(vehicle) === null ? '—' : Math.round(soc(vehicle)!) }}%</strong></div><i><b :style="{ width: `${soc(vehicle) ?? 0}%` }" /></i></div>
+          <footer><RouterLink class="button secondary" :to="`/vehicles/${vehicle.id}/history`"><AppIcon name="history" :size="14" />{{ t('vehicles.history') }}</RouterLink><RouterLink class="button" to="/devices"><AppIcon name="devices" :size="14" />{{ t('vehicles.tracker') }}</RouterLink></footer>
+        </article>
+        <div v-if="!filteredVehicles.length" class="empty catalog-empty"><h2>{{ vehicles.length ? t('vehicles.noMatch') : t('vehicles.noVehicles') }}</h2><p v-if="!vehicles.length">{{ t('vehicles.noVehiclesHint') }}</p></div>
+      </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.vehicle-form{margin-bottom:17px}.form-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}.form-heading h2{margin:0;font-family:"Barlow Condensed",sans-serif;font-size:26px;text-transform:uppercase}.color-input{padding:5px}
-.garage-register{min-height:72px;display:grid;grid-template-columns:130px 130px 150px 1fr;align-items:center;margin-bottom:13px;border-block:1px solid var(--line-strong)}.garage-register>div{padding:10px 20px;border-right:1px solid var(--line)}.garage-register span,.garage-register strong{display:block}.garage-register span{color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:7px;letter-spacing:.05em;text-transform:uppercase}.garage-register strong{margin-top:3px;font-family:"Barlow Condensed",sans-serif;font-size:27px;font-weight:500}.garage-register strong em{margin-left:2px;color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:8px;font-style:normal}.garage-register p{justify-self:end;margin:0;color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:7px;text-transform:uppercase}
-.manifest-shell{overflow:hidden}.manifest-toolbar{min-height:76px;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 17px;border-bottom:1px solid var(--line)}.manifest-toolbar h2{margin:0;font-family:"Barlow Condensed",sans-serif;font-size:22px;line-height:1;text-transform:uppercase}.catalog-controls{display:flex;align-items:center;gap:9px}.search-field{width:min(280px,28vw);height:37px;display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--muted);border:1px solid var(--line);background:var(--input)}.search-field:focus-within{border-color:var(--petrol);box-shadow:0 0 0 3px var(--petrol-soft)}.search-field input{min-width:0;width:100%;color:var(--text);background:transparent;border:0;outline:0;font-size:10px}.filter-tabs{display:flex;border:1px solid var(--line);background:var(--panel-2)}.filter-tabs button{padding:8px 10px;color:var(--muted);background:transparent;border:0;border-right:1px solid var(--line);font-family:"IBM Plex Mono",monospace;font-size:7px;text-transform:uppercase;cursor:pointer}.filter-tabs button:last-child{border-right:0}.filter-tabs button.active{color:var(--ink-inverse);background:var(--text)}
-.manifest-layout{display:grid;grid-template-columns:minmax(400px,.85fr) minmax(420px,1.15fr);min-height:570px}.vehicle-manifest{border-right:1px solid var(--line);background:var(--panel-2)}.manifest-row{position:relative;width:100%;min-height:89px;display:grid;grid-template-columns:30px minmax(130px,1fr) 96px 8px;align-items:center;gap:11px;padding:12px 16px;color:var(--muted);background:transparent;border:0;border-bottom:1px solid var(--line);text-align:left;cursor:pointer}.manifest-row:hover{color:var(--text);background:color-mix(in srgb,var(--panel) 55%,transparent)}.manifest-row.active{color:var(--text);background:var(--panel)}.manifest-row.active::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--signal)}.manifest-index{font-family:"IBM Plex Mono",monospace;font-size:8px}.row-vehicle strong,.row-vehicle small{display:block}.row-vehicle strong{font-family:"Barlow Condensed",sans-serif;font-size:18px;letter-spacing:.02em;text-transform:uppercase}.row-vehicle small{margin-top:4px;color:var(--muted);font-size:8px}.row-soc small,.row-soc strong{display:block;font-family:"IBM Plex Mono",monospace}.row-soc small{color:var(--muted);font-size:6px;text-transform:uppercase}.row-soc strong{margin-top:3px;font-size:10px}.row-soc>i{height:3px;display:block;margin-top:6px;background:var(--line)}.row-soc>i b{display:block;height:100%;background:var(--petrol)}.row-state{width:6px;height:6px;background:var(--muted-2)}.row-state.online{background:var(--success);box-shadow:0 0 0 3px var(--success-soft)}.catalog-empty{background:var(--panel)}
-.vehicle-dossier{min-width:0;display:flex;flex-direction:column;padding:23px 27px;background:var(--panel)}.vehicle-dossier>header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.vehicle-dossier h2{margin:0;font-family:"Barlow Condensed",sans-serif;font-size:44px;font-weight:600;line-height:.82;text-transform:uppercase}.vehicle-dossier header p{margin:11px 0 0;color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:8px;text-transform:uppercase}.dossier-visual{position:relative;min-height:235px;display:grid;place-items:center;border-bottom:1px solid var(--line)}.dossier-visual .vehicle-silhouette{width:min(100%,390px)}.profile-stamp{position:absolute;right:0;bottom:14px;padding:5px 7px;color:var(--petrol);border:1px solid var(--petrol);font-family:"IBM Plex Mono",monospace;font-size:6px;text-transform:uppercase}.dossier-snapshot{display:grid;grid-template-columns:180px 1fr;margin-top:19px;border-block:1px solid var(--line)}.dossier-battery{padding:18px 22px 18px 0;border-right:1px solid var(--line)}.dossier-battery span,.dossier-battery strong{display:block}.dossier-battery span{color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:7px;text-transform:uppercase}.dossier-battery strong{margin-top:5px;font-family:"Barlow Condensed",sans-serif;font-size:58px;font-weight:500;line-height:.9}.dossier-battery strong em{margin-left:3px;color:var(--petrol);font-size:16px;font-style:normal}.dossier-battery>i{height:7px;display:block;margin-top:13px;background:var(--line)}.dossier-battery>i b{display:block;height:100%;background:var(--signal)}.dossier-snapshot dl{margin:0;padding-left:19px}.dossier-snapshot dl>div{min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:15px;border-bottom:1px solid var(--line)}.dossier-snapshot dl>div:last-child{border-bottom:0}.dossier-snapshot dt{color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:7px;text-transform:uppercase}.dossier-snapshot dd{margin:0;font-family:"Barlow Condensed",sans-serif;font-size:19px}.dossier-snapshot dd em{color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:7px;font-style:normal}.dossier-snapshot .contact-value{font-family:"IBM Plex Mono",monospace;font-size:8px}.vehicle-dossier footer{display:flex;justify-content:flex-end;gap:8px;margin-top:auto;padding-top:20px}
-@media(max-width:1080px){.garage-register{grid-template-columns:repeat(3,1fr)}.garage-register p{display:none}.manifest-layout{grid-template-columns:360px 1fr}.dossier-snapshot{grid-template-columns:150px 1fr}}
-@media(max-width:850px){.manifest-toolbar{align-items:flex-start;flex-direction:column}.catalog-controls{width:100%}.search-field{width:100%}.manifest-layout{grid-template-columns:1fr}.vehicle-manifest{max-height:310px;overflow:auto;border-right:0;border-bottom:1px solid var(--line)}.vehicle-dossier{min-height:540px}.dossier-visual{min-height:200px}}
-@media(max-width:560px){.garage-register{grid-template-columns:repeat(3,1fr)}.garage-register>div{padding-inline:10px}.catalog-controls{align-items:stretch;flex-direction:column}.filter-tabs{display:grid;grid-template-columns:repeat(3,1fr)}.manifest-row{grid-template-columns:24px 1fr 72px 6px;padding-inline:11px}.row-vehicle small{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vehicle-dossier{min-height:510px;padding:19px 16px}.dossier-visual{min-height:170px}.dossier-snapshot{grid-template-columns:1fr}.dossier-battery{border-right:0;border-bottom:1px solid var(--line);padding-right:0}.dossier-snapshot dl{padding-left:0}.vehicle-dossier footer{display:grid;grid-template-columns:1fr 1fr}}
+.vehicle-form{margin-bottom:16px}.form-heading,.section-heading,.catalog-heading{display:flex;align-items:center;justify-content:space-between;gap:15px}.form-heading{margin-bottom:17px}.form-heading h2,.section-heading h2,.catalog-heading h2{margin:0;font-size:15px;font-weight:600}.color-input{padding:5px}.vehicles-overview{margin-bottom:14px}.section-heading{margin-bottom:10px}.section-heading>span,.catalog-heading>div>span{color:var(--muted);font-size:9px}.vehicles-overview-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.overview-stat{position:relative;min-height:116px;padding:14px;display:grid;grid-template-columns:34px 1fr;gap:11px;overflow:hidden}.overview-stat-icon{width:34px;height:34px;display:grid;place-items:center;color:var(--accent);background:var(--accent-soft);border-radius:9px}.overview-stat-icon.green{color:var(--success);background:var(--success-soft)}.overview-stat-icon.blue{color:var(--blue);background:var(--blue-soft)}.overview-stat small,.overview-stat strong,.overview-stat div>span{display:block}.overview-stat small{font-size:8px;font-weight:600}.overview-stat strong{margin:7px 0 2px;font-size:27px;font-weight:500;letter-spacing:-.055em}.overview-stat em{margin-left:3px;color:var(--muted);font-size:10px;font-style:normal}.overview-stat div>span{color:var(--muted);font-size:8px}.overview-stat>i{position:absolute;left:14px;right:14px;bottom:12px;height:5px;overflow:hidden;background:repeating-linear-gradient(90deg,var(--line) 0 4px,transparent 4px 7px)}.overview-stat>i b{display:block;height:100%;background:repeating-linear-gradient(90deg,var(--accent) 0 4px,transparent 4px 7px)}.overview-stat>i.green b{background:repeating-linear-gradient(90deg,var(--success) 0 4px,transparent 4px 7px)}.overview-stat>i.blue b{background:repeating-linear-gradient(90deg,var(--blue) 0 4px,transparent 4px 7px)}
+.vehicle-catalog{overflow:hidden}.catalog-heading{min-height:66px;padding:12px 14px;border-bottom:1px solid var(--line)}.catalog-heading>div:first-child{display:flex;align-items:center;gap:8px}.catalog-controls{display:flex;align-items:center;gap:9px}.search-field{width:min(280px,30vw);height:37px;display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--muted);background:var(--input);border:1px solid var(--line);border-radius:9px}.search-field:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}.search-field input{min-width:0;width:100%;color:var(--text);background:transparent;border:0;outline:0;font-size:10px}.filter-tabs{display:flex;padding:3px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px}.filter-tabs button{padding:7px 9px;color:var(--muted);background:transparent;border:0;border-radius:7px;font-size:8px;font-weight:600;cursor:pointer}.filter-tabs button.active{color:var(--accent);background:var(--panel);box-shadow:var(--shadow-soft)}
+.vehicle-grid{display:grid;grid-template-columns:repeat(3,minmax(255px,1fr));gap:10px;padding:10px;background:color-mix(in srgb,var(--panel-2) 55%,var(--panel))}.vehicle-card{min-width:0;padding:13px;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:13px;transition:transform .16s,border-color .16s,box-shadow .16s}.vehicle-card:hover{transform:translateY(-2px);border-color:var(--line-strong);box-shadow:var(--shadow)}.vehicle-card header{display:flex;justify-content:space-between;align-items:flex-start;gap:9px}.vehicle-card h3{margin:0;font-size:11px;font-weight:600}.vehicle-card header p{margin:3px 0 0;color:var(--muted);font-size:8px}.vehicle-visual{position:relative;height:148px;display:grid;place-items:center;overflow:hidden}.vehicle-visual .vehicle-silhouette{width:min(100%,250px)}.propulsion-tag{position:absolute;left:0;bottom:5px;display:flex;align-items:center;gap:5px;padding:5px 7px;color:var(--accent);background:var(--accent-soft);border-radius:7px;font-size:7px;font-weight:600;text-transform:capitalize}.vehicle-facts{display:grid;grid-template-columns:1fr 1.4fr;margin-bottom:9px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px}.vehicle-facts>div{min-width:0;padding:8px}.vehicle-facts>div+div{border-left:1px solid var(--line)}.vehicle-facts span,.vehicle-facts strong{display:block}.vehicle-facts span{color:var(--muted);font-size:7px}.vehicle-facts strong{margin-top:4px;font-size:10px}.vehicle-facts em{color:var(--muted);font-size:7px;font-style:normal}.vehicle-facts .contact-value{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:8px;font-weight:500}.battery-strip{padding:9px;border:1px solid var(--line);border-radius:9px}.battery-strip>div{display:flex;align-items:center;justify-content:space-between;font-size:8px}.battery-strip span{display:flex;align-items:center;gap:5px;color:var(--muted)}.battery-strip>i{height:5px;display:block;margin-top:7px;overflow:hidden;background:var(--panel-2);border-radius:5px}.battery-strip>i b{display:block;height:100%;background:linear-gradient(90deg,#ffb06f,var(--accent))}.vehicle-card footer{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:11px}.vehicle-card footer .button{min-height:34px;padding:8px 9px;font-size:8px}.catalog-empty{grid-column:1/-1}.catalog-empty h2{font-size:14px}
+@media(max-width:1320px){.vehicle-grid{grid-template-columns:repeat(2,minmax(270px,1fr))}}
+@media(max-width:840px){.vehicles-overview-grid{grid-template-columns:1fr}.catalog-heading{align-items:flex-start;flex-direction:column}.catalog-controls{width:100%}.search-field{width:100%}.vehicle-grid{grid-template-columns:1fr}}
+@media(max-width:520px){.catalog-controls{align-items:stretch;flex-direction:column}.filter-tabs{display:grid;grid-template-columns:repeat(3,1fr)}.vehicle-visual{height:140px}}
 </style>

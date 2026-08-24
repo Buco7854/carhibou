@@ -15,10 +15,10 @@ const { locale, t } = useI18n()
 const initials = computed(() => auth.user?.display_name.slice(0, 2).toUpperCase() ?? '')
 const section = computed(() => {
   const name = String(route.name ?? 'dashboard')
-  if (name === 'history') return { index: '02.1', label: t('history.title') }
+  if (name === 'history') return { icon: 'history', label: t('history.title') }
   const mapped = ['dashboard', 'vehicles', 'dashboards', 'hooks', 'devices', 'settings'].includes(name) ? name : 'dashboard'
-  const indexes: Record<string, string> = { dashboard: '01', vehicles: '02', dashboards: '03', hooks: '04', devices: '05', settings: '06' }
-  return { index: indexes[mapped] ?? '01', label: t(`nav.${mapped}`) }
+  const icons: Record<string, string> = { dashboard: 'dashboard', vehicles: 'vehicle', dashboards: 'grid', hooks: 'hooks', devices: 'devices', settings: 'settings' }
+  return { icon: icons[mapped] ?? 'dashboard', label: t(`nav.${mapped}`) }
 })
 
 function changeLocale(event: Event): void {
@@ -43,7 +43,7 @@ async function signOut() {
     <aside class="sidebar">
       <RouterLink class="brand" to="/" aria-label="VehiNode dashboard">
         <BrandMark />
-        <span class="brand-copy"><strong>{{ APP_NAME }}</strong><small>{{ t('nav.telemetryNode') }}</small></span>
+        <span class="brand-copy"><strong>{{ APP_NAME }}</strong><small>{{ t('app.description') }}</small></span>
       </RouterLink>
       <div class="nav-group-label">{{ t('nav.workspace') }}</div>
       <nav class="main-nav" :aria-label="t('nav.workspace')">
@@ -66,9 +66,9 @@ async function signOut() {
     </aside>
     <section class="workspace">
       <header class="topbar">
-        <div class="section-title"><span class="section-index">{{ section.index }}</span><div><small>{{ t('nav.controlCenter') }}</small><strong>{{ section.label }}</strong></div></div>
-        <div class="topbar-bus"><i />{{ t('nav.secureConnection') }}</div>
+        <div class="section-title"><span class="section-icon"><AppIcon :name="section.icon" :size="18" /></span><div><small>{{ t('nav.controlCenter') }}</small><strong>{{ section.label }}</strong></div></div>
         <div class="topbar-actions">
+          <span class="connection-chip"><i />{{ t('nav.secureConnection') }}</span>
           <select class="topbar-select" :value="locale" :aria-label="t('settings.language')" @change="changeLocale"><option value="en">EN</option><option value="fr">FR</option></select>
           <button class="topbar-button" :title="t('settings.theme')" @click="toggleTheme"><AppIcon name="theme" :size="18" /></button>
           <button class="topbar-avatar" :title="auth.user.email" @click="router.push('/settings')">{{ initials }}</button>

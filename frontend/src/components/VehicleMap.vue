@@ -18,13 +18,13 @@ function update() {
   if (!map) return
   if (props.route?.length) {
     polyline?.remove()
-    polyline = L.polyline(props.route, { color: '#137d78', weight: 4, opacity: 0.88 }).addTo(map)
+    polyline = L.polyline(props.route, { color: '#ff682d', weight: 4, opacity: 0.88 }).addTo(map)
     map.fitBounds(polyline.getBounds(), { padding: [28, 28], maxZoom: 15 })
   }
   if (props.position) {
     const point = L.latLng(props.position.latitude, props.position.longitude)
     marker?.remove()
-    marker = L.circleMarker(point, { radius: 8, color: '#182321', weight: 3, fillColor: '#b7d43b', fillOpacity: 1 }).addTo(map)
+    marker = L.circleMarker(point, { radius: 8, color: '#ffffff', weight: 3, fillColor: '#ff682d', fillOpacity: 1 }).addTo(map)
     if (!props.route?.length) map.setView(point, 14)
   }
 }
@@ -46,7 +46,7 @@ onBeforeUnmount(() => map?.remove())
 
 <style scoped>
 .vehicle-map { width:100%; min-height:300px; height:100%; background:var(--panel); }
-:global([data-theme="dark"]) :deep(.leaflet-tile-pane) { filter: brightness(.58) saturate(.36) contrast(1.08) hue-rotate(112deg); }
+:global([data-theme="dark"]) :deep(.leaflet-tile-pane) { filter: brightness(.62) saturate(.28) contrast(1.08); }
 :deep(.leaflet-control-attribution) { color:var(--muted); background:color-mix(in srgb,var(--panel) 85%,transparent); font-size:9px; }
 :deep(.leaflet-control-attribution a) { color:var(--accent); }
 </style>
