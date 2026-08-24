@@ -67,7 +67,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByRole('button', { name: 'Create vehicle' }).click()
   await expect(page.getByRole('heading', { name: 'Éclair' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'No photo for Éclair' })).toBeVisible()
-  await expect(page.locator('.vehicle-photo-placeholder .placeholder-mark')).toBeVisible()
+  await expect(page.locator('.vehicle-photo-placeholder .app-icon')).toBeVisible()
   const photoInput = page.locator('.vehicle-media input[type="file"]')
   await photoInput.focus()
   await expect(photoInput.locator('..')).toHaveCSS('outline-style', 'solid')

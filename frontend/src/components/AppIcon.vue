@@ -52,6 +52,11 @@ withDefaults(defineProps<{ name: string; size?: number }>(), { size: 20 })
     <template v-else-if="name === 'camera'">
       <path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" /><circle cx="12" cy="13" r="4" />
     </template>
+    <template v-else-if="name === 'image-missing'">
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <circle cx="8.5" cy="9" r="1.5" />
+      <path d="m4 17 4.5-4.5 3.5 3.5 2-2 6 6M4 4l16 16" />
+    </template>
     <template v-else-if="name === 'trash'">
       <path d="M4 7h16m-10-3h4l1 3M7 7l1 14h8l1-14M10 11v6m4-6v6" />
     </template>

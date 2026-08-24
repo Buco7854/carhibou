@@ -15,7 +15,7 @@ Updated: 2026-08-24
   photo-led searchable garage grid. Route/history charts, registry-based draggable
   dashboards, tracker administration, hooks and settings remain functional. Self-hosted
   IBM Plex typography, an original node-route mark, a modern neutralized OpenStreetMap treatment,
-  optional owner-scoped vehicle photos with an explicit car-photo placeholder, a
+  optional owner-scoped vehicle photos with a plain missing-image placeholder, a
   cobalt recorded-route accent,
   extensible English/French catalogs and persistent Light, Dark and Auto themes work
   across the application. Login copy is operational and instance-focused rather than

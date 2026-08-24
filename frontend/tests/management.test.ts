@@ -82,7 +82,7 @@ describe('vehicle and dashboard management', () => {
     await flushPromises()
 
     expect(wrapper.get('.vehicle-photo-placeholder').attributes('aria-label')).toBe('No photo for Éclair')
-    expect(wrapper.find('.placeholder-copy').exists()).toBe(false)
+    expect(wrapper.find('.vehicle-photo-placeholder .app-icon').exists()).toBe(true)
     const image = new File(['image-content'], 'eclair.webp', { type: 'image/webp' })
     const input = wrapper.get('input[type="file"]')
     Object.defineProperty(input.element, 'files', { configurable: true, value: [image] })
