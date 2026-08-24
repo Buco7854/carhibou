@@ -7,12 +7,12 @@ Updated: 2026-08-24
 - The modular monolith implements local session authentication, vehicle ownership,
   one-time device enrollment, separate device credentials, idempotent telemetry,
   current state, bounded history, dashboards, diagnostics and explicit migrations.
-- The Tailwind Vue SPA uses a floating connected-car workspace with a clear sidebar,
-  compact fleet overview, vehicle-first map/telemetry dashboard, searchable vehicle
-  cards, route/history charts, registry-based draggable dashboards, tracker
-  administration, hooks and settings. Self-hosted IBM Plex typography, an orange route
-  accent, extensible English/French catalogs and persistent Light, Dark and Auto themes
-  work across the application.
+- The Tailwind Vue SPA uses an original live-routebook workspace with a clear sidebar,
+  continuous vehicle switcher, real route-first dashboard, telemetry ledger and
+  searchable garage roster. Route/history charts, registry-based draggable dashboards,
+  tracker administration, hooks and settings remain functional. Self-hosted IBM Plex
+  typography, an orange recorded-route accent, extensible English/French catalogs and
+  persistent Light, Dark and Auto themes work across the application.
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,
   HTTP/geometry helpers, manual dry-run and execution history.

@@ -1,29 +1,42 @@
 # Frontend design system
 
-VehiNode uses a **connected-car workspace** visual language. The interface is for a
-self-hosting vehicle owner who needs to answer three questions quickly: where is the
-vehicle, what is it doing, and is the telemetry path healthy? It should feel calm,
-precise and approachable rather than like an industrial control panel.
+VehiNode uses a **live routebook** visual language. The interface is for a self-hosting
+owner of one or a few connected vehicles who needs to answer three questions quickly:
+where is the vehicle, what is it doing, and is the telemetry path healthy? It should
+feel calm, precise and approachable rather than like an industrial control panel or a
+generic fleet SaaS template.
 
 ## Visual grammar
 
 - IBM Plex Sans carries interface copy and large values; IBM Plex Mono is reserved for
   identifiers, timestamps, units, metric names and coordinates.
-- The application sits in a large rounded canvas above a slate-to-peach background.
-  Light mode uses white cards and warm neutral surfaces. Dark mode uses layered
-  near-black surfaces. Bright orange is the primary action, selection and route color;
-  green communicates healthy live state, while blue and amber support secondary data.
-- A clear sidebar and restrained top bar frame the workspace. Cards use consistent
-  medium radii, fine borders and soft shadows; they should remain airy rather than
-  glossy or glass-like.
-- The live dashboard begins with a compact fleet overview, then gives most of the
-  canvas to vehicle selection, position and current telemetry. The vehicle page uses a
-  searchable card grid with one dominant vehicle illustration per card.
+- The application sits in a restrained floating canvas over a flat slate surround.
+  Light mode uses paper-white and cool neutral surfaces. Dark mode uses layered
+  green-black surfaces. Mandarin orange is the primary action, selection and route
+  color; green communicates healthy live state. Vehicle colors are preserved as data.
+- A clear sidebar and quiet top bar frame the workspace. Active navigation uses a
+  route-like edge marker rather than a raised navigation card. Containers use fine
+  borders, modest radii and almost no decorative shadow.
+- The live dashboard leads with the selected vehicle, a continuous vehicle switcher,
+  the real recent route and a telemetry ledger. The vehicle page is a searchable
+  garage roster with one row per vehicle, not a mosaic of interchangeable KPI and
+  vehicle cards.
 
-The orange telemetry line is the signature device. It may describe a route, battery
-progress, chart series or selected state. It always corresponds to real data; avoid
-decorative HUD marks and avoid inventing logistics concepts that do not exist in the
-product.
+The recorded route is the signature device. It is drawn from historical GPS samples
+and carries the same orange through battery progress, chart series and selected state.
+It always corresponds to real data; avoid decorative telemetry ticks, arbitrary KPI
+cards and logistics concepts that do not exist in the product.
+
+## Anti-template rules
+
+- Do not open a page with a greeting or a four-card KPI strip.
+- Do not wrap every metric in an icon badge and rounded card.
+- Do not use tiny labels to imitate a static portfolio mockup; operational text remains
+  readable at normal browser zoom.
+- Supplied visual references establish finish and mood, not page geometry. Preserve
+  VehiNode's own information hierarchy and never reproduce a reference composition.
+- A card must represent a real grouping or interaction boundary. Otherwise use spacing,
+  alignment and dividers.
 
 ## Interaction and accessibility
 

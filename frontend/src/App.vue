@@ -66,7 +66,7 @@ async function signOut() {
     </aside>
     <section class="workspace">
       <header class="topbar">
-        <div class="section-title"><span class="section-icon"><AppIcon :name="section.icon" :size="18" /></span><div><small>{{ t('nav.controlCenter') }}</small><strong>{{ section.label }}</strong></div></div>
+        <div class="section-title"><AppIcon :name="section.icon" :size="18" /><strong>{{ section.label }}</strong></div>
         <div class="topbar-actions">
           <span class="connection-chip"><i />{{ t('nav.secureConnection') }}</span>
           <select class="topbar-select" :value="locale" :aria-label="t('settings.language')" @change="changeLocale"><option value="en">EN</option><option value="fr">FR</option></select>

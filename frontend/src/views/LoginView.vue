@@ -4,7 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { login, register } from '../api/auth'
 import { APP_NAME } from '../branding'
+import AppIcon from '../components/AppIcon.vue'
 import BrandMark from '../components/BrandMark.vue'
+import { persistLocale, type SupportedLocale } from '../i18n'
+import { resolvedTheme, setTheme } from '../theme'
 
 const mode = ref<'login' | 'register'>('login')
 const email = ref('')
@@ -14,7 +17,17 @@ const error = ref('')
 const busy = ref(false)
 const router = useRouter()
 const route = useRoute()
-const { t } = useI18n()
+const { locale, t } = useI18n()
+
+function changeLocale(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value as SupportedLocale
+  locale.value = value
+  persistLocale(value)
+}
+
+function toggleTheme(): void {
+  setTheme(resolvedTheme.value === 'dark' ? 'light' : 'dark')
+}
 
 async function submit() {
   error.value = ''; busy.value = true
@@ -31,15 +44,20 @@ async function submit() {
 <template>
   <main class="login-page">
     <section class="login-story">
-      <div class="brand large"><BrandMark :size="42" /><span class="brand-copy"><strong>{{ APP_NAME }}</strong><small>{{ t('nav.telemetryNode') }}</small></span></div>
-      <div>
+      <div class="brand large"><BrandMark :size="42" /><span class="brand-copy"><strong>{{ APP_NAME }}</strong><small>{{ t('app.description') }}</small></span></div>
+      <div class="story-copy">
         <span class="eyebrow">{{ t('auth.eyebrow') }}</span>
-        <h1>{{ t('auth.headline') }}<br><em>{{ t('auth.headlineAccent') }}</em></h1>
-        <p>{{ t('app.description') }}. {{ t('auth.privacy') }}</p>
+        <h1>{{ t('auth.headline') }} <em>{{ t('auth.headlineAccent') }}</em></h1>
+        <p>{{ t('auth.privacy') }}</p>
       </div>
-      <div class="signal-grid" aria-hidden="true"><i v-for="index in 36" :key="index" :style="{ height: `${10 + ((index * 17) % 64)}%` }" /></div>
+      <ol class="data-path">
+        <li><span>01</span><div><strong>{{ t('auth.pathVehicle') }}</strong><small>{{ t('auth.pathVehicleHint') }}</small></div></li>
+        <li><span>02</span><div><strong>{{ t('auth.pathNode') }}</strong><small>{{ t('auth.pathNodeHint') }}</small></div></li>
+        <li><span>03</span><div><strong>{{ t('auth.pathHooks') }}</strong><small>{{ t('auth.pathHooksHint') }}</small></div></li>
+      </ol>
     </section>
     <section class="login-form-wrap">
+      <div class="login-utilities"><select class="topbar-select" :value="locale" :aria-label="t('settings.language')" @change="changeLocale"><option value="en">EN</option><option value="fr">FR</option></select><button class="topbar-button" :title="t('settings.theme')" @click="toggleTheme"><AppIcon name="theme" :size="18" /></button></div>
       <form class="login-form" @submit.prevent="submit">
         <span class="eyebrow">{{ mode === 'login' ? t('auth.welcome') : t('auth.firstIgnition') }}</span>
         <h2>{{ mode === 'login' ? t('auth.signInTitle') : t('auth.registerTitle') }}</h2>
@@ -56,12 +74,9 @@ async function submit() {
 </template>
 
 <style scoped>
-.login-page{width:min(100%,1450px);min-height:calc(100vh - clamp(36px,8vw,128px));margin:0 auto;display:grid;grid-template-columns:minmax(390px,1.15fr) minmax(360px,.85fr);overflow:hidden;background:var(--workspace);border:5px solid color-mix(in srgb,white 80%,transparent);border-radius:30px;box-shadow:0 36px 90px rgba(32,39,52,.26)}
-.login-story{position:relative;overflow:hidden;padding:45px clamp(34px,6vw,82px);display:flex;flex-direction:column;justify-content:space-between;color:#f7f5f2;background:radial-gradient(circle at 88% 16%,rgba(255,104,45,.18),transparent 23rem),linear-gradient(145deg,#181817,#090909);border-right:1px solid #2b2b29}.login-story::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent 0 67%,rgba(255,104,45,.04) 67% 68%,transparent 68%);pointer-events:none}
-.brand.large{z-index:1;padding:0;color:#fff}.brand.large .brand-copy small{color:#aaa9a4}
-.login-story>div:nth-child(2){position:relative;z-index:1;max-width:760px}.login-story h1{max-width:820px;margin:13px 0 19px;font-size:clamp(42px,5.5vw,74px);font-weight:500;letter-spacing:-.055em;line-height:1.03}.login-story h1 em{color:var(--accent);font-style:normal}.login-story p{max-width:570px;color:#aaa9a4;font-size:14px;line-height:1.65}
-.signal-grid{position:absolute;right:clamp(20px,5vw,76px);bottom:42px;width:min(450px,52%);height:88px;display:flex;align-items:flex-end;gap:5px;padding:14px 0;border-block:1px solid rgba(255,104,45,.23);opacity:.78}.signal-grid::before{content:"VEHICLE TELEMETRY";position:absolute;top:-17px;left:0;color:#777672;font-size:7px;letter-spacing:.1em}.signal-grid i{flex:1;min-height:3px;background:#ff682d;animation:sample-pulse 3.8s ease-in-out infinite alternate}.signal-grid i:nth-child(4n){background:#ff9a62}.signal-grid i:nth-child(3n){animation-delay:.7s}
-.login-form-wrap{display:grid;place-items:center;padding:38px;background:var(--workspace)}.login-form{width:min(100%,390px);display:grid;gap:17px}.login-form h2{margin:0;font-size:29px;font-weight:600;letter-spacing:-.035em}.login-form p{margin:-8px 0 9px}.login-button{margin-top:5px;padding:12px}.mode-switch{border:0;background:none;color:var(--muted);cursor:pointer;font-size:10px}.mode-switch:hover{color:var(--accent)}
-@keyframes sample-pulse{to{opacity:.4;transform:scaleY(.72);transform-origin:bottom}}
-@media(max-width:800px){.login-page{min-height:100vh;display:block;border:0;border-radius:0}.login-story{min-height:300px;padding:26px 23px}.login-story h1{font-size:39px}.login-story p{display:none}.login-form-wrap{padding:34px 22px}.brand.large{display:grid}.signal-grid{right:23px;bottom:24px;width:55%;height:58px}}
+.login-page{width:min(100%,1320px);min-height:calc(100vh - clamp(40px,6vw,92px));margin:0 auto;display:grid;grid-template-columns:minmax(280px,360px) minmax(360px,1fr);overflow:hidden;background:var(--workspace);border:1px solid rgba(255,255,255,.38);border-radius:22px;box-shadow:0 32px 80px rgba(31,39,51,.3)}
+.login-story{padding:31px 29px;display:flex;flex-direction:column;background:var(--sidebar);border-right:1px solid var(--line)}.brand.large{padding:0;color:var(--text)}.brand.large .brand-copy small{max-width:180px}.story-copy{margin:auto 0 45px}.login-story h1{max-width:290px;margin:11px 0 14px;font-size:clamp(31px,3.5vw,46px);font-weight:500;letter-spacing:-.055em;line-height:1.08}.login-story h1 em{color:var(--accent);font-style:normal}.login-story p{max-width:270px;color:var(--muted);font-size:12px;line-height:1.6}
+.data-path{position:relative;margin:0;padding:0;list-style:none}.data-path::before{content:"";position:absolute;top:16px;bottom:16px;left:14px;width:2px;background:var(--accent)}.data-path li{position:relative;display:grid;grid-template-columns:30px 1fr;align-items:center;gap:11px;min-height:56px}.data-path li>span{z-index:1;width:30px;height:30px;display:grid;place-items:center;color:var(--accent);background:var(--sidebar);border:1px solid var(--accent);border-radius:50%;font-family:"IBM Plex Mono",monospace;font-size:8px}.data-path strong,.data-path small{display:block}.data-path strong{font-size:11px}.data-path small{margin-top:2px;color:var(--muted);font-size:9px}
+.login-form-wrap{position:relative;display:grid;place-items:center;padding:60px 38px 38px;background:var(--workspace)}.login-utilities{position:absolute;top:22px;right:24px;display:flex;gap:8px}.login-form{width:min(100%,390px);display:grid;gap:17px}.login-form h2{margin:0;font-size:30px;font-weight:600;letter-spacing:-.04em}.login-form p{margin:-8px 0 9px}.login-button{margin-top:5px;padding:12px}.mode-switch{border:0;background:none;color:var(--muted);cursor:pointer;font-size:10px}.mode-switch:hover{color:var(--accent)}
+@media(max-width:760px){.login-page{min-height:100vh;display:block;border:0;border-radius:0}.login-story{min-height:240px;padding:24px 22px}.story-copy{margin:40px 0 0}.login-story h1{max-width:500px;font-size:34px}.login-story p{display:none}.data-path{display:none}.login-form-wrap{min-height:520px;padding:76px 22px 34px}.brand.large{display:flex}}
 </style>

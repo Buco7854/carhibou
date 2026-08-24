@@ -56,11 +56,11 @@ describe('vehicle and dashboard management', () => {
     await flushPromises()
     await wrapper.get('.search-field input').setValue('Nimbus')
     expect(wrapper.text()).toContain('Nimbus')
-    expect(wrapper.find('.vehicle-grid').text()).not.toContain('Éclair')
+    expect(wrapper.find('.vehicle-list').text()).not.toContain('Éclair')
     await wrapper.get('.search-field input').setValue('')
     await wrapper.findAll('.filter-tabs button')[2]!.trigger('click')
-    expect(wrapper.find('.vehicle-grid').text()).toContain('Nimbus')
-    expect(wrapper.find('.vehicle-grid').text()).not.toContain('Éclair')
+    expect(wrapper.find('.vehicle-list').text()).toContain('Nimbus')
+    expect(wrapper.find('.vehicle-list').text()).not.toContain('Éclair')
   })
 
   it('persists the registry-backed custom dashboard layout', async () => {
