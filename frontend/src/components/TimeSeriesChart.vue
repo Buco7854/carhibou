@@ -36,8 +36,8 @@ function render() {
       showSymbol: false,
       smooth: 0.22,
       data: item.data,
-      lineStyle: { width: 2, color: ['#65e0ad', '#7aa7ff', '#f5cc7a', '#e38aff'][index % 4] },
-      areaStyle: index === 0 ? { color: 'rgba(101,224,173,.08)' } : undefined,
+      lineStyle: { width: 2.3, color: ['#ff6428', '#5677e8', '#20a45a', '#d4872e'][index % 4] },
+      areaStyle: index === 0 ? { color: 'rgba(255,100,40,.08)' } : undefined,
     })),
   }, true)
 }

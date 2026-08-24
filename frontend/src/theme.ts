@@ -15,7 +15,7 @@ function applyTheme(): void {
   document.documentElement.dataset.theme = resolvedTheme.value
   document.documentElement.style.colorScheme = resolvedTheme.value
   document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute(
-    'content', resolvedTheme.value === 'dark' ? '#06100d' : '#f3f7f5',
+    'content', resolvedTheme.value === 'dark' ? '#10100f' : '#f7f7f5',
   )
 }
 

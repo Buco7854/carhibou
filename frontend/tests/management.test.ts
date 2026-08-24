@@ -49,6 +49,20 @@ describe('vehicle and dashboard management', () => {
     expect(wrapper.text()).toContain('Parked / stale')
   })
 
+  it('filters the vehicle catalog by search and live status locally', async () => {
+    const parked = { ...vehicle, id:'vehicle-2', name:'Nimbus', state:{ ...vehicle.state, online:false } }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([vehicle, parked])))
+    const wrapper = mount(VehiclesView, { global:{plugins:[i18n],stubs:{RouterLink:{template:'<a><slot /></a>'}}} })
+    await flushPromises()
+    await wrapper.get('.search-field input').setValue('Nimbus')
+    expect(wrapper.text()).toContain('Nimbus')
+    expect(wrapper.find('.vehicle-grid').text()).not.toContain('Éclair')
+    await wrapper.get('.search-field input').setValue('')
+    await wrapper.findAll('.filter-tabs button')[2]!.trigger('click')
+    expect(wrapper.find('.vehicle-grid').text()).toContain('Nimbus')
+    expect(wrapper.find('.vehicle-grid').text()).not.toContain('Éclair')
+  })
+
   it('persists the registry-backed custom dashboard layout', async () => {
     const dashboard = { id:'dash-1',name:'My dashboard',is_default:true,layout:{widgets:[{id:'soc',type:'metric-card',vehicle_id:vehicle.id,metric:'battery.soc',title:'SOC',unit:'%',x:0,y:0,w:3,h:2}]},created_at:'',updated_at:'' }
     const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {

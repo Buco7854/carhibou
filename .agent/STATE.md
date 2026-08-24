@@ -7,9 +7,11 @@ Updated: 2026-08-24
 - The modular monolith implements local session authentication, vehicle ownership,
   one-time device enrollment, separate device credentials, idempotent telemetry,
   current state, bounded history, dashboards, diagnostics and explicit migrations.
-- The Tailwind Vue SPA implements live state, route/history charts, registry-based
-  draggable dashboards, devices, hook administration and settings. English and French
-  catalogs are extensible; Light, Dark and Auto themes persist locally.
+- The Tailwind Vue SPA uses a responsive orange-accented fleet-console shell with live
+  fleet summaries, vehicle selector/map/telemetry workspace, searchable vehicle cards,
+  route/history charts, registry-based draggable dashboards, tracker cards, hook
+  administration and settings. English and French catalogs are extensible; Light, Dark
+  and Auto themes persist locally.
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,
   HTTP/geometry helpers, manual dry-run and execution history.
@@ -24,7 +26,7 @@ Updated: 2026-08-24
 - Ruff, Ruff format, mypy: passing for 90 Python source files.
 - Backend/agent tests runnable without PostgreSQL: 33 passing, including the complete
   simulator-to-hook E2E scenario.
-- Frontend: ESLint and strict type check passing; 5 files / 7 behavior tests passing;
+- Frontend: ESLint and strict type check passing; 5 files / 8 behavior tests passing;
   production build passing.
 - VitePress build and Python wheel build pass. Alembic upgrade/check/downgrade passes
   with the local SQLite migration smoke database.

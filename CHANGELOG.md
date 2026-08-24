@@ -17,3 +17,9 @@ the first public release.
   Light/Dark/Auto themes, plus history, maps, charts, dashboards and hook editor.
 - Docker/Compose deployment, CI and release workflows, VitePress documentation,
   recipes, operations scripts and security guidance.
+
+### Changed
+
+- Reworked the SPA into a responsive orange-accented vehicle control center with a
+  compact sidebar, fleet overview cards, dominant live map, telemetry console,
+  searchable vehicle catalog and card-based tracker management in both themes.

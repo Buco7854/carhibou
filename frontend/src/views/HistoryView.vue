@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client'
 import type { History, Position, Vehicle } from '../api/types'
+import AppIcon from '../components/AppIcon.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import VehicleMap from '../components/VehicleMap.vue'
 
@@ -27,6 +28,7 @@ const series = computed(() => [{
     return typeof value === 'number' ? [[point.recorded_at, value] as [string, number]] : []
   }),
 }])
+const latestValue = computed(() => [...(series.value[0]?.data ?? [])].at(-1)?.[1])
 
 async function load() {
   error.value = ''
@@ -48,15 +50,23 @@ onMounted(load)
   <div class="page">
     <header class="page-header"><div><span class="eyebrow">{{ t('history.eyebrow') }}</span><h1>{{ vehicle?.name }} · {{ t('history.title') }}</h1></div><RouterLink class="button secondary no-underline" to="/">← {{ t('nav.dashboard') }}</RouterLink></header>
     <p v-if="error" class="error">{{ error }}</p>
-    <div class="mb-4 flex flex-wrap gap-3">
-      <label class="field min-w-56"><span>{{ t('history.metric') }}</span><select v-model="metric" class="select"><option value="vehicle.speed">vehicle.speed</option><option v-for="name in history?.available_metrics" :key="name">{{ name }}</option></select></label>
-      <label class="field min-w-40"><span>{{ t('history.range') }}</span><select v-model="days" class="select"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></select></label>
-      <span v-if="history" class="muted self-end pb-3 text-xs">{{ t('history.samples', { count: history.original_count }) }}</span>
-    </div>
-    <div v-if="history?.points.length" class="grid gap-4 xl:grid-cols-2">
-      <section class="panel overflow-hidden"><div class="border-b p-4" style="border-color:var(--line)"><span class="eyebrow">{{ t('history.route') }}</span></div><div class="h-96"><VehicleMap :position="lastPosition" :route="routePoints" /></div></section>
-      <section class="panel p-5"><span class="eyebrow">{{ metric }}</span><TimeSeriesChart :series="series" :height="355" /></section>
+    <section class="panel history-toolbar">
+      <div class="history-identity"><span class="history-icon"><AppIcon name="vehicle" /></span><div><strong>{{ vehicle?.name }}</strong><small>{{ vehicle?.manufacturer }} {{ vehicle?.model }}</small></div><span :class="['status',{online:vehicle?.state?.online}]">{{ vehicle?.state?.online?t('common.online'):t('common.stale') }}</span></div>
+      <label class="field"><span>{{ t('history.metric') }}</span><select v-model="metric" class="select"><option value="vehicle.speed">vehicle.speed</option><option v-for="name in history?.available_metrics" :key="name">{{ name }}</option></select></label>
+      <label class="field range-field"><span>{{ t('history.range') }}</span><select v-model="days" class="select"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></select></label>
+      <div class="history-stat"><span>{{ metric }}</span><strong>{{ latestValue === undefined ? '—' : latestValue.toFixed(1) }}</strong></div>
+      <div v-if="history" class="history-stat"><span>{{ t('history.samples', { count: history.original_count }) }}</span><strong>{{ history.original_count }}</strong></div>
+    </section>
+    <div v-if="history?.points.length" class="history-grid">
+      <section class="panel route-panel"><header><div><span class="eyebrow">{{ t('history.route') }}</span><h2>{{ vehicle?.name }}</h2></div><span class="route-count"><AppIcon name="location" :size="14" />{{ routePoints.length }}</span></header><div class="route-map"><VehicleMap :position="lastPosition" :route="routePoints" /></div></section>
+      <section class="panel history-chart"><header><div><span class="eyebrow">{{ t('history.range') }}</span><h2>{{ metric }}</h2></div><span class="metric-chip">{{ days === 1 ? t('history.day') : days === 7 ? t('history.week') : t('history.month') }}</span></header><TimeSeriesChart :series="series" :height="390" /></section>
     </div>
     <div v-else class="panel empty">{{ t('history.noData') }}</div>
   </div>
 </template>
+
+<style scoped>
+.history-toolbar{display:grid;grid-template-columns:minmax(190px,1fr) minmax(190px,260px) 145px 125px 125px;gap:12px;align-items:end;margin-bottom:14px;padding:14px}.history-identity{align-self:stretch;display:grid;grid-template-columns:37px 1fr auto;align-items:center;gap:10px;padding-right:12px;border-right:1px solid var(--line)}.history-icon{width:36px;height:36px;display:grid;place-items:center;color:var(--accent);background:var(--accent-soft);border-radius:10px}.history-identity strong,.history-identity small{display:block}.history-identity strong{font-size:11px}.history-identity small{margin-top:3px;color:var(--muted);font-size:8px}.history-stat{align-self:stretch;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2)}.history-stat span,.history-stat strong{display:block}.history-stat span{overflow:hidden;color:var(--muted);font-size:8px;text-overflow:ellipsis;white-space:nowrap}.history-stat strong{margin-top:6px;font-size:16px;font-weight:560}.history-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(360px,.65fr);gap:14px}.route-panel,.history-chart{overflow:hidden}.route-panel header,.history-chart header{height:66px;display:flex;align-items:center;justify-content:space-between;padding:12px 15px;border-bottom:1px solid var(--line)}.route-panel h2,.history-chart h2{margin:0;font-size:15px}.route-count,.metric-chip{display:flex;align-items:center;gap:5px;padding:6px 8px;color:var(--muted);background:var(--panel-2);border-radius:8px;font-size:8px}.route-count .app-icon{color:var(--accent)}.route-map{height:430px}.history-chart{padding-bottom:10px}.history-chart>div{padding:0 10px}
+@media(max-width:1250px){.history-toolbar{grid-template-columns:1fr 1fr 140px}.history-identity{grid-column:1/-1;border:0;border-bottom:1px solid var(--line);padding:0 0 12px}.history-grid{grid-template-columns:1fr}.route-map{height:400px}}
+@media(max-width:620px){.history-toolbar{grid-template-columns:1fr 1fr}.history-identity{grid-column:1/-1}.history-toolbar>.field{grid-column:span 1}.history-stat{display:none}.route-map{height:330px}}
+</style>
