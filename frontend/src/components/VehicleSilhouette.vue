@@ -3,33 +3,54 @@ withDefaults(defineProps<{ color?: string }>(), { color: '#315fcf' })
 </script>
 
 <template>
-  <svg class="vehicle-silhouette" viewBox="0 0 360 150" fill="none" aria-hidden="true">
-    <ellipse cx="181" cy="132" rx="145" ry="6" fill="currentColor" opacity=".07" />
+  <svg class="vehicle-silhouette" viewBox="0 0 400 160" fill="none" aria-hidden="true">
+    <ellipse cx="198" cy="142" rx="166" ry="6" fill="currentColor" opacity=".07" />
 
+    <!-- A deliberately directional three-box saloon: boot at left, bonnet at right. -->
     <path
-      d="M29 106 33 88c2-8 7-12 16-15l43-8 30-31c7-7 15-10 27-10h68c14 0 23 4 31 14l23 29 47 10c10 2 16 8 18 18l2 12c1 6-3 10-10 10H39c-7 0-11-4-10-11Z"
+      d="M23 118 29 99c3-9 9-14 20-17l43-7 32-32c9-9 20-13 35-13h66c16 0 28 5 38 18l23 29 51 8c14 2 24 10 28 22l4 13c2 7-3 12-11 12H34c-9 0-13-5-11-14Z"
       :fill="color"
       fill-opacity=".11"
     />
     <path
-      d="M29 106 33 88c2-8 7-12 16-15l43-8 30-31c7-7 15-10 27-10h68c14 0 23 4 31 14l23 29 47 10c10 2 16 8 18 18l2 12c1 6-3 10-10 10H39c-7 0-11-4-10-11Z"
+      d="M23 118 29 99c3-9 9-14 20-17l43-7 32-32c9-9 20-13 35-13h66c16 0 28 5 38 18l23 29 51 8c14 2 24 10 28 22l4 13c2 7-3 12-11 12H34c-9 0-13-5-11-14Z"
       :stroke="color"
       stroke-width="2.6"
       stroke-linejoin="round"
     />
 
-    <path d="m101 65 29-29c4-4 10-6 17-6h20v35h-66Z" fill="var(--panel)" :stroke="color" stroke-width="1.8" />
-    <path d="M175 30h40c9 0 15 3 21 10l20 25h-81V30Z" fill="var(--panel)" :stroke="color" stroke-width="1.8" />
-    <path d="M168 29v88m88-50 14 50M97 66l-9 51M34 91h38m200-15h43" :stroke="color" stroke-width="1.6" stroke-linecap="round" opacity=".68" />
-    <path d="M45 91h33m201-7h33M134 77h15m55 0h15M49 105h259" :stroke="color" stroke-width="2" stroke-linecap="round" opacity=".76" />
+    <!-- The unequal glass angles make the front and rear immediately legible. -->
+    <path
+      d="m106 74 25-26c7-7 15-10 27-10h27v36h-79Z"
+      fill="var(--panel)"
+      :stroke="color"
+      stroke-width="1.8"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M194 38h30c12 0 20 4 27 14l17 22h-74V38Z"
+      fill="var(--panel)"
+      :stroke="color"
+      stroke-width="1.8"
+      stroke-linejoin="round"
+    />
+    <path d="m269 71 9-5 12 3-5 8h-16Z" :fill="color" fill-opacity=".24" :stroke="color" stroke-width="1.5" stroke-linejoin="round" />
 
-    <circle cx="100" cy="115" r="20" fill="var(--panel)" stroke="currentColor" stroke-width="5" />
-    <circle cx="100" cy="115" r="9" :fill="color" fill-opacity=".15" :stroke="color" stroke-width="2" />
-    <circle cx="282" cy="115" r="20" fill="var(--panel)" stroke="currentColor" stroke-width="5" />
-    <circle cx="282" cy="115" r="9" :fill="color" fill-opacity=".15" :stroke="color" stroke-width="2" />
+    <!-- Panel construction and shoulder line. -->
+    <path d="M96 76 86 129m101-91v91m83-52 14 52M42 93h43m202-15 47 7" :stroke="color" stroke-width="1.5" stroke-linecap="round" opacity=".62" />
+    <path d="M48 94c67-8 181-9 291-1M126 84h22m64 0h22" :stroke="color" stroke-width="2" stroke-linecap="round" opacity=".72" />
+    <path d="M48 97h18v9H34m313-8h14l4 12h-22" :stroke="color" stroke-width="2" stroke-linejoin="round" />
 
-    <path d="M29 99h13c4 0 6 2 6 6v4H30m291-17h13l2 12h-18" :stroke="color" stroke-width="2" stroke-linejoin="round" />
-    <path d="M328 83h-12v8h17M34 84h10v7H32" :fill="color" fill-opacity=".5" />
+    <!-- Rear lamp, front headlamp and grille reinforce the orientation. -->
+    <path d="M31 88h13v13H28" :fill="color" fill-opacity=".48" />
+    <path d="M344 91h15l4 10h-22Z" fill="var(--panel)" :stroke="color" stroke-width="1.6" stroke-linejoin="round" />
+    <path d="M363 106h-13m15 6h-17" :stroke="color" stroke-width="1.5" stroke-linecap="round" opacity=".72" />
+    <circle cx="72" cy="87" r="5" :stroke="color" stroke-width="1.5" opacity=".62" />
+
+    <circle cx="91" cy="129" r="21" fill="var(--panel)" stroke="currentColor" stroke-width="5" />
+    <circle cx="91" cy="129" r="9" :fill="color" fill-opacity=".15" :stroke="color" stroke-width="2" />
+    <circle cx="310" cy="129" r="21" fill="var(--panel)" stroke="currentColor" stroke-width="5" />
+    <circle cx="310" cy="129" r="9" :fill="color" fill-opacity=".15" :stroke="color" stroke-width="2" />
   </svg>
 </template>
 
