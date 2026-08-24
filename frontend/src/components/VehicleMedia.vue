@@ -30,14 +30,10 @@ function selectPhoto(event: Event): void {
       :alt="t('vehicles.photoAlt', { name: vehicle.name })"
       @error="imageFailed = true"
     />
-    <div v-else class="vehicle-photo-placeholder" role="img" :aria-label="t('vehicles.noPhoto', { name: vehicle.name })">
+    <div v-else class="vehicle-photo-placeholder" role="img" :aria-label="imageFailed ? t('vehicles.photoUnavailable') : t('vehicles.noPhoto', { name: vehicle.name })">
       <span class="placeholder-mark">
-        <AppIcon name="vehicle" :size="38" />
-        <i><AppIcon name="camera" :size="13" /></i>
-      </span>
-      <span class="placeholder-copy">
-        <strong>{{ t('vehicles.photoPlaceholder') }}</strong>
-        <small>{{ imageFailed ? t('vehicles.photoUnavailable') : t('vehicles.photoHint') }}</small>
+        <AppIcon name="vehicle" :size="58" />
+        <i><AppIcon name="camera" :size="16" /></i>
       </span>
     </div>
 
@@ -56,5 +52,5 @@ function selectPhoto(event: Event): void {
 </template>
 
 <style scoped>
-.vehicle-media{--vehicle-color:var(--accent);position:relative;width:100%;height:100%;min-height:120px;overflow:hidden;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:10px}.vehicle-media>img{width:100%;height:100%;display:block;object-fit:cover}.vehicle-photo-placeholder{width:100%;height:100%;display:grid;place-content:center;justify-items:center;gap:12px;padding:24px 24px 56px;text-align:center;background:var(--panel-2)}.placeholder-mark{position:relative;width:86px;height:62px;display:grid;place-items:center;color:var(--muted);background:var(--panel);border:1px dashed var(--line-strong);border-radius:9px}.placeholder-mark i{position:absolute;right:-7px;bottom:-7px;width:27px;height:27px;display:grid;place-items:center;color:var(--vehicle-color);background:var(--panel);border:1px solid var(--line);border-radius:50%;box-shadow:var(--shadow-soft);font-style:normal}.placeholder-copy strong,.placeholder-copy small{display:block}.placeholder-copy strong{font-size:11px;font-weight:600}.placeholder-copy small{margin-top:4px;color:var(--text);font-size:9px}.media-actions{position:absolute;right:10px;bottom:10px;display:flex;gap:6px}.media-action{min-height:34px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:7px 10px;color:var(--text);background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line-strong);border-radius:7px;box-shadow:var(--shadow-soft);font-size:9px;font-weight:600;cursor:pointer;backdrop-filter:blur(8px)}.media-action:hover{color:var(--accent);border-color:var(--accent)}.media-action:has(input:focus){outline:2px solid var(--accent);outline-offset:3px}.media-action.remove{width:34px;padding:7px;color:var(--danger)}.media-action:disabled,.media-action.disabled{opacity:.55;cursor:wait}.media-busy{position:absolute;inset:0;display:grid;place-items:center;color:var(--text);background:color-mix(in srgb,var(--panel) 82%,transparent);font-size:10px;font-weight:600;backdrop-filter:blur(3px)}
+.vehicle-media{--vehicle-color:var(--accent);position:relative;width:100%;height:100%;min-height:120px;overflow:hidden;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:10px}.vehicle-media>img{width:100%;height:100%;display:block;object-fit:cover}.vehicle-photo-placeholder{width:100%;height:100%;display:grid;place-content:center;justify-items:center;padding:24px 24px 48px;text-align:center;background:var(--panel-2)}.placeholder-mark{position:relative;width:132px;height:92px;display:grid;place-items:center;color:var(--muted);background:var(--panel);border:1px dashed var(--line-strong);border-radius:11px}.placeholder-mark i{position:absolute;right:-9px;bottom:-9px;width:34px;height:34px;display:grid;place-items:center;color:var(--vehicle-color);background:var(--panel);border:1px solid var(--line);border-radius:50%;box-shadow:var(--shadow-soft);font-style:normal}.media-actions{position:absolute;right:10px;bottom:10px;display:flex;gap:6px}.media-action{min-height:34px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:7px 10px;color:var(--text);background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line-strong);border-radius:7px;box-shadow:var(--shadow-soft);font-size:9px;font-weight:600;cursor:pointer;backdrop-filter:blur(8px)}.media-action:hover{color:var(--accent);border-color:var(--accent)}.media-action:has(input:focus){outline:2px solid var(--accent);outline-offset:3px}.media-action.remove{width:34px;padding:7px;color:var(--danger)}.media-action:disabled,.media-action.disabled{opacity:.55;cursor:wait}.media-busy{position:absolute;inset:0;display:grid;place-items:center;color:var(--text);background:color-mix(in srgb,var(--panel) 82%,transparent);font-size:10px;font-weight:600;backdrop-filter:blur(3px)}
 </style>

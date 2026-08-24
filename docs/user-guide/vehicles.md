@@ -17,8 +17,8 @@ Parked filters only change the visible catalog and do not alter reporting config
 
 Use **Add photo** on a vehicle to upload a JPEG, PNG or WebP image up to 25 MiB. You can
 replace or remove it from the same media frame. Until then, VehiNode shows a plain
-missing-photo frame with car and camera icons. It is deliberately not a substitute
-vehicle illustration.
+missing-photo frame with a large car icon and a small camera marker, without placeholder
+copy. It is deliberately not a substitute vehicle illustration.
 
 Photos remain private to the vehicle owner. VehiNode stores the image as a file in its
 media directory; PostgreSQL contains only its content type, size, fingerprint and
