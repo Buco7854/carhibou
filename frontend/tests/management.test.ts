@@ -65,6 +65,7 @@ describe('vehicle and dashboard management', () => {
 
   it('uploads and removes a vehicle photo through the media controls', async () => {
     let photoUrl: string | null = null
+    const vehicleWithoutTelemetry = { ...vehicle, state: { ...vehicle.state, position: null, metrics: {} } }
     const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
       if (url.endsWith('/vehicles/vehicle-1/photo') && options?.method === 'PUT') {
         photoUrl = '/api/v1/vehicles/vehicle-1/photo?v=abc123'
@@ -74,7 +75,7 @@ describe('vehicle and dashboard management', () => {
         photoUrl = null
         return Promise.resolve(new Response(null, { status: 204 }))
       }
-      return Promise.resolve(jsonResponse([{ ...vehicle, photo_url: photoUrl }]))
+      return Promise.resolve(jsonResponse([{ ...vehicleWithoutTelemetry, photo_url: photoUrl }]))
     })
     vi.stubGlobal('fetch', fetchMock)
     vi.stubGlobal('confirm', vi.fn(() => true))
@@ -83,6 +84,9 @@ describe('vehicle and dashboard management', () => {
 
     expect(wrapper.get('.vehicle-photo-placeholder').attributes('aria-label')).toBe('No photo for Éclair')
     expect(wrapper.find('.vehicle-photo-placeholder .app-icon').exists()).toBe(true)
+    expect(wrapper.find('.vehicle-color').exists()).toBe(false)
+    expect(wrapper.get('.charge-reading strong').text()).toBe('—')
+    expect(wrapper.get('.vehicle-readings dd.is-empty').text()).toBe('—')
     const image = new File(['image-content'], 'eclair.webp', { type: 'image/webp' })
     const input = wrapper.get('input[type="file"]')
     Object.defineProperty(input.element, 'files', { configurable: true, value: [image] })

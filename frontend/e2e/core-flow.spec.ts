@@ -68,6 +68,12 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await expect(page.getByRole('heading', { name: 'Éclair' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'No photo for Éclair' })).toBeVisible()
   await expect(page.locator('.vehicle-photo-placeholder .app-icon')).toBeVisible()
+  const emptyBatteryCenterOffset = await page.locator('.charge-reading').evaluate((section) => {
+    const value = section.querySelector('strong')!.getBoundingClientRect()
+    const bounds = section.getBoundingClientRect()
+    return Math.abs((value.left + value.width / 2) - (bounds.left + bounds.width / 2))
+  })
+  expect(emptyBatteryCenterOffset).toBeLessThan(1)
   const photoInput = page.locator('.vehicle-media input[type="file"]')
   await photoInput.focus()
   await expect(photoInput.locator('..')).toHaveCSS('outline-style', 'solid')
