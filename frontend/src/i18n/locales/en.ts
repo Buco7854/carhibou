@@ -6,7 +6,7 @@ export default {
     welcome: 'Account access', firstIgnition: 'Initial setup', signInTitle: 'Sign in to VehiNode', registerTitle: 'Create the administrator account',
     signInHint: 'Enter your account details.', registerHint: 'The first account becomes the system administrator.',
     displayName: 'Display name', email: 'Email', password: 'Password', signIn: 'Sign in', create: 'Create account', connecting: 'Connecting…',
-    switchRegister: 'New installation? Create an account', switchLogin: 'Already set up? Sign in',
+    switchRegister: 'Create the initial administrator', switchLogin: 'Administrator already created? Sign in',
     instance: 'Self-hosted instance', workspaceTitle: 'Vehicle telemetry workspace', workspaceHint: 'Use your server account to inspect vehicles, history, trackers and hooks.', openSource: 'Open-source software · operated by you',
   },
   dashboard: {

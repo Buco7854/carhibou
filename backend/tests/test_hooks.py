@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from backend.app.auth.services import create_local_user
 from backend.app.common.time import utcnow
 from backend.app.hooks.models import HookExecution, HookState
 from backend.app.jobs.models import Job
@@ -153,16 +154,21 @@ def test_hook_timeout_and_revision_history(
 
 
 def test_non_admin_cannot_manage_hook_code(
-    registered: tuple[TestClient, str],
+    registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
 ) -> None:
     client, _csrf = registered
+    with db_factory() as db:
+        create_local_user(
+            db,
+            "second@example.com",
+            "another-long-test-password",
+            "Second",
+            admin=False,
+        )
+        db.commit()
     second = client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": "second@example.com",
-            "password": "another-long-test-password",
-            "display_name": "Second",
-        },
+        "/api/v1/auth/login",
+        json={"email": "second@example.com", "password": "another-long-test-password"},
     )
     csrf = second.json()["csrf_token"]
     denied = client.post(

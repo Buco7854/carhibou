@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import timedelta
 
+from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
@@ -21,7 +22,7 @@ class AuthenticationError(Exception):
     pass
 
 
-class RegistrationDisabledError(Exception):
+class RegistrationClosedError(Exception):
     pass
 
 
@@ -54,19 +55,33 @@ class LocalAuthenticationProvider:
         return AuthenticatedIdentity(self.name, identity.subject, identity.user_id)
 
 
-def register_local_user(db: Session, email: str, password: str, display_name: str) -> User:
-    settings = get_settings()
-    if not settings.registration_enabled:
-        raise RegistrationDisabledError
+def _lock_user_creation(db: Session) -> None:
     if db.get_bind().dialect.name == "postgresql":
-        # Serializes the first-user privilege decision and duplicate checks.
+        # Serializes the one-time first-admin decision and duplicate checks.
         db.execute(text("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE"))
-    normalized = email.strip().lower()
+
+
+def create_local_user(
+    db: Session,
+    email: str,
+    password: str,
+    display_name: str,
+    *,
+    admin: bool,
+) -> User:
+    try:
+        normalized = str(TypeAdapter(EmailStr).validate_python(email)).strip().lower()
+    except ValidationError as exc:
+        raise AuthenticationError("email is invalid") from exc
+    normalized_name = display_name.strip()
+    if not normalized_name or len(normalized_name) > 120:
+        raise AuthenticationError("display name must contain between 1 and 120 characters")
+    if len(password) < 12 or len(password) > 256:
+        raise AuthenticationError("password must contain between 12 and 256 characters")
     if db.scalar(select(User.id).where(func.lower(User.email) == normalized)):
         raise AuthenticationError("email is already registered")
-    first_user = db.scalar(select(func.count(User.id))) == 0
-    permissions = {"hooks.manage_code": True, "system.admin": True} if first_user else {}
-    user = User(email=normalized, display_name=display_name.strip(), permissions=permissions)
+    permissions = {"hooks.manage_code": True, "system.admin": True} if admin else {}
+    user = User(email=normalized, display_name=normalized_name, permissions=permissions)
     db.add(user)
     db.flush()
     db.add(
@@ -78,6 +93,26 @@ def register_local_user(db: Session, email: str, password: str, display_name: st
         )
     )
     return user
+
+
+def registration_is_open(db: Session) -> bool:
+    return db.scalar(select(func.count(User.id))) == 0
+
+
+def register_first_local_admin(db: Session, email: str, password: str, display_name: str) -> User:
+    _lock_user_creation(db)
+    if not registration_is_open(db):
+        raise RegistrationClosedError
+    return create_local_user(db, email, password, display_name, admin=True)
+
+
+def bootstrap_local_admin(db: Session, email: str, password: str, display_name: str) -> User | None:
+    """Create the only self-registerable local administrator, once."""
+
+    try:
+        return register_first_local_admin(db, email, password, display_name)
+    except RegistrationClosedError:
+        return None
 
 
 def create_session(

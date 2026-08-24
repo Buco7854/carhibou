@@ -10,20 +10,20 @@ dashboards and privileged Python hooks.
 ## Run with Docker
 
 ```bash
-git clone https://github.com/Buco7854/vehinode.git
-cd vehinode
-cp .env.example .env
-./scripts/generate-secrets.sh --write .env
-docker compose up -d --build
-curl -fsS http://localhost:8000/health/ready
+mkdir -p vehinode && cd vehinode
+curl -fsSL https://raw.githubusercontent.com/Buco7854/vehinode/main/docker-compose.yml \
+  -o compose.yml
+umask 077 && touch .env
 ```
 
-Open `http://localhost:8000` and create the first administrator account. Before exposing
-the service to the internet, configure HTTPS, secure cookies and closed registration as
-described in the [installation guide](docs/getting-started/installation.md).
+Provide the database password, application keys, public URL and optional one-time
+administrator credentials in `.env`, then run `docker compose up -d`. See the
+[installation guide](docs/getting-started/installation.md) for the complete file and
+production settings.
 
-The full [`docker-compose.yml`](docker-compose.yml) and every setting are explained in
-the [Docker Compose guide](docs/getting-started/docker.md).
+The deployed directory contains only `compose.yml` and `.env`; source code and helper
+scripts are not runtime requirements. The full [`docker-compose.yml`](docker-compose.yml)
+is also embedded in the [Docker Compose guide](docs/getting-started/docker.md).
 
 ## Develop VehiNode
 
@@ -43,7 +43,7 @@ separate from the operator-focused documentation navigation.
 
 ```bash
 ./scripts/check.sh
-docker compose config
+docker compose --env-file .env.example config
 ```
 
 VehiNode is currently pre-1.0. Physical hardware support is implemented and

@@ -9,15 +9,17 @@ from backend.app.auth.schemas import (
     PasswordChangeRequest,
     RegisterRequest,
     SessionResponse,
+    SetupStatusResponse,
     UserResponse,
 )
 from backend.app.auth.services import (
     AuthenticationError,
     LocalAuthenticationProvider,
-    RegistrationDisabledError,
+    RegistrationClosedError,
     change_password,
     create_session,
-    register_local_user,
+    register_first_local_admin,
+    registration_is_open,
     revoke_other_sessions,
 )
 from backend.app.common.settings import get_settings
@@ -71,12 +73,17 @@ def _login_response(response: Response, db: Db, request: Request, user: User) ->
 @router.post("/register", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
 def register(data: RegisterRequest, request: Request, response: Response, db: Db) -> LoginResponse:
     try:
-        user = register_local_user(db, data.email, data.password, data.display_name)
-    except RegistrationDisabledError as exc:
-        raise HTTPException(status_code=403, detail="registration is disabled") from exc
+        user = register_first_local_admin(db, data.email, data.password, data.display_name)
+    except RegistrationClosedError as exc:
+        raise HTTPException(status_code=403, detail="initial registration is closed") from exc
     except AuthenticationError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _login_response(response, db, request, user)
+
+
+@router.get("/setup", response_model=SetupStatusResponse)
+def setup_status(db: Db) -> SetupStatusResponse:
+    return SetupStatusResponse(registration_open=registration_is_open(db))
 
 
 @router.post("/login", response_model=LoginResponse)

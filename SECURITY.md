@@ -20,6 +20,11 @@ that privileged hooks are intentionally allowed to reach.
 - Browser passwords use Argon2id. Opaque, expiring sessions are hashed in PostgreSQL,
   sent only as HttpOnly SameSite cookies, individually revocable, and protected on
   state-changing requests by a double-submit token bound to the server session.
+- Local registration is limited to an empty database and creates only the initial
+  administrator. Optional environment bootstrap credentials are ignored after any user
+  exists and should be removed from `.env` immediately after the first successful login.
+  Provision the administrator before exposing an empty instance so another network
+  client cannot win the one-time setup race.
 - Authentication identities are separate from users/ownership so OIDC can be linked
   later. Device credentials use a distinct `Authorization: Device` realm and cannot
   authorize human routes. Tests enforce this isolation.
@@ -52,9 +57,10 @@ that privileged hooks are intentionally allowed to reach.
 
 ## Deployment checklist
 
-1. Generate unique session pepper, PostgreSQL password and Fernet master key.
+1. Provide unique session pepper, PostgreSQL password and Fernet master key.
 2. Serve only through trusted TLS and set `VEHINODE_SESSION_COOKIE_SECURE=true`.
 3. Restrict host/database ports and do not mount the Docker socket.
 4. Keep the database, master key and environment configuration in encrypted backups.
 5. Review hook administrators, active browser sessions and tracker inventory regularly.
-6. Apply released security upgrades after testing backups and migrations.
+6. Remove `VEHINODE_BOOTSTRAP_ADMIN_*` after provisioning the first administrator.
+7. Apply released security upgrades after testing backups and migrations.

@@ -1,7 +1,11 @@
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
+
+from backend.app.auth.services import bootstrap_local_admin
 
 
-def test_registration_session_csrf_and_logout(client: TestClient) -> None:
+def test_only_first_admin_can_register_then_use_session(client: TestClient) -> None:
+    assert client.get("/api/v1/auth/setup").json() == {"registration_open": True}
     registered = client.post(
         "/api/v1/auth/register",
         json={
@@ -12,7 +16,23 @@ def test_registration_session_csrf_and_logout(client: TestClient) -> None:
     )
     assert registered.status_code == 201
     assert registered.json()["user"]["email"] == "test@example.com"
+    assert registered.json()["user"]["permissions"] == {
+        "hooks.manage_code": True,
+        "system.admin": True,
+    }
     assert "vehinode_session" in client.cookies
+    assert client.get("/api/v1/auth/setup").json() == {"registration_open": False}
+
+    rejected = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "second@example.com",
+            "password": "another correct horse battery staple",
+            "display_name": "Second Driver",
+        },
+    )
+    assert rejected.status_code == 403
+    assert rejected.json()["error"]["message"] == "initial registration is closed"
 
     assert client.get("/api/v1/auth/me").status_code == 200
     assert client.post("/api/v1/auth/logout").status_code == 403
@@ -36,6 +56,32 @@ def test_request_id_security_headers_and_payload_limit(client: TestClient) -> No
     )
     assert oversized.status_code == 413
     assert oversized.json()["error"]["code"] == "payload_too_large"
+
+
+def test_environment_bootstrap_is_idempotent_and_never_adds_future_users(
+    client: TestClient, db_factory: sessionmaker[Session]
+) -> None:
+    with db_factory() as db:
+        created = bootstrap_local_admin(
+            db, "owner@example.com", "environment-password", "Environment Owner"
+        )
+        db.commit()
+        assert created is not None
+        assert created.permissions == {"hooks.manage_code": True, "system.admin": True}
+
+    with db_factory() as db:
+        skipped = bootstrap_local_admin(
+            db, "other@example.com", "another-environment-password", "Other Owner"
+        )
+        db.commit()
+        assert skipped is None
+
+    assert client.get("/api/v1/auth/setup").json() == {"registration_open": False}
+    logged_in = client.post(
+        "/api/v1/auth/login",
+        json={"email": "owner@example.com", "password": "environment-password"},
+    )
+    assert logged_in.status_code == 200
 
 
 def test_local_identity_and_device_auth_realms_are_isolated(

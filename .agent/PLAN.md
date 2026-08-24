@@ -5,6 +5,7 @@
 - [x] Repository structure and durable project context
 - [x] PostgreSQL models and Alembic migration
 - [x] Local identity, sessions, CSRF, password change/revocation
+- [x] First-admin-only registration and idempotent environment bootstrap
 - [x] Vehicle creation and ownership enforcement
 - [x] One-time device enrollment and separate device authentication
 - [x] Idempotent batch telemetry and atomic current state
@@ -54,6 +55,7 @@
 ## Phase 7 — production hardening
 
 - [x] Multi-stage non-root Docker image and Compose definition
+- [x] Image-only two-file server deployment without a retained source checkout
 - [x] Health, diagnostics, structured/request-ID logging and payload limits
 - [x] Operator-focused VitePress install, usage and operations documentation
 - [x] Canonical Compose file import and safe `.env` secret-generation workflow

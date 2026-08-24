@@ -1,16 +1,16 @@
 # Upgrades
 
-Back up first. Pull a versioned image—not a mutable branch build—then apply migrations
-before replacing app/worker processes:
+Back up first, set `VEHINODE_IMAGE` in `.env` to the new exact version, then pull and
+replace the app and worker:
 
 ```sh
-docker compose pull
-docker compose run --rm app alembic upgrade head
+docker compose pull app worker
 docker compose up -d app worker
 curl --fail http://localhost:8000/health/ready
 ```
 
-Review release notes for configuration changes. Database downgrades exist where
+App startup applies migrations before accepting traffic. Review release notes for
+configuration changes. Database downgrades exist where
 practical but restoring the pre-upgrade database backup is the reliable rollback for a
 production failure. Upgrade Pi agents independently with
 `vehinode-agent update --version X.Y.Z`.

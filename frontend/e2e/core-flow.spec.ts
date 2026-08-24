@@ -32,20 +32,28 @@ async function waitForExecutions(page: Page, hookId: string, count: number): Pro
   return rows
 }
 
-test('complete browser journey from first account to persistent hook state', async ({ page, request }) => {
+test('complete browser journey from bootstrapped admin to persistent hook state', async ({ page, request }) => {
   await page.goto('/login')
   await expect(page.getByRole('heading', { name: 'Sign in to VehiNode' })).toBeVisible()
   await expect(page.getByText('Open-source software · operated by you')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create the initial administrator' })).toHaveCount(0)
   const loginAccessibility = await new AxeBuilder({ page }).analyze()
   expect(loginAccessibility.violations).toEqual([])
 
-  await page.getByRole('button', { name: 'New installation? Create an account' }).click()
-  await page.getByLabel('Display name').fill('Browser Owner')
   await page.getByLabel('Email').fill('browser-owner@example.com')
   await page.getByLabel('Password').fill('browser-e2e-password-2026')
-  await page.getByRole('button', { name: 'Create account' }).click()
+  await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page).toHaveURL('/')
   await expect(page.getByText('Your garage is quiet')).toBeVisible()
+
+  const rejectedRegistration = await request.post('/api/v1/auth/register', {
+    data: {
+      email: 'second-owner@example.com',
+      password: 'another-browser-password-2026',
+      display_name: 'Second Owner',
+    },
+  })
+  expect(rejectedRegistration.status()).toBe(403)
 
   await page.getByRole('link', { name: 'Add your first vehicle' }).click()
   await page.getByRole('button', { name: 'Add vehicle' }).click()

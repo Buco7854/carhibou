@@ -1,19 +1,19 @@
 name: vehinode
 
 x-app-environment: &app-environment
-  VEHINODE_ENVIRONMENT: ${VEHINODE_ENVIRONMENT:-development}
-  VEHINODE_DATABASE_URL: postgresql+psycopg://vehinode:${POSTGRES_PASSWORD:-vehinode-development}@postgres:5432/vehinode
-  VEHINODE_PUBLIC_URL: ${VEHINODE_PUBLIC_URL:-http://localhost:8000}
-  VEHINODE_SESSION_COOKIE_SECURE: ${VEHINODE_SESSION_COOKIE_SECURE:-false}
-  VEHINODE_SESSION_PEPPER: ${VEHINODE_SESSION_PEPPER:-development-only-session-pepper-change-me}
-  VEHINODE_MASTER_KEY: ${VEHINODE_MASTER_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
-  VEHINODE_REGISTRATION_ENABLED: ${VEHINODE_REGISTRATION_ENABLED:-true}
+  VEHINODE_ENVIRONMENT: ${VEHINODE_ENVIRONMENT:-production}
+  VEHINODE_DATABASE_URL: postgresql+psycopg://vehinode:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/vehinode
+  VEHINODE_PUBLIC_URL: ${VEHINODE_PUBLIC_URL:?Set VEHINODE_PUBLIC_URL in .env}
+  VEHINODE_SESSION_COOKIE_SECURE: ${VEHINODE_SESSION_COOKIE_SECURE:-true}
+  VEHINODE_SESSION_PEPPER: ${VEHINODE_SESSION_PEPPER:?Set VEHINODE_SESSION_PEPPER in .env}
+  VEHINODE_MASTER_KEY: ${VEHINODE_MASTER_KEY:?Set VEHINODE_MASTER_KEY in .env}
+  VEHINODE_BOOTSTRAP_ADMIN_EMAIL: ${VEHINODE_BOOTSTRAP_ADMIN_EMAIL:-}
+  VEHINODE_BOOTSTRAP_ADMIN_PASSWORD: ${VEHINODE_BOOTSTRAP_ADMIN_PASSWORD:-}
+  VEHINODE_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${VEHINODE_BOOTSTRAP_ADMIN_DISPLAY_NAME:-Administrator}
   VEHINODE_LOG_LEVEL: ${VEHINODE_LOG_LEVEL:-INFO}
 
 x-app-base: &app-base
-  build:
-    context: .
-  image: ${VEHINODE_IMAGE:-vehinode:local}
+  image: ${VEHINODE_IMAGE:-ghcr.io/buco7854/vehinode:latest}
   restart: unless-stopped
   read_only: true
   tmpfs:
@@ -31,7 +31,7 @@ services:
     environment:
       POSTGRES_DB: vehinode
       POSTGRES_USER: vehinode
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vehinode-development}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:

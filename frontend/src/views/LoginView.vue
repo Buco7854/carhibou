@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { login, register } from '../api/auth'
+import { login, register, registrationIsOpen } from '../api/auth'
 import { APP_NAME } from '../branding'
 import AppIcon from '../components/AppIcon.vue'
 import BrandMark from '../components/BrandMark.vue'
@@ -13,11 +13,21 @@ const mode = ref<'login' | 'register'>('login')
 const email = ref('')
 const password = ref('')
 const displayName = ref('')
+const registrationOpen = ref(false)
 const error = ref('')
 const busy = ref(false)
 const router = useRouter()
 const route = useRoute()
 const { locale, t } = useI18n()
+
+onMounted(async () => {
+  try {
+    registrationOpen.value = await registrationIsOpen()
+    if (registrationOpen.value) mode.value = 'register'
+  } catch {
+    // A configured account can still sign in if the optional setup check is unavailable.
+  }
+})
 
 function changeLocale(event: Event): void {
   const value = (event.target as HTMLSelectElement).value as SupportedLocale
@@ -63,7 +73,7 @@ async function submit() {
         <div class="field"><label for="password">{{ t('auth.password') }}</label><input id="password" v-model="password" class="input" type="password" :minlength="mode === 'register' ? 12 : 1" :autocomplete="mode === 'register' ? 'new-password' : 'current-password'" required /></div>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <button class="button login-button" :disabled="busy">{{ busy ? t('auth.connecting') : mode === 'login' ? t('auth.signIn') : t('auth.create') }}</button>
-        <button class="mode-switch" type="button" @click="mode = mode === 'login' ? 'register' : 'login'">{{ mode === 'login' ? t('auth.switchRegister') : t('auth.switchLogin') }}</button>
+        <button v-if="registrationOpen" class="mode-switch" type="button" @click="mode = mode === 'login' ? 'register' : 'login'">{{ mode === 'login' ? t('auth.switchRegister') : t('auth.switchLogin') }}</button>
       </form>
     </section>
   </main>

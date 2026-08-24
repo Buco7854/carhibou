@@ -24,17 +24,21 @@ VEHINODE_SESSION_COOKIE_SECURE=true
 fragment. It is also used to generate agent enrollment URLs, so it must be reachable by
 the vehicle tracker.
 
-## Protect account creation
+## Bootstrap the administrator once
 
-Leave `VEHINODE_REGISTRATION_ENABLED=true` only while creating the first administrator
-account. Then set it to `false` and apply the configuration:
+Set `VEHINODE_BOOTSTRAP_ADMIN_EMAIL`, `VEHINODE_BOOTSTRAP_ADMIN_PASSWORD` and optionally
+`VEHINODE_BOOTSTRAP_ADMIN_DISPLAY_NAME` before the first start. VehiNode consumes those
+values only when the database has no users. After the first successful login, delete
+the bootstrap values from `.env` and recreate the services:
 
 ```bash
 docker compose up -d app worker
 ```
 
-Existing users can still sign in. Re-enable registration temporarily only when you
-intend to create another account.
+There is no registration switch to reopen. The browser registration endpoint creates
+only the initial administrator and rejects every request after a user exists. A future
+OIDC provider can add identities through the provider boundary without enabling general
+local registration.
 
 ## Verify the deployment
 

@@ -1,3 +1,6 @@
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,7 +14,9 @@ from backend.app.api.errors import install_error_handlers
 from backend.app.api.events import router as event_router
 from backend.app.api.health import router as health_router
 from backend.app.auth.routes import router as auth_router
+from backend.app.auth.services import bootstrap_local_admin
 from backend.app.branding import APP_DESCRIPTION, APP_NAME, APP_VERSION
+from backend.app.common.database import SessionLocal
 from backend.app.common.logging import configure_logging
 from backend.app.common.middleware import RequestContextMiddleware
 from backend.app.common.settings import get_settings
@@ -25,6 +30,7 @@ from backend.app.vehicles.routes import router as vehicle_router
 
 settings = get_settings()
 configure_logging(settings.log_level)
+logger = logging.getLogger(__name__)
 
 
 class SpaStaticFiles(StaticFiles):
@@ -39,12 +45,34 @@ class SpaStaticFiles(StaticFiles):
             return await super().get_response("index.html", scope)
 
 
+def _bootstrap_configured_admin() -> None:
+    if not settings.bootstrap_admin_email or not settings.bootstrap_admin_password:
+        return
+    with SessionLocal() as db:
+        user = bootstrap_local_admin(
+            db,
+            str(settings.bootstrap_admin_email),
+            settings.bootstrap_admin_password.get_secret_value(),
+            settings.bootstrap_admin_display_name,
+        )
+        db.commit()
+    if user:
+        logger.info("bootstrap administrator created", extra={"user_id": user.id})
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    _bootstrap_configured_admin()
+    yield
+
+
 app = FastAPI(
     title=APP_NAME,
     description=APP_DESCRIPTION,
     version=APP_VERSION,
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 app.add_middleware(RequestContextMiddleware)
 install_error_handlers(app)

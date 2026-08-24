@@ -1,19 +1,31 @@
 # Restore
 
-Start a new deployment with the original master key and compatible environment, then:
+Restore into an isolated or confirmed target deployment using the original `.env` and
+`VEHINODE_MASTER_KEY`. The commands below replace the VehiNode database.
 
-```sh
+::: danger Confirm the target first
+This procedure permanently deletes the `vehinode` database in the current Compose
+project. Check `docker compose ls`, the working directory and the dump path before
+continuing.
+:::
+
+```bash
+dump_file=./backups/vehinode-YYYYmmddTHHMMSSZ.dump
+test -s "$dump_file"
+
+docker compose stop app worker
 docker compose up -d postgres
-./scripts/restore.sh ./backups/vehinode-YYYYmmddTHHMMSSZ.dump
+docker compose exec -T postgres \
+  dropdb -U vehinode --if-exists vehinode
+docker compose exec -T postgres \
+  createdb -U vehinode vehinode
+docker compose exec -T postgres \
+  pg_restore -U vehinode -d vehinode --exit-on-error --no-owner --no-privileges \
+  < "$dump_file"
 docker compose run --rm app alembic upgrade head
 docker compose up -d app worker
-curl --fail http://localhost:8000/health/ready
 ```
 
-Restore refuses a missing/non-file path and recreates the application database through
-PostgreSQL tools. It is destructive to that named Compose database and therefore asks
-for an explicit `--confirm` flag.
-
-Afterward, sign in, load a vehicle history, inspect secret masks, run a dry-run hook and
-verify a tracker can reconnect. Without the original `VEHINODE_MASTER_KEY`, database
-rows remain intact but hook secrets cannot be decrypted.
+Verify `/health/ready`, sign in, load a vehicle history, inspect secret masks, run a
+dry-run hook and confirm that a tracker reconnects. Without the original
+`VEHINODE_MASTER_KEY`, database rows remain intact but hook secrets cannot be decrypted.

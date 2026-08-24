@@ -8,6 +8,8 @@ the ARMv6-friendly Python agent uses serial devices, HTTP and a SQLite queue.
 ## Invariants
 
 - Human cookie sessions and device credentials are separate authentication realms.
+- Local self-registration can create only the first administrator; later identities
+  must never be created through the public registration endpoint.
 - Telemetry writes, current-state updates, trigger creation, and job enqueueing are atomic.
 - A hook never runs in an API request. Hook code is privileged, process-contained for
   reliability, and is not a hostile-code sandbox.

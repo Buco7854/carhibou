@@ -24,6 +24,11 @@ export async function login(email: string, password: string): Promise<void> {
   auth.user = response.user
 }
 
+export async function registrationIsOpen(): Promise<boolean> {
+  const response = await api<{ registration_open: boolean }>('/auth/setup')
+  return response.registration_open
+}
+
 export async function register(email: string, password: string, displayName: string): Promise<void> {
   const response = await api<{ user: User; csrf_token: string }>('/auth/register', {
     method: 'POST',

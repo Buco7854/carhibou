@@ -6,7 +6,7 @@ export default {
     welcome: 'Accès au compte', firstIgnition: 'Configuration initiale', signInTitle: 'Connectez-vous à VehiNode', registerTitle: 'Créez le compte administrateur',
     signInHint: 'Saisissez les informations de votre compte.', registerHint: 'Le premier compte devient administrateur système.',
     displayName: 'Nom affiché', email: 'E-mail', password: 'Mot de passe', signIn: 'Se connecter', create: 'Créer le compte', connecting: 'Connexion…',
-    switchRegister: 'Nouvelle installation ? Créer un compte', switchLogin: 'Déjà configuré ? Se connecter',
+    switchRegister: 'Créer l’administrateur initial', switchLogin: 'Administrateur déjà créé ? Se connecter',
     instance: 'Instance auto-hébergée', workspaceTitle: 'Espace de télémétrie automobile', workspaceHint: 'Utilisez votre compte serveur pour consulter véhicules, historique, traceurs et hooks.', openSource: 'Logiciel libre · exploité par vos soins',
   },
   dashboard: {

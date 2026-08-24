@@ -28,6 +28,9 @@ export VEHINODE_FRONTEND_DIR="$PROJECT_ROOT/frontend/dist"
 export VEHINODE_PUBLIC_URL="http://127.0.0.1:18124"
 export VEHINODE_WORKER_ID="browser-e2e-worker"
 export VEHINODE_LOG_LEVEL="WARNING"
+export VEHINODE_BOOTSTRAP_ADMIN_EMAIL="browser-owner@example.com"
+export VEHINODE_BOOTSTRAP_ADMIN_PASSWORD="browser-e2e-password-2026"
+export VEHINODE_BOOTSTRAP_ADMIN_DISPLAY_NAME="Browser Owner"
 
 cd "$PROJECT_ROOT"
 "$PYTHON" -m alembic upgrade head

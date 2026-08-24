@@ -1,40 +1,81 @@
 # Installation
 
-The supported server installation uses Docker Compose. It starts VehiNode, the hook
-worker and PostgreSQL while keeping the database private to the Compose network.
+The server installation needs only two files in its own directory: the Compose file
+and your private environment file. It does not require a source checkout, Python or
+Node.
 
 ## Before you start
 
-You need:
+Install Docker Engine with the Docker Compose plugin. Use a hostname and TLS reverse
+proxy before exposing VehiNode to the internet.
 
-- a Linux server with Docker Engine and the Docker Compose plugin;
-- enough disk space for your telemetry history and backups;
-- a hostname and TLS reverse proxy before exposing VehiNode to the internet.
+## Create the deployment directory
 
-For a first test on a trusted local network, `http://localhost:8000` is sufficient.
+```bash
+mkdir -p vehinode
+cd vehinode
+curl -fsSL https://raw.githubusercontent.com/Buco7854/vehinode/main/docker-compose.yml \
+  -o compose.yml
+umask 077
+touch .env
+```
+
+For a long-lived deployment, download `compose.yml` from the same release tag as the
+container image instead of tracking `main`.
+
+## Provide the configuration
+
+Open `.env` in your editor and provide your own values:
+
+```dotenv
+VEHINODE_IMAGE=ghcr.io/buco7854/vehinode:latest
+VEHINODE_PORT=8000
+VEHINODE_ENVIRONMENT=production
+VEHINODE_PUBLIC_URL=https://vehicle.example.com
+VEHINODE_SESSION_COOKIE_SECURE=true
+
+POSTGRES_PASSWORD=replace-with-a-random-database-password
+VEHINODE_SESSION_PEPPER=replace-with-at-least-32-random-characters
+VEHINODE_MASTER_KEY=replace-with-url-safe-base64-for-exactly-32-random-bytes
+
+VEHINODE_BOOTSTRAP_ADMIN_EMAIL=owner@example.com
+VEHINODE_BOOTSTRAP_ADMIN_PASSWORD=replace-with-a-strong-password
+VEHINODE_BOOTSTRAP_ADMIN_DISPLAY_NAME=Owner
+```
+
+You can bring keys from your existing secret manager. If you need to generate new
+values without downloading a VehiNode script, common OpenSSL commands are:
+
+```bash
+openssl rand -hex 32
+openssl rand -base64 32 | tr '+/' '-_'
+openssl rand -hex 24
+```
+
+Use the first value as the session pepper, the second as the master key, and the third
+as the PostgreSQL password. Keep `.env` readable only by the deployment owner.
+
+For an HTTP-only test on a trusted LAN, use `VEHINODE_ENVIRONMENT=development`, set
+`VEHINODE_PUBLIC_URL` to the actual `http://` origin, and set
+`VEHINODE_SESSION_COOKIE_SECURE=false`.
 
 ## Start VehiNode
 
 ```bash
-git clone https://github.com/Buco7854/vehinode.git
-cd vehinode
-cp .env.example .env
-./scripts/generate-secrets.sh --write .env
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose ps
-curl -fsS http://localhost:8000/health/ready
+curl -fsS https://vehicle.example.com/health/ready
 ```
 
-The last command should return a ready status. Open `http://localhost:8000` and create
-the first account. That first account receives administrator permissions, including
-the privileged ability to manage Python hook code.
+The environment credentials create the initial administrator before VehiNode accepts
+traffic. This bootstrap is idempotent: once any user exists, it never creates another.
+After confirming that you can sign in, remove the three
+`VEHINODE_BOOTSTRAP_ADMIN_*` lines from `.env` and run `docker compose up -d` again.
 
-::: warning Before exposing VehiNode to the internet
-Set `VEHINODE_ENVIRONMENT=production`, use your HTTPS origin for
-`VEHINODE_PUBLIC_URL`, and set `VEHINODE_SESSION_COOKIE_SECURE=true`. After creating
-the administrator account, set `VEHINODE_REGISTRATION_ENABLED=false` and restart the
-app to close public registration. See the [production checklist](../operations/deployment.md).
-:::
+If you omit the bootstrap credentials on an empty database, the login page offers a
+one-time initial-administrator form. Registration closes permanently as soon as that
+account exists; VehiNode does not provide general local-user registration.
 
 ## Add your first vehicle
 
@@ -46,8 +87,5 @@ app to close public registration. See the [production checklist](../operations/d
 Enrollment tokens are short-lived and single-use. The permanent device credential is
 issued directly to the agent and is never embedded in the installer URL.
 
-## Useful next steps
-
-- Read the complete [Docker Compose guide](./docker.md).
-- Configure [backups](../operations/backups.md).
-- Review [agent installation](../agent/installation.md) before preparing a Raspberry Pi.
+Next, read the [Docker Compose guide](./docker.md), configure
+[backups](../operations/backups.md), and review the [agent installation](../agent/installation.md).

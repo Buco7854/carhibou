@@ -2,7 +2,7 @@ import base64
 from functools import lru_cache
 from urllib.parse import urlsplit
 
-from pydantic import Field, model_validator
+from pydantic import EmailStr, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEV_PEPPER = "development-only-session-pepper-change-me"
@@ -10,7 +10,9 @@ DEV_MASTER_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="VEHINODE_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="VEHINODE_", env_file=".env", env_ignore_empty=True, extra="ignore"
+    )
 
     environment: str = "development"
     database_url: str = "sqlite:///./vehinode.db"
@@ -21,7 +23,9 @@ class Settings(BaseSettings):
     session_ttl_hours: int = Field(default=168, ge=1, le=24 * 365)
     session_pepper: str = DEV_PEPPER
     master_key: str = DEV_MASTER_KEY
-    registration_enabled: bool = True
+    bootstrap_admin_email: EmailStr | None = None
+    bootstrap_admin_password: SecretStr | None = None
+    bootstrap_admin_display_name: str = Field(default="Administrator", min_length=1, max_length=120)
     max_request_bytes: int = Field(default=2_000_000, ge=1024)
     default_online_threshold_seconds: int = Field(default=180, ge=30)
     hook_timeout_seconds: int = Field(default=10, ge=1, le=120)
@@ -34,6 +38,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_development_secrets_in_production(self) -> "Settings":
+        if bool(self.bootstrap_admin_email) != bool(self.bootstrap_admin_password):
+            raise ValueError("bootstrap admin email and password must be provided together")
+        if (
+            self.bootstrap_admin_password
+            and len(self.bootstrap_admin_password.get_secret_value()) < 12
+        ):
+            raise ValueError("bootstrap admin password must contain at least 12 characters")
         try:
             master_key = base64.urlsafe_b64decode(self.master_key.encode())
         except Exception as exc:

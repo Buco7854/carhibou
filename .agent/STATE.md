@@ -7,6 +7,9 @@ Updated: 2026-08-24
 - The modular monolith implements local session authentication, vehicle ownership,
   one-time device enrollment, separate device credentials, idempotent telemetry,
   current state, bounded history, dashboards, diagnostics and explicit migrations.
+  Local registration can create only the first administrator. That account can instead
+  be bootstrapped idempotently from environment variables; later registration is always
+  rejected and the identity boundary remains ready for a future OIDC provider.
 - The Tailwind Vue SPA uses an original live-routebook workspace with a clear sidebar,
   continuous vehicle switcher, real route-first dashboard, telemetry ledger and
   searchable garage roster. Route/history charts, registry-based draggable dashboards,
@@ -25,21 +28,22 @@ Updated: 2026-08-24
   safe profiles, CAN capture/replay, diagnostics, installer and systemd integration.
 - Production artifacts include a non-root multi-stage image, three-service Compose,
   CI/Pages/GHCR/release workflows, operator-focused VitePress docs and backup/restore
-  scripts. The Docker guide imports the canonical Compose file, and the environment
-  helper can generate secrets directly into a permission-restricted `.env` file.
+  scripts. A deployed server needs only the image-based Compose file and its private
+  `.env`; it does not retain the source tree or require helper scripts. The Docker guide
+  imports the canonical Compose file and documents direct backup/restore commands.
 
 ## Verification
 
 - Ruff, Ruff format, mypy: passing for 93 Python source files.
-- Backend/agent tests runnable without PostgreSQL: 36 passing, including the complete
+- Backend/agent tests runnable without PostgreSQL: 37 passing, including the complete
   simulator-to-hook E2E scenario.
-- Frontend: ESLint and strict type check passing; 5 files / 8 behavior tests passing;
+- Frontend: ESLint and strict type check passing; 5 files / 9 behavior tests passing;
   production build passing.
 - Playwright: 2 Chromium scenarios passing locally against a fresh migrated database,
   real API and worker. CI runs the same suite on PostgreSQL. They cover the primary
   product journey, idempotency, auth-realm isolation, live SSE state changes,
-  persistent hook state, mobile reflow/badge geometry, EN/FR, themes and automated
-  axe checks.
+  environment-based admin bootstrap, rejection of later registration, persistent hook
+  state, mobile reflow/badge geometry, EN/FR, themes and automated axe checks.
 - VitePress build (including the repository Compose import), secret-file generation
   smoke test and Python wheel build pass. Alembic upgrade/check/downgrade passes with
   the local SQLite migration smoke database.
