@@ -14,7 +14,7 @@
 - [x] Tailwind design system, extensible i18n (English/French) and Light/Dark/Auto themes
 - [x] Original live-routebook workspace, route-first dashboard and garage roster
 - [x] Original node-route mark, instance-focused login and modern open map treatment
-- [x] Directional three-box saloon silhouette for the vehicle roster
+- [x] Original solid profile saloon illustration for vehicle surfaces
 - [x] Authenticated SSE live state with resilient browser reconnection
 
 ## Phase 2 — history and dashboards

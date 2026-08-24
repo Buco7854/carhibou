@@ -15,7 +15,7 @@ Updated: 2026-08-24
   searchable garage roster. Route/history charts, registry-based draggable dashboards,
   tracker administration, hooks and settings remain functional. Self-hosted IBM Plex
   typography, an original node-route mark, a modern neutralized OpenStreetMap treatment,
-  an asymmetric three-box saloon garage silhouette, a cobalt recorded-route accent,
+  an original solid profile saloon garage illustration, a cobalt recorded-route accent,
   extensible English/French catalogs and persistent Light, Dark and Auto themes work
   across the application. Login copy is operational and instance-focused rather than
   promotional. The live dashboard consumes an
