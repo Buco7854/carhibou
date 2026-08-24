@@ -11,7 +11,7 @@
 - [x] Enrollable journey simulator
 - [x] Responsive SPA login, vehicle creation and live dashboard
 - [x] Tailwind design system, extensible i18n (English/French) and Light/Dark/Auto themes
-- [x] Reference-inspired fleet console, responsive navigation and vehicle catalog polish
+- [x] Distinct field-instrument console, vehicle-first navigation and garage manifest
 
 ## Phase 2 — history and dashboards
 

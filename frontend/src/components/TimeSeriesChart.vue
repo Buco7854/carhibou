@@ -21,23 +21,26 @@ function render() {
   const panel = styles.getPropertyValue('--panel-2').trim()
   const line = styles.getPropertyValue('--line').trim()
   const text = styles.getPropertyValue('--text').trim()
+  const petrol = styles.getPropertyValue('--petrol').trim()
+  const signal = styles.getPropertyValue('--signal').trim()
+  const rust = styles.getPropertyValue('--rust').trim()
   chart?.setOption({
     backgroundColor: 'transparent',
     animationDuration: 350,
-    tooltip: { trigger: 'axis', backgroundColor: panel, borderColor: line, textStyle: { color: text } },
-    legend: { data: props.series.map((item) => item.name), textStyle: { color: muted }, top: 0 },
+    tooltip: { trigger: 'axis', backgroundColor: panel, borderColor: line, textStyle: { color: text, fontFamily: 'IBM Plex Mono' } },
+    legend: { data: props.series.map((item) => item.name), textStyle: { color: muted, fontFamily: 'IBM Plex Mono', fontSize: 9 }, top: 0 },
     grid: { left: 20, right: 20, top: 45, bottom: 24, containLabel: true },
-    xAxis: { type: 'time', axisLabel: { color: muted }, axisLine: { lineStyle: { color: line } }, splitLine: { show: false } },
-    yAxis: { type: 'value', axisLabel: { color: muted }, splitLine: { lineStyle: { color: line } } },
+    xAxis: { type: 'time', axisLabel: { color: muted, fontFamily: 'IBM Plex Mono', fontSize: 9 }, axisLine: { lineStyle: { color: line } }, splitLine: { show: false } },
+    yAxis: { type: 'value', axisLabel: { color: muted, fontFamily: 'IBM Plex Mono', fontSize: 9 }, splitLine: { lineStyle: { color: line } } },
     dataZoom: [{ type: 'inside' }],
     series: props.series.map((item, index) => ({
       name: item.name,
       type: 'line',
       showSymbol: false,
-      smooth: 0.22,
+      smooth: 0.12,
       data: item.data,
-      lineStyle: { width: 2.3, color: ['#ff6428', '#5677e8', '#20a45a', '#d4872e'][index % 4] },
-      areaStyle: index === 0 ? { color: 'rgba(255,100,40,.08)' } : undefined,
+      lineStyle: { width: 2.1, color: [petrol, signal, rust, text][index % 4] },
+      areaStyle: index === 0 ? { color: `${petrol}18` } : undefined,
     })),
   }, true)
 }
