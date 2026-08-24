@@ -1,0 +1,4 @@
+<script setup lang="ts">
+import { onMounted,ref } from 'vue';import { useI18n } from 'vue-i18n';import { api } from '../api/client';import type { DashboardWidget,Vehicle } from '../api/types';const props=defineProps<{widget:DashboardWidget}>();const vehicle=ref<Vehicle|null>(null);const{t}=useI18n();onMounted(async()=>{if(props.widget.vehicle_id)vehicle.value=await api<Vehicle>(`/vehicles/${props.widget.vehicle_id}`)})
+</script>
+<template><article class="widget-card"><span class="eyebrow">{{ widget.title||vehicle?.name }}</span><div :class="['status mt-5 text-sm',{online:vehicle?.state?.online}]">{{ vehicle?.state?.online?t('common.online'):t('common.parked') }}</div><small class="muted mt-auto">{{ vehicle?.state?new Date(vehicle.state.updated_at).toLocaleString():t('common.never') }}</small></article></template>

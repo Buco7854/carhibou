@@ -1,0 +1,75 @@
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
+from starlette.responses import Response
+from starlette.types import Scope
+
+from backend.app.api.agent_distribution import router as agent_distribution_router
+from backend.app.api.errors import install_error_handlers
+from backend.app.api.health import router as health_router
+from backend.app.auth.routes import router as auth_router
+from backend.app.branding import APP_DESCRIPTION, APP_NAME, APP_VERSION
+from backend.app.common.logging import configure_logging
+from backend.app.common.middleware import RequestContextMiddleware
+from backend.app.common.settings import get_settings
+from backend.app.dashboards.routes import router as dashboard_router
+from backend.app.devices.routes import device_router, human_router
+from backend.app.history.routes import router as history_router
+from backend.app.hooks.routes import router as hook_router
+from backend.app.secrets.routes import router as secret_router
+from backend.app.telemetry.routes import router as telemetry_router
+from backend.app.vehicles.routes import router as vehicle_router
+
+settings = get_settings()
+configure_logging(settings.log_level)
+
+
+class SpaStaticFiles(StaticFiles):
+    """Serve Vite assets and fall back to index.html for client-side routes."""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            return await super().get_response("index.html", scope)
+
+
+app = FastAPI(
+    title=APP_NAME,
+    description=APP_DESCRIPTION,
+    version=APP_VERSION,
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+)
+app.add_middleware(RequestContextMiddleware)
+install_error_handlers(app)
+app.include_router(health_router)
+app.include_router(agent_distribution_router)
+for api_router in (
+    auth_router,
+    vehicle_router,
+    human_router,
+    device_router,
+    telemetry_router,
+    history_router,
+    dashboard_router,
+    hook_router,
+    secret_router,
+):
+    app.include_router(api_router, prefix="/api/v1")
+
+frontend_dist = (
+    Path(settings.frontend_dir)
+    if settings.frontend_dir
+    else Path(__file__).resolve().parents[2] / "frontend" / "dist"
+)
+if frontend_dist.is_dir():
+    app.mount("/", SpaStaticFiles(directory=frontend_dist, html=True), name="frontend")
+
+
+def create_app() -> FastAPI:
+    return app

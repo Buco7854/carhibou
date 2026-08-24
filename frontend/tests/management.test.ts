@@ -1,0 +1,70 @@
+import { flushPromises, mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import i18n from '../src/i18n'
+import DashboardsView from '../src/views/DashboardsView.vue'
+import DevicesView from '../src/views/DevicesView.vue'
+import VehiclesView from '../src/views/VehiclesView.vue'
+import { jsonResponse, vehicle } from './helpers'
+
+vi.mock('gridstack', () => ({
+  GridStack: {
+    init: vi.fn(() => ({
+      on: vi.fn(), makeWidget: vi.fn(), removeWidget: vi.fn(), destroy: vi.fn(),
+    })),
+  },
+}))
+
+describe('vehicle and dashboard management', () => {
+  beforeEach(() => { i18n.global.locale.value = 'en' })
+
+  it('creates a vehicle through the real form/API contract', async () => {
+    let created = false
+    const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') { created = true; return Promise.resolve(jsonResponse(vehicle, 201)) }
+      return Promise.resolve(jsonResponse(created ? [vehicle] : []))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(VehiclesView, { global:{plugins:[i18n],stubs:{RouterLink:{template:'<a><slot /></a>'}}} })
+    await flushPromises()
+    await wrapper.get('header button').trigger('click')
+    await wrapper.get('input[required]').setValue('Éclair')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    const createCall = fetchMock.mock.calls.find((call) => call[1]?.method === 'POST')
+    expect(createCall?.[0]).toBe('/api/v1/vehicles')
+    expect(JSON.parse(createCall?.[1]?.body as string).name).toBe('Éclair')
+    expect(wrapper.text()).toContain('Éclair')
+  })
+
+  it('shows stale device status from the server freshness calculation', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([{
+        id:'d1',vehicle_id:vehicle.id,name:'Pi Zero',credential_version:1,agent_version:'0.1.0',hostname:'car',hardware:{},online:false,last_seen_at:'2026-01-01T00:00:00Z',revoked_at:null,created_at:'2026-01-01T00:00:00Z',
+      }]))
+      return Promise.resolve(jsonResponse([vehicle]))
+    }))
+    const wrapper = mount(DevicesView, { global:{plugins:[i18n]} })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Pi Zero')
+    expect(wrapper.text()).toContain('Parked / stale')
+  })
+
+  it('persists the registry-backed custom dashboard layout', async () => {
+    const dashboard = { id:'dash-1',name:'My dashboard',is_default:true,layout:{widgets:[{id:'soc',type:'metric-card',vehicle_id:vehicle.id,metric:'battery.soc',title:'SOC',unit:'%',x:0,y:0,w:3,h:2}]},created_at:'',updated_at:'' }
+    const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url.endsWith('/dashboards') && !options?.method) return Promise.resolve(jsonResponse([dashboard]))
+      if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
+      if (url.endsWith(`/vehicles/${vehicle.id}`)) return Promise.resolve(jsonResponse(vehicle))
+      if (url.endsWith('/dashboards/dash-1') && options?.method === 'PUT') return Promise.resolve(jsonResponse(dashboard))
+      return Promise.resolve(jsonResponse({}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(DashboardsView, { global:{plugins:[i18n]} })
+    await flushPromises()
+    await wrapper.get('header .button:not(.secondary)').trigger('click')
+    await flushPromises()
+    const saveCall = fetchMock.mock.calls.find((call) => call[1]?.method === 'PUT')
+    expect(saveCall?.[0]).toBe('/api/v1/dashboards/dash-1')
+    expect(JSON.parse(saveCall?.[1]?.body as string).layout.widgets[0].type).toBe('metric-card')
+  })
+})

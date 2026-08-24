@@ -1,0 +1,70 @@
+id: citroen-c-zero-v1
+name: Citroën C-Zero / Mitsubishi i-MiEV / Peugeot iOn
+family: imiev
+version: 1
+description: >-
+  Community-documented CAN starting points. All signals remain experimental until
+  verified against a known vehicle and independent measurement.
+signals:
+  - name: battery.soc
+    display_name: Battery state of charge
+    description: Community formula using byte D0 from CAN 0x374.
+    source: {type: can, can_id: 0x374}
+    decoder: {byte_offset: 0, data_type: uint8, scale: 0.5, offset: -5}
+    unit: "%"
+    minimum: 0
+    maximum: 100
+    status: experimental
+    references:
+      - https://pure.tue.nl/ws/portalfiles/portal/275783237/Guirado_E.pdf
+    notes: Physical C-Zero validation pending.
+  - name: battery.current
+    display_name: Battery pack current
+    description: Positive/negative direction follows the community formula and needs validation.
+    source: {type: can, can_id: 0x373}
+    decoder: {byte_offset: 2, data_type: uint16, scale: -0.01, offset: 327.68}
+    unit: A
+    minimum: -500
+    maximum: 500
+    status: experimental
+    references:
+      - https://myimiev.com/threads/decyphering-imiev-and-ion-car-can-message-data.763/
+  - name: battery.pack_voltage
+    display_name: Battery pack voltage
+    description: Community formula using big-endian bytes D4-D5 divided by ten.
+    source: {type: can, can_id: 0x373}
+    decoder: {byte_offset: 4, data_type: uint16, scale: 0.1}
+    unit: V
+    minimum: 100
+    maximum: 500
+    status: experimental
+    references:
+      - https://pure.tue.nl/ws/portalfiles/portal/275783237/Guirado_E.pdf
+  - name: vehicle.speed
+    display_name: Vehicle speed
+    description: Community-documented D1 speed byte.
+    source: {type: can, can_id: 0x412}
+    decoder: {byte_offset: 1, data_type: uint8}
+    unit: km/h
+    minimum: 0
+    maximum: 200
+    status: experimental
+    references:
+      - https://github.com/plaes/i-miev-obd2/blob/master/README.rst
+  - name: vehicle.odometer
+    display_name: Odometer
+    description: Community-documented unsigned three-byte D2-D4 value.
+    source: {type: can, can_id: 0x412}
+    decoder: {byte_offset: 2, data_type: bytes, length: 3, endianness: big}
+    unit: km
+    minimum: 0
+    maximum: 2000000
+    status: experimental
+    references:
+      - https://github.com/plaes/i-miev-obd2/blob/master/README.rst
+computed_metrics:
+  - name: battery.power
+    operation: multiply
+    inputs: [battery.pack_voltage, battery.current]
+    unit: W
+    status: experimental

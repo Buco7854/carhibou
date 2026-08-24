@@ -1,0 +1,65 @@
+name: vehinode
+
+x-app-environment: &app-environment
+  VEHINODE_ENVIRONMENT: ${VEHINODE_ENVIRONMENT:-development}
+  VEHINODE_DATABASE_URL: postgresql+psycopg://vehinode:${POSTGRES_PASSWORD:-vehinode-development}@postgres:5432/vehinode
+  VEHINODE_PUBLIC_URL: ${VEHINODE_PUBLIC_URL:-http://localhost:8000}
+  VEHINODE_SESSION_COOKIE_SECURE: ${VEHINODE_SESSION_COOKIE_SECURE:-false}
+  VEHINODE_SESSION_PEPPER: ${VEHINODE_SESSION_PEPPER:-development-only-session-pepper-change-me}
+  VEHINODE_MASTER_KEY: ${VEHINODE_MASTER_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
+  VEHINODE_REGISTRATION_ENABLED: ${VEHINODE_REGISTRATION_ENABLED:-true}
+  VEHINODE_LOG_LEVEL: ${VEHINODE_LOG_LEVEL:-INFO}
+
+x-app-base: &app-base
+  build:
+    context: .
+  image: ${VEHINODE_IMAGE:-vehinode:local}
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=32m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  environment: *app-environment
+
+services:
+  postgres:
+    image: postgres:18.6-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vehinode
+      POSTGRES_USER: vehinode
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vehinode-development}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vehinode -d vehinode"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  app:
+    <<: *app-base
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${VEHINODE_PORT:-8000}:8000"
+
+  worker:
+    <<: *app-base
+    command: ["python", "-m", "backend.app.worker"]
+    environment:
+      <<: *app-environment
+      VEHINODE_WORKER_ID: worker-1
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

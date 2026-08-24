@@ -1,0 +1,17 @@
+.git
+.github
+.agent
+.venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+frontend/node_modules
+frontend/dist
+frontend/coverage
+docs/node_modules
+docs/.vitepress/cache
+docs/.vitepress/dist
+*.db
+*.sqlite3
+.env
+backups
