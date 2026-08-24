@@ -55,7 +55,8 @@
 
 - [x] Multi-stage non-root Docker image and Compose definition
 - [x] Health, diagnostics, structured/request-ID logging and payload limits
-- [x] VitePress user/developer/operations documentation
+- [x] Operator-focused VitePress install, usage and operations documentation
+- [x] Canonical Compose file import and safe `.env` secret-generation workflow
 - [x] CI, GitHub Pages, GHCR and versioned agent release workflows
 - [x] Backup/restore scripts and security threat model
 - [x] Full API/agent/hook end-to-end scenario and frontend behavior tests

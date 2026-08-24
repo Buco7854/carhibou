@@ -2,20 +2,35 @@
 layout: home
 hero:
   name: VehiNode
-  text: Your vehicle produces data.
-  tagline: You decide what that data does. Self-host telemetry, maps, dashboards and trusted Python hooks.
+  text: Run your vehicle telemetry on your own server.
+  tagline: Maps, history, dashboards and programmable hooks in one self-hosted application.
   actions:
     - theme: brand
-      text: Install VehiNode
+      text: Install with Docker
       link: /getting-started/installation
     - theme: alt
-      text: Understand the architecture
-      link: /developers/architecture
+      text: Open the user guide
+      link: /user-guide/vehicles
 features:
-  - title: Durable vehicle telemetry
-    details: Batch uploads are idempotent, current state is cheap, and history remains yours in PostgreSQL.
-  - title: Hardware-friendly
-    details: The Python/systemd agent survives cellular outages in SQLite and supports Pi Zero constraints.
-  - title: Programmable by design
-    details: Privileged Python hooks add integrations and state machines without bloating the core platform.
+  - title: Install
+    details: Start the application, worker and PostgreSQL with one Docker Compose project.
+    link: /getting-started/docker
+    linkText: Docker instructions
+  - title: Connect a tracker
+    details: Enroll the lightweight Raspberry Pi agent with a short-lived token from the web interface.
+    link: /agent/installation
+    linkText: Agent installation
+  - title: Keep it recoverable
+    details: Back up PostgreSQL together with the encryption key and verify your restore procedure.
+    link: /operations/backups
+    linkText: Backup guide
 ---
+
+## Start in three steps
+
+1. [Install VehiNode with Docker Compose](/getting-started/installation).
+2. Create your first vehicle and [enroll its tracker](/user-guide/devices).
+3. Configure [backups](/operations/backups) before collecting journeys you care about.
+
+VehiNode is an open-source, pre-1.0 project. Hardware integrations are marked clearly
+when they are fixture-tested but still awaiting validation on a physical vehicle.

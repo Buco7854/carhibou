@@ -24,7 +24,9 @@ Updated: 2026-08-24
   last-known-good configuration, simulator, SIM7600 NMEA parsing, OBDLink/OBD support,
   safe profiles, CAN capture/replay, diagnostics, installer and systemd integration.
 - Production artifacts include a non-root multi-stage image, three-service Compose,
-  CI/Pages/GHCR/release workflows, VitePress docs and backup/restore scripts.
+  CI/Pages/GHCR/release workflows, operator-focused VitePress docs and backup/restore
+  scripts. The Docker guide imports the canonical Compose file, and the environment
+  helper can generate secrets directly into a permission-restricted `.env` file.
 
 ## Verification
 
@@ -38,8 +40,9 @@ Updated: 2026-08-24
   product journey, idempotency, auth-realm isolation, live SSE state changes,
   persistent hook state, mobile reflow/badge geometry, EN/FR, themes and automated
   axe checks.
-- VitePress build and Python wheel build pass. Alembic upgrade/check/downgrade passes
-  with the local SQLite migration smoke database.
+- VitePress build (including the repository Compose import), secret-file generation
+  smoke test and Python wheel build pass. Alembic upgrade/check/downgrade passes with
+  the local SQLite migration smoke database.
 - The committed lockfiles install from a fresh checkout and `scripts/check.sh` resolves
   the checkout directly; no prior editable installation is required for validation.
 - PostgreSQL integration and Docker image/Compose smoke cannot run locally because this

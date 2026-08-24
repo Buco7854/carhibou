@@ -7,7 +7,25 @@ dashboards and privileged Python hooks.
 
 > Your vehicle produces data. You decide what that data does.
 
-## Quick development start
+## Run with Docker
+
+```bash
+git clone https://github.com/Buco7854/vehinode.git
+cd vehinode
+cp .env.example .env
+./scripts/generate-secrets.sh --write .env
+docker compose up -d --build
+curl -fsS http://localhost:8000/health/ready
+```
+
+Open `http://localhost:8000` and create the first administrator account. Before exposing
+the service to the internet, configure HTTPS, secure cookies and closed registration as
+described in the [installation guide](docs/getting-started/installation.md).
+
+The full [`docker-compose.yml`](docker-compose.yml) and every setting are explained in
+the [Docker Compose guide](docs/getting-started/docker.md).
+
+## Develop VehiNode
 
 ```bash
 python3 -m venv .venv
@@ -17,17 +35,9 @@ cp .env.example .env
 .venv/bin/uvicorn backend.app.main:app --reload
 ```
 
-In another terminal:
-
-```bash
-cd frontend
-npm ci
-npm run dev
-```
-
-For a production-like deployment use `docker compose up --build`. See the
-[documentation](docs/index.md), [security policy](SECURITY.md), and
-[contributor guide](AGENTS.md).
+Run `npm ci && npm run dev` from `frontend/` in another terminal. Maintainer details
+live in the [contributor guide](AGENTS.md) and [developer documentation](docs/developers/architecture.md),
+separate from the operator-focused documentation navigation.
 
 ## Common checks
 
