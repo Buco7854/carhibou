@@ -12,10 +12,11 @@ Updated: 2026-08-24
   rejected and the identity boundary remains ready for a future OIDC provider.
 - The Tailwind Vue SPA uses an original live-routebook workspace with a clear sidebar,
   continuous vehicle switcher, real route-first dashboard, telemetry ledger and
-  searchable garage roster. Route/history charts, registry-based draggable dashboards,
-  tracker administration, hooks and settings remain functional. Self-hosted IBM Plex
-  typography, an original node-route mark, a modern neutralized OpenStreetMap treatment,
-  optional owner-scoped vehicle photos with a neutral media placeholder, a cobalt recorded-route accent,
+  photo-led searchable garage grid. Route/history charts, registry-based draggable
+  dashboards, tracker administration, hooks and settings remain functional. Self-hosted
+  IBM Plex typography, an original node-route mark, a modern neutralized OpenStreetMap treatment,
+  optional owner-scoped vehicle photos with an explicit car-photo placeholder, a
+  cobalt recorded-route accent,
   extensible English/French catalogs and persistent Light, Dark and Auto themes work
   across the application. Login copy is operational and instance-focused rather than
   promotional. The live dashboard consumes an

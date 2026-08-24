@@ -81,7 +81,8 @@ describe('vehicle and dashboard management', () => {
     const wrapper = mount(VehiclesView, { global:{plugins:[i18n],stubs:{RouterLink:{template:'<a><slot /></a>'}}} })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Add your own vehicle photo')
+    expect(wrapper.text()).toContain('Vehicle photo')
+    expect(wrapper.text()).toContain('No photo added')
     const image = new File(['image-content'], 'eclair.webp', { type: 'image/webp' })
     const input = wrapper.get('input[type="file"]')
     Object.defineProperty(input.element, 'files', { configurable: true, value: [image] })

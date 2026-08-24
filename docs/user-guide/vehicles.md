@@ -7,16 +7,18 @@ C-Zero fields never enter the generic table; choose a vehicle profile for decodi
 Live state shows the latest position, canonical metrics and device health. Online state
 uses reporting freshness rather than assuming every parked vehicle reports rapidly.
 
-The vehicle catalog shows fleet totals, connected vehicles and average battery state.
-Search is local and immediate; the All, Online and Parked filters only change the visible
-catalog and do not alter reporting configuration. Each vehicle card links to its real
-history and tracker workflows.
+The vehicle catalog is arranged as a photographic garage: each card leads with the
+vehicle image, followed by identity, live battery/speed/contact readings and direct
+history/tracker actions. The compact overview above it shows fleet totals, connected
+vehicles and average battery state. Search is local and immediate; the All, Online and
+Parked filters only change the visible catalog and do not alter reporting configuration.
 
 ## Vehicle photos
 
 Use **Add photo** on a vehicle to upload a JPEG, PNG or WebP image up to 25 MiB. You can
-replace or remove it from the same media frame. Until then, VehiNode shows a neutral
-placeholder that uses the vehicle's configured accent color.
+replace or remove it from the same media frame. Until then, VehiNode shows a plain
+missing-photo frame with car and camera icons. It is deliberately not a substitute
+vehicle illustration.
 
 Photos remain private to the vehicle owner. VehiNode stores the image as a file in its
 media directory; PostgreSQL contains only its content type, size, fingerprint and

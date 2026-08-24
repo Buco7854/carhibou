@@ -66,8 +66,19 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByLabel('Year').fill('2018')
   await page.getByRole('button', { name: 'Create vehicle' }).click()
   await expect(page.getByRole('heading', { name: 'Éclair' })).toBeVisible()
-  await expect(page.getByText('Add your own vehicle photo')).toBeVisible()
-  await page.locator('.vehicle-media input[type="file"]').setInputFiles({
+  await expect(page.getByText('Vehicle photo')).toBeVisible()
+  await expect(page.getByText('No photo added')).toBeVisible()
+  const photoInput = page.locator('.vehicle-media input[type="file"]')
+  await photoInput.focus()
+  await expect(photoInput.locator('..')).toHaveCSS('outline-style', 'solid')
+  const vehicleAccessibility = await new AxeBuilder({ page }).analyze()
+  expect(vehicleAccessibility.violations).toEqual([])
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark' })
+  await expect.poll(() => page.getByRole('heading', { name: 'Vehicles', exact: true }).evaluate((element) => getComputedStyle(element).color)).toBe('rgb(241, 243, 239)')
+  const darkVehicleAccessibility = await new AxeBuilder({ page }).analyze()
+  expect(darkVehicleAccessibility.violations).toEqual([])
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light' })
+  await photoInput.setInputFiles({
     name: 'eclair.png',
     mimeType: 'image/png',
     buffer: ONE_PIXEL_PNG,
@@ -197,6 +208,12 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(badgeGeometry.every((badge) => badge.radius === '6px' && badge.width > badge.height)).toBeTruthy()
   const mobileDimensions = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, viewport: window.innerWidth }))
   expect(mobileDimensions.scroll).toBeLessThanOrEqual(mobileDimensions.viewport)
+
+  await page.getByRole('link', { name: 'Vehicles', exact: true }).click()
+  await expect(page.locator('.vehicle-card')).toBeVisible()
+  await expect(page.locator('.vehicle-card img')).toBeVisible()
+  const mobileGarageDimensions = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, viewport: window.innerWidth }))
+  expect(mobileGarageDimensions.scroll).toBeLessThanOrEqual(mobileGarageDimensions.viewport)
 })
 
 test('mobile login keeps language, theme, keyboard access and reflow', async ({ page }) => {
