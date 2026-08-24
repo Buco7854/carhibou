@@ -8,6 +8,7 @@ from starlette.types import Scope
 
 from backend.app.api.agent_distribution import router as agent_distribution_router
 from backend.app.api.errors import install_error_handlers
+from backend.app.api.events import router as event_router
 from backend.app.api.health import router as health_router
 from backend.app.auth.routes import router as auth_router
 from backend.app.branding import APP_DESCRIPTION, APP_NAME, APP_VERSION
@@ -51,6 +52,7 @@ app.include_router(health_router)
 app.include_router(agent_distribution_router)
 for api_router in (
     auth_router,
+    event_router,
     vehicle_router,
     human_router,
     device_router,

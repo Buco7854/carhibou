@@ -19,6 +19,8 @@ the first public release.
   recipes, operations scripts and security guidance.
 - Reproducible Playwright browser journey with axe accessibility checks, a disposable
   migrated database and the real FastAPI app plus worker.
+- Authenticated Server-Sent Events for live owned-vehicle state with automatic browser
+  reconnection, idle heartbeats and continued session validation.
 
 ### Changed
 
@@ -27,3 +29,6 @@ the first public release.
   searchable garage roster and responsive light/dark themes.
 - Dashboard responses now retain empty layout collections, and the standalone worker
   loads the complete SQLAlchemy model registry before polling jobs.
+- Simplified the self-hosted login, removed redundant implementation facts, replaced
+  fixed dashboard polling with live events and normalized status badges as rounded
+  rectangles across desktop and mobile.

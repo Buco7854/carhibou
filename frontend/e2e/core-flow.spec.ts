@@ -98,6 +98,24 @@ test('complete browser journey from first account to persistent hook state', asy
   await expect(page.locator('.energy-state strong')).toHaveText('77')
   await expect(page.locator('.map-heading strong')).toContainText('48.86660')
   await expect(page.locator('.vehinode-position-marker')).toBeVisible()
+  await expect(page.getByText('Live updates')).toBeVisible()
+
+  const liveSample = {
+    id: randomUUID(),
+    sequence: 6,
+    recorded_at: new Date().toISOString(),
+    position: { latitude: 48.87, longitude: 2.37, speed: 18, heading: 102, altitude: 43, accuracy: 3.8 },
+    metrics: { 'battery.soc': 61, 'battery.pack_voltage': 329.1, 'battery.power': -4.2, 'charging.active': false, 'vehicle.speed': 18 },
+    device: { mobile_signal: -73, queue_depth: 0 },
+  }
+  const liveBatch = await request.post('/api/v1/device/telemetry/batch', {
+    headers: { Authorization: `Device ${enrolled.credential}` },
+    data: { boot_id: bootId, samples: [liveSample] },
+  })
+  expect(liveBatch.status()).toBe(200)
+  await expect(page.locator('.energy-state strong')).toHaveText('61')
+  await expect(page.locator('.map-heading strong')).toContainText('48.87000')
+
   const dashboardAccessibility = await new AxeBuilder({ page }).analyze()
   expect(dashboardAccessibility.violations).toEqual([])
   await page.getByTitle('Theme').click()
@@ -110,8 +128,8 @@ test('complete browser journey from first account to persistent hook state', asy
 
   await page.getByRole('link', { name: 'History', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Éclair · History' })).toBeVisible()
-  await expect(page.getByText('6 source samples')).toBeVisible()
-  await expect(page.locator('.route-count')).toContainText('6')
+  await expect(page.getByText('7 source samples')).toBeVisible()
+  await expect(page.locator('.route-count')).toContainText('7')
 
   await page.getByRole('link', { name: 'Dashboards' }).click()
   await page.getByRole('button', { name: '+ Add widget' }).click()
@@ -143,6 +161,18 @@ test('complete browser journey from first account to persistent hook state', asy
   await page.getByRole('link', { name: 'Devices' }).click()
   await expect(page.getByRole('heading', { name: 'Vehicle tracker' })).toBeVisible()
   await expect(page.getByText('e2e-1.0.0')).toBeVisible()
+
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.getByRole('link', { name: 'Dashboard', exact: true }).click()
+  await expect(page.getByText('Live updates')).toBeVisible()
+  const badgeGeometry = await page.locator('.status').evaluateAll((badges) => badges.map((badge) => {
+    const bounds = badge.getBoundingClientRect()
+    return { radius: getComputedStyle(badge).borderRadius, width: bounds.width, height: bounds.height }
+  }))
+  expect(badgeGeometry.length).toBeGreaterThan(0)
+  expect(badgeGeometry.every((badge) => badge.radius === '6px' && badge.width > badge.height)).toBeTruthy()
+  const mobileDimensions = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, viewport: window.innerWidth }))
+  expect(mobileDimensions.scroll).toBeLessThanOrEqual(mobileDimensions.viewport)
 })
 
 test('mobile login keeps language, theme, keyboard access and reflow', async ({ page }) => {

@@ -22,6 +22,8 @@ describe('login', () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
     await router.push('/login')
     const wrapper = mount(LoginView, { global: { plugins: [router, i18n] } })
+    expect(wrapper.text()).not.toContain('Sources')
+    expect(wrapper.text()).not.toContain('PostgreSQL history')
     await wrapper.get('#email').setValue('driver@example.com')
     await wrapper.get('#password').setValue('long-password')
     await wrapper.get('form').trigger('submit')

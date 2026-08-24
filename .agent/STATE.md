@@ -14,7 +14,9 @@ Updated: 2026-08-24
   typography, an original node-route mark, a modern neutralized OpenStreetMap treatment,
   a cobalt recorded-route accent, extensible English/French catalogs and persistent
   Light, Dark and Auto themes work across the application. Login copy is operational
-  and instance-focused rather than promotional.
+  and instance-focused rather than promotional. The live dashboard consumes an
+  authenticated, session-revalidating SSE stream instead of browser polling, and its
+  status badges keep a consistent rounded-rectangle shape at mobile widths.
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,
   HTTP/geometry helpers, manual dry-run and execution history.
@@ -26,15 +28,16 @@ Updated: 2026-08-24
 
 ## Verification
 
-- Ruff, Ruff format, mypy: passing for 91 Python source files.
-- Backend/agent tests runnable without PostgreSQL: 34 passing, including the complete
+- Ruff, Ruff format, mypy: passing for 93 Python source files.
+- Backend/agent tests runnable without PostgreSQL: 36 passing, including the complete
   simulator-to-hook E2E scenario.
 - Frontend: ESLint and strict type check passing; 5 files / 8 behavior tests passing;
   production build passing.
 - Playwright: 2 Chromium scenarios passing locally against a fresh migrated database,
   real API and worker. CI runs the same suite on PostgreSQL. They cover the primary
-  product journey, idempotency, auth-realm isolation, persistent hook state, mobile
-  reflow, EN/FR, themes and automated axe checks.
+  product journey, idempotency, auth-realm isolation, live SSE state changes,
+  persistent hook state, mobile reflow/badge geometry, EN/FR, themes and automated
+  axe checks.
 - VitePress build and Python wheel build pass. Alembic upgrade/check/downgrade passes
   with the local SQLite migration smoke database.
 - The committed lockfiles install from a fresh checkout and `scripts/check.sh` resolves

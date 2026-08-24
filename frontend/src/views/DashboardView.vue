@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
+import { openLiveEventStream, type LiveConnectionStatus } from '../api/events'
 import type { History, Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
@@ -13,7 +14,9 @@ const { t } = useI18n()
 const selectedId = ref('')
 const history = ref<History | null>(null)
 const error = ref('')
-let timer: number | undefined
+const liveStatus = ref<LiveConnectionStatus>('connecting')
+let eventSource: EventSource | undefined
+let historyRequest = 0
 
 const selected = computed(() => vehicles.value.find((vehicle) => vehicle.id === selectedId.value))
 const onlineCount = computed(() => vehicles.value.filter((vehicle) => vehicle.state?.online).length)
@@ -48,8 +51,11 @@ function lastContact(vehicle: Vehicle): string {
 }
 
 async function loadHistory(): Promise<void> {
-  if (!selectedId.value) return
-  history.value = await api<History>(`/vehicles/${selectedId.value}/history?max_points=150`)
+  const vehicleId = selectedId.value
+  const request = ++historyRequest
+  if (!vehicleId) { history.value = null; return }
+  const nextHistory = await api<History>(`/vehicles/${vehicleId}/history?max_points=150`)
+  if (request === historyRequest && selectedId.value === vehicleId) history.value = nextHistory
 }
 
 async function load(): Promise<void> {
@@ -61,8 +67,29 @@ async function load(): Promise<void> {
 }
 
 async function selectVehicle(id: string): Promise<void> { selectedId.value = id; await loadHistory() }
-onMounted(async () => { await load(); timer = window.setInterval(load, 15_000) })
-onUnmounted(() => window.clearInterval(timer))
+
+async function applyVehicleStates(nextVehicles: Vehicle[]): Promise<void> {
+  const previousStateUpdate = selected.value?.state?.updated_at
+  vehicles.value = nextVehicles
+  if (!vehicles.value.some((vehicle) => vehicle.id === selectedId.value)) {
+    selectedId.value = vehicles.value[0]?.id ?? ''
+  }
+  error.value = ''
+  if (selected.value?.state?.updated_at !== previousStateUpdate) await loadHistory()
+}
+
+function connectLiveEvents(): void {
+  eventSource = openLiveEventStream({
+    onStatus: (status) => { liveStatus.value = status },
+    onVehicleStates: (nextVehicles) => { void applyVehicleStates(nextVehicles) },
+    onSessionExpired: () => {
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`)
+    },
+  })
+}
+
+onMounted(async () => { await load(); connectLiveEvents() })
+onUnmounted(() => eventSource?.close())
 </script>
 
 <template>
@@ -79,7 +106,7 @@ onUnmounted(() => window.clearInterval(timer))
     <template v-else-if="selected">
       <div class="garage-summary">
         <p>{{ t('dashboard.garageSummary', { count: vehicles.length, online: onlineCount, charging: chargingCount }) }}</p>
-        <span>{{ t('dashboard.refreshCycle') }}</span>
+        <span :class="['status', { online: liveStatus === 'open' }]" role="status" aria-live="polite">{{ t(`dashboard.liveStream.${liveStatus}`) }}</span>
       </div>
 
       <nav class="vehicle-switcher" :aria-label="t('dashboard.chooseVehicle')">

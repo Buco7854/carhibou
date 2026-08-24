@@ -13,3 +13,17 @@ state.
 History requests have a bounded range and result size. The service reduces dense data
 server-side before returning route/chart points. PostgreSQL remains the only time-series
 store at the intended 1–100 vehicle scale.
+
+## Live browser state
+
+Authenticated browsers subscribe to `GET /api/v1/events/stream`, a same-origin
+Server-Sent Events stream. The server sends a versioned `vehicle.states` snapshot when
+owned current state changes and a comment heartbeat while idle. The dashboard updates
+its state immediately and refreshes route history only for a newly received sample;
+there is no fixed browser polling interval.
+
+The stream uses the opaque browser session cookie, revalidates that session while it is
+open, and emits `session.expired` before closing a revoked or expired connection. Device
+credentials cannot open it. Snapshots come from PostgreSQL rather than process-local
+memory, so multiple app processes remain consistent. The EventSource client reconnects
+automatically after temporary network or server failures.
