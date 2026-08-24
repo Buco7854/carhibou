@@ -14,7 +14,8 @@ parser and pseudo-serial tests do not constitute hardware validation.
 | C-Zero battery SOC (`0x374`) | Experimental | Passing synthetic fixture | Pending real CAN comparison |
 | C-Zero pack voltage/current (`0x373`) | Experimental | Passing synthetic fixture | Pending real CAN comparison |
 | C-Zero speed/odometer (`0x412`) | Experimental | Passing synthetic fixture | Pending real CAN comparison |
-| Installer on Raspberry Pi OS ARMv6 | Complete | Shell/CI validation pending | Pending Pi Zero W |
+| Standalone Linux ARMv6 build | Complete | Cross-build and unit tests passing | Pending Pi Zero W |
+| Installer on Raspberry Pi OS ARMv6 | Complete | Shell syntax and artifact contract passing | Pending Pi Zero W |
 
 When hardware is tested, record model/revision, OS, agent version, method, evidence and
 date here. Never replace “pending” with “verified” from simulation alone.

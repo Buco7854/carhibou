@@ -20,5 +20,7 @@ VEHINODE_DATABASE_URL=sqlite:////tmp/vehinode-migration-check.sqlite3 "$PYTHON" 
 VEHINODE_DATABASE_URL=sqlite:////tmp/vehinode-migration-check.sqlite3 "$PYTHON" -m alembic downgrade base
 "$PYTHON" -m build --wheel --no-isolation
 
+(cd agent && test -z "$(gofmt -l cmd internal)" && go vet ./... && go test ./...)
+
 (cd frontend && npm run lint && npm run typecheck && npm test && npm run build)
 (cd docs && npm run docs:build)

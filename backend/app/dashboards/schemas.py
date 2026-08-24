@@ -25,6 +25,7 @@ class DashboardWidget(BaseModel):
 class DashboardLayout(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    preset: str | None = Field(default=None, max_length=80)
     widgets: Annotated[list[DashboardWidget], Field(max_length=100)] = Field(default_factory=list)
 
 

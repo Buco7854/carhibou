@@ -4,8 +4,9 @@ import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import { auth } from '../api/auth'
 import type { BrowserSession, Diagnostics } from '../api/types'
-import { persistLocale, type SupportedLocale } from '../i18n'
-import { setTheme, themeMode, type ThemeMode } from '../theme'
+import AppSelect from '../components/AppSelect.vue'
+import { persistLocale } from '../i18n'
+import { setTheme, themeMode } from '../theme'
 
 const { locale, t } = useI18n()
 const diagnostics = ref<Diagnostics | null>(null)
@@ -15,14 +16,14 @@ const newPassword = ref('')
 const accountMessage = ref('')
 const accountError = ref('')
 
-function changeLocale(event: Event): void {
-  const value = (event.target as HTMLSelectElement).value as SupportedLocale
+function changeLocale(value: string | number | null): void {
+  if (value !== 'en' && value !== 'fr') return
   locale.value = value
   persistLocale(value)
 }
 
-function changeTheme(event: Event): void {
-  setTheme((event.target as HTMLSelectElement).value as ThemeMode)
+function changeTheme(value: string | number | null): void {
+  if (value === 'light' || value === 'dark' || value === 'auto') setTheme(value)
 }
 
 async function changePassword(): Promise<void> {
@@ -54,8 +55,8 @@ onMounted(async () => {
       <section class="panel panel-pad">
         <h2 class="mt-0 text-lg font-bold">{{ t('settings.appearance') }}</h2>
         <div class="mt-5 grid gap-5">
-          <div class="field"><label for="theme">{{ t('settings.theme') }}</label><select id="theme" class="select" :value="themeMode" @change="changeTheme"><option value="auto">{{ t('settings.auto') }}</option><option value="light">{{ t('settings.light') }}</option><option value="dark">{{ t('settings.dark') }}</option></select></div>
-          <div class="field"><label for="locale">{{ t('settings.language') }}</label><select id="locale" class="select" :value="locale" @change="changeLocale"><option value="en">{{ t('settings.english') }}</option><option value="fr">{{ t('settings.french') }}</option></select></div>
+          <div class="field"><label for="theme">{{ t('settings.theme') }}</label><AppSelect id="theme" :model-value="themeMode" @update:model-value="changeTheme"><option value="auto">{{ t('settings.auto') }}</option><option value="light">{{ t('settings.light') }}</option><option value="dark">{{ t('settings.dark') }}</option></AppSelect></div>
+          <div class="field"><label for="locale">{{ t('settings.language') }}</label><AppSelect id="locale" :model-value="locale" @update:model-value="changeLocale"><option value="en">{{ t('settings.english') }}</option><option value="fr">{{ t('settings.french') }}</option></AppSelect></div>
           <p class="muted m-0 text-xs">{{ t('settings.saved') }}</p>
         </div>
       </section>

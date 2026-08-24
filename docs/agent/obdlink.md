@@ -13,6 +13,11 @@ Standard sampling supports engine load, coolant and intake temperature, RPM, veh
 speed, MAF, throttle, fuel level and control-module voltage. An enabled raw-CAN vehicle
 profile selects read-only CAN monitoring instead.
 
+There is no separate CAN device selection in the current agent. Standard OBD queries and
+raw CAN monitoring both use the one OBDLink adapter saved as the `obd` device. A future
+native SocketCAN provider would expose a distinct network interface selection instead of
+pretending that a `can0` interface is a serial port.
+
 VehiNode does not transmit arbitrary CAN frames. See the official
 [OBDLink developer documentation](https://www.obdlink.com/developers/) for adapter
 command references.

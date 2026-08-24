@@ -30,11 +30,17 @@ def list_dashboards(db: Db, auth: CurrentUser) -> list[Dashboard]:
     status_code=status.HTTP_201_CREATED,
 )
 def create_dashboard(data: DashboardWrite, db: Db, auth: CurrentUserWrite) -> Dashboard:
-    if data.is_default:
+    make_default = (
+        data.is_default
+        or db.scalar(select(Dashboard.id).where(Dashboard.owner_id == auth.user.id).limit(1))
+        is None
+    )
+    if make_default:
         db.execute(
             update(Dashboard).where(Dashboard.owner_id == auth.user.id).values(is_default=False)
         )
     values = data.model_dump()
+    values["is_default"] = make_default
     values["layout"] = data.layout.model_dump(exclude_none=True, exclude_defaults=True)
     dashboard = Dashboard(owner_id=auth.user.id, **values)
     db.add(dashboard)
@@ -76,5 +82,15 @@ def delete_dashboard(dashboard_id: str, db: Db, auth: CurrentUserWrite) -> None:
     )
     if not dashboard:
         raise HTTPException(status_code=404, detail="dashboard not found")
+    was_default = dashboard.is_default
     db.delete(dashboard)
+    if was_default:
+        replacement = db.scalar(
+            select(Dashboard)
+            .where(Dashboard.owner_id == auth.user.id, Dashboard.id != dashboard.id)
+            .order_by(Dashboard.created_at)
+            .limit(1)
+        )
+        if replacement:
+            replacement.is_default = True
     db.commit()

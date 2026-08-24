@@ -5,8 +5,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { auth, logout } from './api/auth'
 import { APP_NAME } from './branding'
 import AppIcon from './components/AppIcon.vue'
+import AppSelect from './components/AppSelect.vue'
 import BrandMark from './components/BrandMark.vue'
-import { persistLocale, type SupportedLocale } from './i18n'
+import { persistLocale } from './i18n'
 import { resolvedTheme, setTheme } from './theme'
 
 const router = useRouter()
@@ -14,15 +15,15 @@ const route = useRoute()
 const { locale, t } = useI18n()
 const initials = computed(() => auth.user?.display_name.slice(0, 2).toUpperCase() ?? '')
 const section = computed(() => {
-  const name = String(route.name ?? 'dashboard')
+  const name = String(route.name ?? 'dashboards')
   if (name === 'history') return { icon: 'history', label: t('history.title') }
-  const mapped = ['dashboard', 'vehicles', 'dashboards', 'hooks', 'devices', 'settings'].includes(name) ? name : 'dashboard'
-  const icons: Record<string, string> = { dashboard: 'dashboard', vehicles: 'vehicle', dashboards: 'grid', hooks: 'hooks', devices: 'devices', settings: 'settings' }
-  return { icon: icons[mapped] ?? 'dashboard', label: t(`nav.${mapped}`) }
+  const mapped = ['vehicles', 'profiles', 'dashboards', 'hooks', 'devices', 'settings'].includes(name) ? name : 'dashboards'
+  const icons: Record<string, string> = { vehicles: 'vehicle', profiles: 'profile', dashboards: 'grid', hooks: 'hooks', devices: 'devices', settings: 'settings' }
+  return { icon: icons[mapped] ?? 'grid', label: t(`nav.${mapped}`) }
 })
 
-function changeLocale(event: Event): void {
-  const value = (event.target as HTMLSelectElement).value as SupportedLocale
+function changeLocale(value: string | number | null): void {
+  if (value !== 'en' && value !== 'fr') return
   locale.value = value
   persistLocale(value)
 }
@@ -47,9 +48,9 @@ async function signOut() {
       </RouterLink>
       <div class="nav-group-label">{{ t('nav.workspace') }}</div>
       <nav class="main-nav" :aria-label="t('nav.workspace')">
-        <RouterLink to="/" exact-active-class="active" :title="t('nav.dashboard')"><AppIcon name="dashboard" /><span class="nav-label">{{ t('nav.dashboard') }}</span></RouterLink>
+        <RouterLink to="/" exact-active-class="active" :title="t('nav.dashboards')"><AppIcon name="grid" /><span class="nav-label">{{ t('nav.dashboards') }}</span></RouterLink>
         <RouterLink to="/vehicles" :title="t('nav.vehicles')"><AppIcon name="vehicle" /><span class="nav-label">{{ t('nav.vehicles') }}</span></RouterLink>
-        <RouterLink to="/dashboards" :title="t('nav.dashboards')"><AppIcon name="grid" /><span class="nav-label">{{ t('nav.dashboards') }}</span></RouterLink>
+        <RouterLink to="/profiles" :title="t('nav.profiles')"><AppIcon name="profile" /><span class="nav-label">{{ t('nav.profiles') }}</span></RouterLink>
         <RouterLink to="/hooks" :title="t('nav.hooks')"><AppIcon name="hooks" /><span class="nav-label">{{ t('nav.hooks') }}</span></RouterLink>
         <RouterLink to="/devices" :title="t('nav.devices')"><AppIcon name="devices" /><span class="nav-label">{{ t('nav.devices') }}</span></RouterLink>
       </nav>
@@ -69,7 +70,7 @@ async function signOut() {
         <div class="section-title"><AppIcon :name="section.icon" :size="18" /><strong>{{ section.label }}</strong></div>
         <div class="topbar-actions">
           <span class="connection-chip"><i />{{ t('nav.secureConnection') }}</span>
-          <select class="topbar-select" :value="locale" :aria-label="t('settings.language')" @change="changeLocale"><option value="en">EN</option><option value="fr">FR</option></select>
+          <AppSelect class="topbar-select" compact :model-value="locale" :aria-label="t('settings.language')" @update:model-value="changeLocale"><option value="en">EN</option><option value="fr">FR</option></AppSelect>
           <button class="topbar-button" :title="t('settings.theme')" @click="toggleTheme"><AppIcon name="theme" :size="18" /></button>
           <button class="topbar-avatar" :title="auth.user.email" @click="router.push('/settings')">{{ initials }}</button>
         </div>

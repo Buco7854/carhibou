@@ -1,10 +1,22 @@
 # syntax=docker/dockerfile:1.7
+ARG VEHINODE_VERSION=0.1.0
+
 FROM node:22.23.2-bookworm-slim AS frontend-build
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY frontend/ ./
 RUN npm run build
+
+FROM golang:1.26.6-bookworm AS agent-build
+ARG VEHINODE_VERSION
+WORKDIR /src/agent
+COPY agent/go.mod agent/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY agent/ ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    sh build-release.sh "$VEHINODE_VERSION" /out
 
 FROM python:3.13.15-slim-bookworm AS wheel-build
 WORKDIR /src
@@ -23,7 +35,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && pip install --prefix=/install --no-deps /tmp/dist/*.whl
 
 FROM python:3.13.15-slim-bookworm AS runtime
-ARG VEHINODE_VERSION=0.1.0
+ARG VEHINODE_VERSION
 LABEL org.opencontainers.image.title="VehiNode" \
       org.opencontainers.image.description="Self-hosted vehicle telemetry and programmability platform"
 ENV PYTHONUNBUFFERED=1 \
@@ -37,14 +49,11 @@ RUN groupadd --system --gid 10001 vehinode \
     && mkdir -p /app/frontend/dist /var/lib/vehinode/media "/opt/vehinode-agent-releases/${VEHINODE_VERSION}"
 COPY --from=python-deps /install/ /usr/local/
 COPY --from=frontend-build /src/frontend/dist/ /app/frontend/dist/
-COPY --from=wheel-build /src/dist/vehinode-${VEHINODE_VERSION}-py3-none-any.whl /tmp/agent.whl
+COPY --from=agent-build /out/ /opt/vehinode-agent-releases/${VEHINODE_VERSION}/
 COPY alembic.ini /app/alembic.ini
 COPY backend/migrations/ /app/backend/migrations/
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/vehinode-entrypoint
-RUN cp /tmp/agent.whl "/opt/vehinode-agent-releases/${VEHINODE_VERSION}/vehinode-${VEHINODE_VERSION}-py3-none-any.whl" \
-    && cd "/opt/vehinode-agent-releases/${VEHINODE_VERSION}" \
-    && sha256sum "vehinode-${VEHINODE_VERSION}-py3-none-any.whl" > "vehinode-${VEHINODE_VERSION}-py3-none-any.whl.sha256" \
-    && rm /tmp/agent.whl \
+RUN sed -i 's/\r$//' /usr/local/bin/vehinode-entrypoint \
     && chown -R vehinode:vehinode /app /opt/vehinode-agent-releases /var/lib/vehinode
 USER 10001:10001
 EXPOSE 8000

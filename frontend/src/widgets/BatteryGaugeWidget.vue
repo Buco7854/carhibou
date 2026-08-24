@@ -1,15 +1,29 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from '../api/client'
-import type { DashboardWidget, Vehicle } from '../api/types'
+import type { DashboardWidget } from '../api/types'
+import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import { energySummary, metricLabel } from '../vehicleDisplay'
+import { useDashboardVehicle } from './dashboardContext'
 
-const props=defineProps<{widget:DashboardWidget}>()
-const{t}=useI18n()
-const vehicle=ref<Vehicle|null>(null)
-const energy=computed(()=>energySummary(vehicle.value))
-onMounted(async()=>{if(props.widget.vehicle_id)vehicle.value=await api<Vehicle>(`/vehicles/${props.widget.vehicle_id}`)})
+const props = defineProps<{ widget: DashboardWidget }>()
+const { t } = useI18n()
+const vehicle = useDashboardVehicle(props.widget)
+const energy = computed(() => energySummary(vehicle.value))
+const charging = computed(() => vehicle.value?.state?.metrics['charging.active'])
 </script>
-<template><article class="widget-card items-center"><span class="eyebrow self-start">{{ widget.title||metricLabel(energy,t) }}</span><div class="gauge" :style="{'--fill':`${energy.progress*3.6}deg`}"><strong>{{ energy.value===null?'—':Math.round(energy.value) }}<small v-if="energy.value!==null">{{ energy.unit }}</small></strong></div><small class="muted">{{ vehicle?.name }}</small></article></template>
-<style scoped>.gauge{width:130px;height:130px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--accent) var(--fill),var(--accent-soft) 0);position:relative}.gauge:after{content:'';position:absolute;inset:10px;border-radius:50%;background:var(--panel)}.gauge strong{z-index:1;font:500 25px 'IBM Plex Mono',monospace}.gauge strong small{margin-left:2px;color:var(--muted);font-size:11px}</style>
+
+<template>
+  <article class="widget-card energy-widget">
+    <header><span class="eyebrow">{{ widget.title || metricLabel(energy,t) }}</span><small>{{ vehicle?.name }}</small></header>
+    <template v-if="energy.value!==null">
+      <div class="gauge"><strong class="energy-value">{{ Math.round(energy.value) }}</strong><em>{{ energy.unit }}</em><small v-if="typeof charging==='boolean'">{{ t('metrics.charging') }} · {{ t(charging ? 'metrics.active' : 'metrics.inactive') }}</small></div>
+      <i class="energy-track"><b :style="{ width:`${energy.progress}%` }" /></i>
+    </template>
+    <DashboardWidgetEmpty v-else :icon="energy.icon" />
+  </article>
+</template>
+
+<style scoped>
+.energy-widget{padding:15px 17px}.energy-widget header{display:flex;align-items:center;justify-content:space-between;gap:12px}.energy-widget header .eyebrow{margin:0}.energy-widget header small{overflow:hidden;color:var(--muted);font-size:8px;text-overflow:ellipsis;white-space:nowrap}.gauge{min-height:0;display:flex;align-items:end;flex:1}.gauge strong{font-size:clamp(37px,4vw,53px);font-weight:500;letter-spacing:-.075em;line-height:.86}.gauge em{margin:0 0 4px 5px;color:var(--accent);font-size:14px;font-style:normal}.gauge small{margin:0 0 5px auto;color:var(--muted);font-size:8px}.energy-track{height:6px;display:block;overflow:hidden;background:var(--panel-2);border-radius:4px}.energy-track b{display:block;height:100%;background:var(--accent)}
+</style>

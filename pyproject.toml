@@ -46,7 +46,6 @@ dev = [
 ]
 
 [project.scripts]
-vehinode-agent = "agent.vehicle_agent.cli:main"
 vehinode-worker = "backend.app.worker:main"
 
 [tool.setuptools]

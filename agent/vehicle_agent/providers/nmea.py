@@ -4,6 +4,7 @@ from pathlib import Path
 
 import serial
 
+from agent.vehicle_agent.hardware import gps_candidates
 from agent.vehicle_agent.models import PositionFix
 
 KNOTS_TO_KMH = 1.852
@@ -152,14 +153,11 @@ class NMEAAccumulator:
 
 
 def discover_sim7600_nmea() -> Path | None:
-    by_id = Path("/dev/serial/by-id")
-    if by_id.is_dir():
-        candidates = sorted(path for path in by_id.iterdir() if "simtech" in path.name.lower())
-        if candidates:
-            # SIM7600 exposes several USB serial ports; explicit config remains preferable.
-            return candidates[0]
-    fallback = Path("/dev/ttyUSB1")
-    return fallback if fallback.exists() else None
+    candidates = gps_candidates()
+    if candidates:
+        # Multi-port modems still need gps-info verification and may require explicit selection.
+        return Path(candidates[0])
+    return None
 
 
 class SIM7600NMEAProvider:

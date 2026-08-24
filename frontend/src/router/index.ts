@@ -6,10 +6,11 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
-    { path: '/', name: 'dashboard', component: () => import('../views/DashboardView.vue') },
+    { path: '/', name: 'dashboards', component: () => import('../views/DashboardsView.vue') },
     { path: '/vehicles', name: 'vehicles', component: () => import('../views/VehiclesView.vue') },
+    { path: '/profiles', name: 'profiles', component: () => import('../views/ProfilesView.vue') },
     { path: '/vehicles/:id/history', name: 'history', component: () => import('../views/HistoryView.vue') },
-    { path: '/dashboards', name: 'dashboards', component: () => import('../views/DashboardsView.vue') },
+    { path: '/dashboards', redirect: '/' },
     { path: '/hooks', name: 'hooks', component: () => import('../views/HooksView.vue') },
     { path: '/devices', name: 'devices', component: () => import('../views/DevicesView.vue') },
     { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
@@ -19,7 +20,7 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   if (!auth.ready) await loadUser()
   if (!to.meta.public && !auth.user) return { name: 'login', query: { next: to.fullPath } }
-  if (to.name === 'login' && auth.user) return { name: 'dashboard' }
+  if (to.name === 'login' && auth.user) return { name: 'dashboards' }
   return true
 })
 

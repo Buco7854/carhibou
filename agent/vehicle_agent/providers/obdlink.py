@@ -1,9 +1,9 @@
-import glob
 import re
 import time
 
 import serial
 
+from agent.vehicle_agent.hardware import obd_candidates
 from agent.vehicle_agent.models import CANFrame
 
 
@@ -12,12 +12,7 @@ class AdapterError(Exception):
 
 
 def discover_obdlink() -> list[str]:
-    stable = sorted(
-        glob.glob("/dev/serial/by-id/*OBDLink*") + glob.glob("/dev/serial/by-id/*FTDI*")
-    )
-    if stable:
-        return stable
-    return sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
+    return obd_candidates()
 
 
 def parse_can_frame(line: str, timestamp: float | None = None) -> CANFrame:

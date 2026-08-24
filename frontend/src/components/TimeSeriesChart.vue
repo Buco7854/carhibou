@@ -8,7 +8,7 @@ import { resolvedTheme } from '../theme'
 
 const props = defineProps<{
   series: Array<{ name: string; unit?: string; data: Array<[string, number]> }>
-  height?: number
+  height?: number | string
 }>()
 const element = ref<HTMLDivElement>()
 echarts.use([LineChart, DataZoomComponent, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
@@ -57,4 +57,4 @@ watch(resolvedTheme, () => window.requestAnimationFrame(render))
 onBeforeUnmount(() => { observer?.disconnect(); chart?.dispose() })
 </script>
 
-<template><div ref="element" :style="{ height: `${height ?? 280}px` }" role="img" aria-label="Telemetry chart" /></template>
+<template><div ref="element" :style="{ height: typeof height === 'number' ? `${height}px` : (height ?? '280px'), minHeight: 0 }" role="img" aria-label="Telemetry chart" /></template>

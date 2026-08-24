@@ -1,5 +1,39 @@
 <script setup lang="ts">
-import { onMounted,ref } from 'vue';import { useI18n } from 'vue-i18n';import { api } from '../api/client';import type { DashboardWidget,Hook,HookExecution } from '../api/types';defineProps<{widget:DashboardWidget}>();const{t}=useI18n();const latest=ref<Array<{hook:Hook;execution:HookExecution}>>([]);onMounted(async()=>{const hooks=await api<Hook[]>('/hooks');latest.value=(await Promise.all(hooks.slice(0,5).map(async hook=>({hook,execution:(await api<HookExecution[]>(`/hooks/${hook.id}/executions?limit=1`))[0]})))).filter((row):row is {hook:Hook;execution:HookExecution}=>!!row.execution)})
+import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { api } from '../api/client'
+import type { DashboardWidget, Hook, HookExecution } from '../api/types'
+import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
+
+defineProps<{ widget: DashboardWidget }>()
+const { t } = useI18n()
+const loaded = ref(false)
+const latest = ref<Array<{hook:Hook;execution:HookExecution}>>([])
+
+onMounted(async () => {
+  const hooks = await api<Hook[]>('/hooks')
+  latest.value = (await Promise.all(hooks.slice(0, 5).map(async (hook) => ({
+    hook,
+    execution:(await api<HookExecution[]>(`/hooks/${hook.id}/executions?limit=1`))[0],
+  })))).filter((row):row is {hook:Hook;execution:HookExecution} => Boolean(row.execution))
+  loaded.value = true
+})
 </script>
-<template><article class="widget-card"><span class="eyebrow">{{ t('dashboards.hookActivity') }}</span><ul class="activity"><li v-for="row in latest" :key="row.execution.id"><span :class="['status',{online:row.execution.status==='success'}]">{{ row.execution.status }}</span><strong>{{ row.hook.name }}</strong><small>{{ new Date(row.execution.created_at).toLocaleTimeString() }}</small></li><li v-if="!latest.length" class="muted">{{ t('hooks.noExecutions') }}</li></ul></article></template>
-<style scoped>.activity{list-style:none;padding:0;margin:8px 0;display:grid;gap:8px}.activity li{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;font-size:11px}.activity small{color:var(--muted)}</style>
+
+<template>
+  <article class="widget-card">
+    <span class="eyebrow">{{ t('dashboards.hookActivity') }}</span>
+    <ul v-if="latest.length" class="activity">
+      <li v-for="row in latest" :key="row.execution.id">
+        <span :class="['status',{online:row.execution.status==='success'}]">{{ row.execution.status }}</span>
+        <strong>{{ row.hook.name }}</strong>
+        <small>{{ new Date(row.execution.created_at).toLocaleTimeString() }}</small>
+      </li>
+    </ul>
+    <DashboardWidgetEmpty v-else icon="hooks" :loading="!loaded" :message="loaded?t('hooks.noExecutions'):''" />
+  </article>
+</template>
+
+<style scoped>
+.activity{list-style:none;padding:0;margin:8px 0;display:grid;gap:8px}.activity li{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;font-size:11px}.activity small{color:var(--muted)}
+</style>

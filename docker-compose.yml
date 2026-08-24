@@ -54,6 +54,8 @@ services:
   worker:
     <<: *app-base
     command: ["worker"]
+    healthcheck:
+      disable: true
     environment:
       <<: *app-environment
       VEHINODE_WORKER_ID: worker-1

@@ -46,3 +46,36 @@ def test_same_configuration_version_does_not_rewrite_sd_card(
 
     monkeypatch.setattr("agent.vehicle_agent.config.NamedTemporaryFile", unexpected_write)
     assert store.install_if_newer(data(3)).version == 3
+
+
+def test_inline_owner_profile_is_validated_and_kept_as_last_known_good(tmp_path: Path) -> None:
+    profile = {
+        "id": "owner-profile-1",
+        "name": "Owner profile",
+        "version": 1,
+        "signals": [
+            {
+                "name": "battery.soc",
+                "source": {"type": "can", "can_id": 0x374},
+                "decoder": {"byte_offset": 0, "data_type": "uint8", "scale": 0.5},
+                "status": "experimental",
+            }
+        ],
+    }
+    remote = data(1)
+    remote["vehicle_profile"] = "owner-profile-1"
+    remote["vehicle_profile_definition"] = profile
+    store = ConfigurationStore(tmp_path / "config.json")
+
+    installed = store.install_if_newer(remote)
+
+    assert installed.vehicle_profile_definition == profile
+    assert store.load().vehicle_profile_definition == profile
+
+
+def test_inline_profile_must_match_reference_and_decoder_contract(tmp_path: Path) -> None:
+    remote = data(1)
+    remote["vehicle_profile_definition"] = {"id": "another-profile", "signals": []}
+    store = ConfigurationStore(tmp_path / "config.json")
+    with pytest.raises(ConfigurationError, match="does not match"):
+        store.install_if_newer(remote)

@@ -5,10 +5,19 @@ import fr from './locales/fr'
 export const supportedLocales = ['en', 'fr'] as const
 export type SupportedLocale = (typeof supportedLocales)[number]
 
+export function detectBrowserLocale(languages: readonly string[] = navigator.languages): SupportedLocale {
+  for (const language of languages) {
+    const base = language.trim().toLowerCase().split(/[-_]/)[0]
+    if (base === 'en' || base === 'fr') return base
+  }
+  return 'en'
+}
+
 function initialLocale(): SupportedLocale {
   const stored = localStorage.getItem('vehinode.locale')
   if (stored === 'en' || stored === 'fr') return stored
-  return navigator.language.toLowerCase().startsWith('fr') ? 'fr' : 'en'
+  const languages = navigator.languages?.length ? navigator.languages : [navigator.language]
+  return detectBrowserLocale(languages)
 }
 
 const i18n = createI18n({

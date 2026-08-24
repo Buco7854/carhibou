@@ -10,6 +10,7 @@ from backend.app.common.settings import get_settings
 from backend.app.common.time import as_utc, utcnow
 from backend.app.devices.models import Device, EnrollmentToken
 from backend.app.devices.schemas import DeviceConfig, EnrollRequest, EnrollResponse
+from backend.app.vehicle_profiles.services import profile_definition
 from backend.app.vehicles.models import Vehicle
 
 
@@ -17,12 +18,15 @@ class EnrollmentError(Exception):
     pass
 
 
-def device_config(device: Device, vehicle: Vehicle) -> DeviceConfig:
+def device_config(db: Session, device: Device, vehicle: Vehicle) -> DeviceConfig:
     return DeviceConfig(
         version=device.config_version,
         sampling={"default_seconds": 5},
         upload={"default_seconds": 30},
         vehicle_profile=vehicle.vehicle_profile,
+        vehicle_profile_definition=profile_definition(
+            db, vehicle.owner_id, vehicle.vehicle_profile
+        ),
     )
 
 
@@ -71,7 +75,7 @@ def enroll(db: Session, request: EnrollRequest) -> EnrollResponse:
         device_id=device.id,
         vehicle_id=vehicle.id,
         credential=credential,
-        config=device_config(device, vehicle),
+        config=device_config(db, device, vehicle),
     )
 
 
@@ -85,7 +89,9 @@ def rotate_credential(device: Device) -> str:
 def install_command(token: str) -> str:
     base = get_settings().public_url.rstrip("/")
     installer_url = shlex.quote(f"{base}/install-agent")
+    insecure = " --allow-insecure-http" if base.startswith("http://") else ""
     return (
         f"curl -fsSL {installer_url} | sudo sh -s -- "
         f"--server {shlex.quote(base)} --token {shlex.quote(token)} --version {APP_VERSION}"
+        f"{insecure}"
     )

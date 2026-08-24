@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.app.common.settings import get_settings
 from backend.app.common.time import as_utc, utcnow
+from backend.app.dashboards.models import Dashboard
 from backend.app.users.models import User
 from backend.app.vehicle_state.models import VehicleState
 from backend.app.vehicles.models import Vehicle, VehiclePhoto
@@ -82,6 +83,31 @@ def delete_vehicle_photo(db: Session, vehicle_id: str) -> bool:
         return False
     db.delete(photo)
     return True
+
+
+def delete_vehicle(db: Session, vehicle: Vehicle) -> str | None:
+    """Delete a vehicle graph and remove its fixed references from dashboard JSON."""
+    dashboards = db.scalars(select(Dashboard).where(Dashboard.owner_id == vehicle.owner_id))
+    for dashboard in dashboards:
+        layout = dict(dashboard.layout)
+        widgets = layout.get("widgets", [])
+        if not isinstance(widgets, list):
+            continue
+        changed = False
+        updated_widgets: list[object] = []
+        for value in widgets:
+            if isinstance(value, dict) and value.get("vehicle_id") == vehicle.id:
+                widget = dict(value)
+                widget.pop("vehicle_id", None)
+                updated_widgets.append(widget)
+                changed = True
+            else:
+                updated_widgets.append(value)
+        if changed:
+            dashboard.layout = {**layout, "widgets": updated_widgets}
+    storage_key = vehicle.photo.storage_key if vehicle.photo else None
+    db.delete(vehicle)
+    return storage_key
 
 
 def serialize_vehicle(vehicle: Vehicle) -> VehicleResponse:

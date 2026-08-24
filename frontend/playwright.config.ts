@@ -9,7 +9,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'line',
   use: {
-    baseURL: 'http://127.0.0.1:18124',
+    baseURL: process.env.VEHINODE_E2E_BASE_URL ?? 'http://127.0.0.1:18124',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -20,7 +20,7 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } },
     },
   ],
-  webServer: {
+  webServer: process.env.VEHINODE_E2E_EXTERNAL ? undefined : {
     command: '../scripts/browser-e2e-server.sh',
     url: 'http://127.0.0.1:18124/health/ready',
     reuseExistingServer: false,

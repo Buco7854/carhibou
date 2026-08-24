@@ -162,3 +162,27 @@ def test_vehicle_photo_upload_is_described_as_binary_in_openapi(client: TestClie
     content = operation["requestBody"]["content"]
     assert set(content) == {"image/jpeg", "image/png", "image/webp"}
     assert all(definition["schema"]["format"] == "binary" for definition in content.values())
+
+
+def test_deleting_vehicle_removes_photo_file_and_metadata(
+    registered: tuple[TestClient, str], media_dir: Path, db_factory: sessionmaker[Session]
+) -> None:
+    client, csrf = registered
+    vehicle = _create_vehicle(client, csrf)
+    vehicle_id = cast(str, vehicle["id"])
+    assert (
+        client.put(
+            f"/api/v1/vehicles/{vehicle_id}/photo",
+            content=PNG,
+            headers={"Content-Type": "image/png", "X-CSRF-Token": csrf},
+        ).status_code
+        == 204
+    )
+    assert list(media_dir.rglob("*.png"))
+
+    response = client.delete(f"/api/v1/vehicles/{vehicle_id}", headers={"X-CSRF-Token": csrf})
+
+    assert response.status_code == 204
+    assert not list(media_dir.rglob("*.png"))
+    with db_factory() as db:
+        assert db.get(VehiclePhoto, vehicle_id) is None

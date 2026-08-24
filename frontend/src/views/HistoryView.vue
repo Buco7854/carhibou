@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import { api } from '../api/client'
 import type { History, Position, Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
+import AppSelect from '../components/AppSelect.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import VehicleMap from '../components/VehicleMap.vue'
 import { formatMetricNumber, metricDefinition, metricLabel, preferredHistoryMetric } from '../vehicleDisplay'
@@ -17,6 +18,7 @@ const metric = ref('')
 const days = ref(1)
 const error = ref('')
 const vehicleId = String(route.params.id)
+const vehicleDetails = computed(() => [vehicle.value?.manufacturer, vehicle.value?.model, vehicle.value?.year].filter(Boolean).join(' · '))
 const routePoints = computed<Array<[number, number]>>(() => (history.value?.points ?? []).flatMap((point) => point.latitude !== null && point.longitude !== null ? [[point.latitude, point.longitude]] : []))
 const lastPosition = computed<Position | null>(() => {
   const point = [...(history.value?.points ?? [])].reverse().find((row) => row.latitude !== null && row.longitude !== null)
@@ -59,26 +61,36 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page">
-    <header class="page-header"><div><span class="eyebrow">{{ t('history.eyebrow') }}</span><h1>{{ vehicle?.name }} · {{ t('history.title') }}</h1></div><RouterLink class="button secondary no-underline" to="/">← {{ t('nav.dashboard') }}</RouterLink></header>
+  <div class="page history-page">
+    <header class="page-header"><div><span class="eyebrow">{{ t('history.eyebrow') }}</span><h1>{{ vehicle?.name }} · {{ t('history.title') }}</h1><p>{{ t('history.pageHint') }}</p></div><RouterLink class="button secondary no-underline" to="/"><AppIcon name="arrow-left" :size="15" />{{ t('nav.dashboards') }}</RouterLink></header>
     <p v-if="error" class="error">{{ error }}</p>
-    <section class="panel history-toolbar">
-      <div class="history-identity"><span class="history-icon"><AppIcon name="vehicle" /></span><div><strong>{{ vehicle?.name }}</strong><small>{{ vehicle?.manufacturer }} {{ vehicle?.model }}</small></div><span :class="['status',{online:vehicle?.state?.online}]">{{ vehicle?.state?.online?t('common.online'):t('common.stale') }}</span></div>
-      <label class="field"><span>{{ t('history.metric') }}</span><select v-model="metric" class="select"><option v-for="definition in metricOptions" :key="definition.key" :value="definition.key">{{ metricLabel(definition, t) }} · {{ definition.key }}</option></select></label>
-      <label class="field range-field"><span>{{ t('history.range') }}</span><select v-model="days" class="select"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></select></label>
-      <div class="history-stat"><span>{{ metricLabel(selectedMetric, t) }}</span><strong>{{ latestDisplay }}<small v-if="latestValue !== undefined && selectedMetric.unit">{{ selectedMetric.unit }}</small></strong></div>
-      <div v-if="history" class="history-stat"><span>{{ t('history.samples', { count: history.original_count }) }}</span><strong>{{ history.original_count }}</strong></div>
-    </section>
+    <div class="history-overview">
+      <section class="panel history-context">
+        <div class="history-identity"><span class="history-icon"><AppIcon name="vehicle" /></span><div><strong>{{ vehicle?.name }}</strong><small v-if="vehicleDetails">{{ vehicleDetails }}</small></div><span :class="['status',{online:vehicle?.state?.online}]">{{ vehicle?.state?.online?t('common.online'):t('common.stale') }}</span></div>
+        <div class="history-stats">
+          <div class="history-stat"><span>{{ t('history.latest') }}</span><strong>{{ latestDisplay }}<small v-if="latestValue !== undefined && selectedMetric.unit">{{ selectedMetric.unit }}</small></strong><em>{{ metricLabel(selectedMetric, t) }}</em></div>
+          <div v-if="history" class="history-stat"><span>{{ t('history.sourceSamples') }}</span><strong>{{ history.original_count }}</strong><em>{{ t('history.selectedRange') }}</em></div>
+        </div>
+      </section>
+      <section class="panel history-controls">
+        <header><div><span class="eyebrow">{{ t('history.filters') }}</span><h2>{{ t('history.chooseData') }}</h2></div><p>{{ t('history.filtersHint') }}</p></header>
+        <div class="history-filters">
+          <label class="field"><span>{{ t('history.metric') }}</span><AppSelect v-model="metric"><option v-for="definition in metricOptions" :key="definition.key" :value="definition.key">{{ metricLabel(definition, t) }} · {{ definition.key }}</option></AppSelect></label>
+          <label class="field"><span>{{ t('history.range') }}</span><AppSelect v-model="days"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></AppSelect></label>
+        </div>
+      </section>
+    </div>
     <div v-if="history?.points.length" class="history-grid">
+      <section class="panel history-chart"><header><div><span class="eyebrow">{{ metric }}</span><h2>{{ metricLabel(selectedMetric, t) }}</h2></div><span class="metric-chip">{{ days === 1 ? t('history.day') : days === 7 ? t('history.week') : t('history.month') }}</span></header><div class="chart-stage"><TimeSeriesChart :series="series" :height="390" /></div></section>
       <section class="panel route-panel"><header><div><span class="eyebrow">{{ t('history.route') }}</span><h2>{{ vehicle?.name }}</h2></div><span class="route-count"><AppIcon name="location" :size="14" />{{ routePoints.length }}</span></header><div class="route-map"><VehicleMap :position="lastPosition" :route="routePoints" /></div></section>
-      <section class="panel history-chart"><header><div><span class="eyebrow">{{ metric }}</span><h2>{{ metricLabel(selectedMetric, t) }}</h2></div><span class="metric-chip">{{ days === 1 ? t('history.day') : days === 7 ? t('history.week') : t('history.month') }}</span></header><TimeSeriesChart :series="series" :height="390" /></section>
     </div>
     <div v-else class="panel empty">{{ t('history.noData') }}</div>
   </div>
 </template>
 
 <style scoped>
-.history-toolbar{display:grid;grid-template-columns:minmax(190px,1fr) minmax(190px,260px) 145px 125px 125px;gap:11px;align-items:end;margin-bottom:13px;padding:13px}.history-identity{align-self:stretch;display:grid;grid-template-columns:36px 1fr auto;align-items:center;gap:9px;padding-right:11px;border-right:1px solid var(--line)}.history-icon{width:35px;height:35px;display:grid;place-items:center;color:var(--accent);background:var(--accent-soft);border-radius:9px}.history-identity strong,.history-identity small{display:block}.history-identity strong{font-size:10px}.history-identity small{margin-top:3px;color:var(--muted);font-size:8px}.history-stat{align-self:stretch;padding:8px 9px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px}.history-stat span,.history-stat strong{display:block}.history-stat span{overflow:hidden;color:var(--muted);font-size:7px;text-overflow:ellipsis;white-space:nowrap}.history-stat strong{margin-top:5px;font-size:15px;font-weight:500}.history-stat strong small{margin-left:3px;color:var(--muted);font-size:8px;font-weight:400}.history-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(360px,.65fr);gap:13px}.route-panel,.history-chart{overflow:hidden}.route-panel header,.history-chart header{height:62px;display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid var(--line)}.route-panel h2,.history-chart h2{margin:0;font-size:14px}.route-count,.metric-chip{display:flex;align-items:center;gap:5px;padding:6px 8px;color:var(--muted);background:var(--panel-2);border-radius:8px;font-size:7px}.route-count .app-icon{color:var(--accent)}.route-map{height:420px}.history-chart{padding-bottom:9px}.history-chart>div{padding:0 9px}
-@media(max-width:1250px){.history-toolbar{grid-template-columns:1fr 1fr 140px}.history-identity{grid-column:1/-1;border:0;border-bottom:1px solid var(--line);padding:0 0 12px}.history-grid{grid-template-columns:1fr}.route-map{height:400px}}
-@media(max-width:620px){.history-toolbar{grid-template-columns:1fr 1fr}.history-identity{grid-column:1/-1}.history-toolbar>.field{grid-column:span 1}.history-stat{display:none}.route-map{height:330px}}
+.history-overview{display:grid;grid-template-columns:minmax(300px,.72fr) minmax(440px,1.28fr);gap:14px;margin-bottom:14px}.history-context,.history-controls{min-width:0;padding:18px}.history-context{display:grid;gap:18px}.history-identity{min-width:0;display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:11px;padding-bottom:17px;border-bottom:1px solid var(--line)}.history-icon{width:41px;height:41px;display:grid;place-items:center;color:var(--accent);background:var(--accent-soft);border-radius:10px}.history-identity strong,.history-identity small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-identity strong{font-size:13px}.history-identity small{margin-top:4px;color:var(--muted);font-size:9px}.history-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.history-stat{min-width:0;padding:12px;background:var(--panel-2);border-radius:9px}.history-stat span,.history-stat strong,.history-stat em{display:block}.history-stat span{color:var(--muted);font-size:8px;text-transform:uppercase;letter-spacing:.05em}.history-stat strong{margin-top:7px;font-size:20px;font-weight:500}.history-stat strong small{margin-left:3px;color:var(--muted);font-size:9px;font-weight:400}.history-stat em{margin-top:4px;overflow:hidden;color:var(--muted);font-size:8px;font-style:normal;text-overflow:ellipsis;white-space:nowrap}.history-controls{display:flex;flex-direction:column;justify-content:space-between;gap:18px}.history-controls>header{display:flex;align-items:flex-start;justify-content:space-between;gap:22px}.history-controls h2{margin:0;font-size:16px}.history-controls header p{max-width:320px;margin:0;color:var(--muted);font-size:9px;line-height:1.5;text-align:right}.history-filters{min-width:0;display:grid;grid-template-columns:minmax(240px,1fr) minmax(150px,.42fr);gap:13px}.history-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(380px,.9fr);gap:14px}.route-panel,.history-chart{min-width:0;overflow:hidden}.route-panel header,.history-chart header{height:64px;display:flex;align-items:center;justify-content:space-between;padding:11px 16px;border-bottom:1px solid var(--line)}.route-panel h2,.history-chart h2{margin:0;font-size:14px}.route-count,.metric-chip{display:flex;align-items:center;gap:5px;padding:6px 8px;color:var(--muted);background:var(--panel-2);border-radius:8px;font-size:8px}.route-count .app-icon{color:var(--accent)}.route-map{height:420px}.chart-stage{padding:0 10px 10px}
+@media(max-width:1150px){.history-overview{grid-template-columns:1fr}.history-context{grid-template-columns:minmax(260px,.8fr) 1.2fr;align-items:center}.history-identity{padding:0 18px 0 0;border-right:1px solid var(--line);border-bottom:0}.history-grid{grid-template-columns:1fr}.route-map{height:390px}}
+@media(max-width:720px){.history-context{grid-template-columns:1fr}.history-identity{padding:0 0 16px;border-right:0;border-bottom:1px solid var(--line)}.history-controls>header{display:block}.history-controls header p{margin-top:7px;text-align:left}.history-filters{grid-template-columns:1fr}.history-grid{grid-template-columns:1fr}.route-map{height:340px}}
+@media(max-width:480px){.history-stats{grid-template-columns:1fr}.history-stat:nth-child(2){display:none}.history-context,.history-controls{padding:15px}}
 </style>

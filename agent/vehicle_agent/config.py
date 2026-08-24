@@ -5,6 +5,8 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
+from agent.vehicle_agent.profile_decoder import ProfileError, VehicleProfileDecoder
+
 
 class ConfigurationError(Exception):
     pass
@@ -16,6 +18,7 @@ class AgentConfiguration:
     sample_seconds: int
     upload_seconds: int
     vehicle_profile: str | None
+    vehicle_profile_definition: dict[str, Any] | None
 
     @classmethod
     def parse(cls, data: dict[str, Any]) -> "AgentConfiguration":
@@ -24,13 +27,25 @@ class AgentConfiguration:
             sample = int(data["sampling"]["default_seconds"])
             upload = int(data["upload"]["default_seconds"])
             profile = data.get("vehicle_profile")
+            profile_definition = data.get("vehicle_profile_definition")
         except (KeyError, TypeError, ValueError) as exc:
             raise ConfigurationError("remote configuration has invalid structure") from exc
         if version < 1 or not 1 <= sample <= 86400 or not 1 <= upload <= 86400:
             raise ConfigurationError("remote configuration values are outside safe bounds")
         if profile is not None and not isinstance(profile, str):
             raise ConfigurationError("vehicle_profile must be a string or null")
-        return cls(version, sample, upload, profile)
+        if profile_definition is not None:
+            if not isinstance(profile_definition, dict):
+                raise ConfigurationError("vehicle_profile_definition must be an object or null")
+            if not profile or profile_definition.get("id") != profile:
+                raise ConfigurationError(
+                    "vehicle profile definition ID does not match its reference"
+                )
+            try:
+                VehicleProfileDecoder(profile_definition)
+            except (ProfileError, KeyError, TypeError, ValueError) as exc:
+                raise ConfigurationError(f"vehicle profile definition is invalid: {exc}") from exc
+        return cls(version, sample, upload, profile, profile_definition)
 
     def as_server_format(self) -> dict[str, object]:
         return {
@@ -38,6 +53,7 @@ class AgentConfiguration:
             "sampling": {"default_seconds": self.sample_seconds},
             "upload": {"default_seconds": self.upload_seconds},
             "vehicle_profile": self.vehicle_profile,
+            "vehicle_profile_definition": self.vehicle_profile_definition,
         }
 
 

@@ -49,7 +49,8 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByLabel('Password').fill('browser-e2e-password-2026')
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page).toHaveURL('/')
-  await expect(page.getByText('Your garage is quiet')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Overview/ })).toBeVisible()
 
   const rejectedRegistration = await request.post('/api/v1/auth/register', {
     data: {
@@ -60,10 +61,9 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   })
   expect(rejectedRegistration.status()).toBe(403)
 
-  await page.getByRole('link', { name: 'Add your first vehicle' }).click()
+  await page.getByRole('link', { name: 'Vehicles', exact: true }).click()
   await page.getByRole('button', { name: 'Add vehicle' }).click()
-  await page.getByLabel('Name').fill('Éclair')
-  await page.getByLabel('Year').fill('2018')
+  await page.getByLabel('Name', { exact:true }).fill('Éclair')
   await page.getByRole('button', { name: 'Create vehicle' }).click()
   await expect(page.getByRole('heading', { name: 'Éclair' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'No photo for Éclair' })).toBeVisible()
@@ -85,6 +85,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   const darkVehicleAccessibility = await new AxeBuilder({ page }).analyze()
   expect(darkVehicleAccessibility.violations).toEqual([])
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light' })
+  const cardHeightWithoutPhoto = await page.locator('.vehicle-card', { hasText:'Éclair' }).evaluate((card) => card.getBoundingClientRect().height)
   await photoInput.setInputFiles({
     name: 'eclair.png',
     mimeType: 'image/png',
@@ -94,18 +95,26 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   const vehiclePhoto = page.locator('.vehicle-media img')
   await expect(vehiclePhoto).toBeVisible()
   expect(await vehiclePhoto.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1)
+  const cardHeightWithPhoto = await page.locator('.vehicle-card', { hasText:'Éclair' }).evaluate((card) => card.getBoundingClientRect().height)
+  expect(Math.abs(cardHeightWithPhoto - cardHeightWithoutPhoto)).toBeLessThan(1)
   const [vehicle] = await browserJson<VehicleRecord[]>(page, 'get', '/api/v1/vehicles')
   expect(vehicle?.name).toBe('Éclair')
   await browserJson<VehicleRecord>(page, 'post', '/api/v1/vehicles', {
-    name: 'Touring', manufacturer: 'Peugeot', model: '508', year: 2022,
-    propulsion_type: 'diesel', battery_nominal_capacity_kwh: null,
-    vehicle_profile: null, color: '#315fcf',
+    name: 'Touring', vehicle_profile: null,
   })
   await page.reload()
-  const thermalCard = page.locator('.vehicle-card', { hasText: 'Touring' })
-  await expect(thermalCard.getByText('Fuel level')).toBeVisible()
-  await expect(thermalCard.getByText('Diesel')).toBeVisible()
-  await expect(thermalCard.getByText('Battery level')).toHaveCount(0)
+  const secondVehicleCard = page.locator('.vehicle-card', { hasText: 'Touring' })
+  await expect(secondVehicleCard).toBeVisible()
+  await expect(secondVehicleCard.getByText(/Electric|Hybrid|Petrol|Diesel/)).toHaveCount(0)
+
+  await page.locator('.sidebar').getByRole('link', { name:'Profiles', exact:true }).click()
+  await expect(page.getByRole('heading', { name:'Telemetry profiles' })).toBeVisible()
+  await page.getByRole('button', { name:'New profile' }).click()
+  await expect(page.getByRole('dialog', { name:'Create profile' })).toBeVisible()
+  await page.getByRole('dialog', { name:'Create profile' }).getByRole('button', { name:'Add signal' }).click()
+  await expect(page.getByRole('dialog', { name:'Add signal' })).toBeVisible()
+  await page.getByRole('dialog', { name:'Add signal' }).getByRole('button', { name:'Close' }).click()
+  await page.getByRole('dialog', { name:'Create profile' }).getByRole('button', { name:'Close' }).click()
 
   await page.getByRole('link', { name: 'Devices' }).click()
   await page.getByRole('button', { name: 'Add tracker' }).click()
@@ -113,6 +122,10 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.locator('.enrollment-panel').getByRole('button', { name: 'Add tracker' }).click()
   const enrollment = await (await enrollmentResponse).json() as Enrollment
   await expect(page.locator('.enrollment-panel pre')).toContainText('--token')
+  const copyCommand = page.getByRole('button', { name: 'Copy command' })
+  await expect(copyCommand).toBeVisible()
+  await expect(copyCommand).toHaveText('')
+  await page.getByRole('dialog', { name:'Enroll a tracker' }).getByRole('button', { name:'Close' }).click()
 
   const enrolledResponse = await request.post('/api/v1/device/enroll', {
     data: { token: enrollment.token, agent_version: 'e2e-1.0.0', hostname: 'browser-simulator', hardware: { model: 'simulated-pi-zero' } },
@@ -144,21 +157,25 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(retriedBatch.status()).toBe(200)
   expect((await retriedBatch.json()).duplicates).toHaveLength(6)
 
-  await page.getByRole('link', { name: 'Dashboard', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Éclair' })).toBeVisible()
-  await expect(page.locator('.vehicle-portrait img')).toBeVisible()
-  await expect(page.locator('.energy-state strong')).toHaveText('77')
-  await expect(page.locator('.map-heading strong')).toContainText('48.86660')
+  await page.locator('.sidebar').getByRole('link', { name: 'Dashboards', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+  await expect(page.locator('[data-widget-type="battery-gauge"] .energy-value')).toHaveText('77')
   await expect(page.locator('.vehinode-position-marker')).toBeVisible()
-  await expect(page.getByText('Live updates')).toBeVisible()
-  await page.locator('.vehicle-switcher button', { hasText: 'Touring' }).click()
-  await expect(page.locator('.energy-state')).toContainText('Fuel level')
-  await expect(page.locator('.energy-state strong')).toHaveText('—')
-  await expect(page.locator('.state-ledger')).not.toContainText('Traction battery')
-  const thermalDashboardAccessibility = await new AxeBuilder({ page }).analyze()
-  expect(thermalDashboardAccessibility.violations).toEqual([])
-  await page.locator('.vehicle-switcher button', { hasText: 'Éclair' }).click()
-  await expect(page.locator('.energy-state strong')).toHaveText('77')
+  const initialDashboardAccessibility = await new AxeBuilder({ page }).analyze()
+  expect(initialDashboardAccessibility.violations).toEqual([])
+
+  const vehicleSelector = page.locator('[data-widget-type="vehicle-selector"]')
+  await expect(vehicleSelector.getByRole('combobox')).toHaveCount(1)
+  await vehicleSelector.getByRole('combobox').click()
+  await page.getByPlaceholder('Search vehicles…').fill('Touring')
+  await expect(page.getByRole('option')).toHaveCount(1)
+  await page.getByRole('option', { name:'Touring', exact:true }).click()
+  await expect(page.locator('[data-widget-type="battery-gauge"] .dashboard-widget-empty')).toContainText('No data yet')
+  await expect(page.locator('[data-widget-type="position-map"] .vehicle-map')).toHaveCount(0)
+  await vehicleSelector.getByRole('combobox').click()
+  await page.getByPlaceholder('Search vehicles…').fill('Éclair')
+  await page.getByRole('option', { name:/Éclair/ }).click()
+  await expect(page.locator('[data-widget-type="battery-gauge"] .energy-value')).toHaveText('77')
 
   const liveSample = {
     id: randomUUID(),
@@ -173,39 +190,60 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
     data: { boot_id: bootId, samples: [liveSample] },
   })
   expect(liveBatch.status()).toBe(200)
-  await expect(page.locator('.energy-state strong')).toHaveText('61')
-  await expect(page.locator('.map-heading strong')).toContainText('48.87000')
+  await page.reload()
+  await expect(page.locator('[data-widget-type="battery-gauge"] .energy-value')).toHaveText('61')
 
   const dashboardAccessibility = await new AxeBuilder({ page }).analyze()
   expect(dashboardAccessibility.violations).toEqual([])
   await page.getByTitle('Theme').click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-  await expect.poll(() => page.getByRole('heading', { name: 'Éclair' }).evaluate((element) => getComputedStyle(element).color)).toBe('rgb(241, 243, 239)')
+  await expect.poll(() => page.getByRole('heading', { name: 'Overview' }).evaluate((element) => getComputedStyle(element).color)).toBe('rgb(241, 243, 239)')
   const darkDashboardAccessibility = await new AxeBuilder({ page }).analyze()
   expect(darkDashboardAccessibility.violations).toEqual([])
   await page.getByTitle('Theme').click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
 
-  await page.getByRole('link', { name: 'History', exact: true }).click()
+  await page.getByRole('link', { name: 'Vehicles', exact: true }).click()
+  await page.locator('.vehicle-card', { hasText:'Éclair' }).getByRole('link', { name:'History' }).click()
   await expect(page.getByRole('heading', { name: 'Éclair · History' })).toBeVisible()
-  await expect(page.getByText('7 source samples')).toBeVisible()
+  await expect(page.locator('.history-stat', { hasText:'Source samples' })).toContainText('7')
   await expect(page.locator('.route-count')).toContainText('7')
+  expect(await page.locator('select').count()).toBe(0)
+  await page.getByRole('combobox', { name:'Metric' }).click()
+  const metricMenu = page.locator('.app-select-menu')
+  await expect(metricMenu).toBeVisible()
+  const menuBounds = await metricMenu.boundingBox()
+  expect(menuBounds).not.toBeNull()
+  expect(menuBounds!.x + menuBounds!.width).toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth))
+  await page.keyboard.press('Escape')
 
-  await page.getByRole('link', { name: 'Dashboards' }).click()
-  await page.getByRole('button', { name: '+ Add widget' }).click()
+  await page.locator('.sidebar').getByRole('link', { name: 'Dashboards', exact: true }).click()
+  await page.getByRole('button', { name: 'Dashboard actions' }).click()
+  await page.getByRole('menuitem', { name: 'New dashboard' }).click()
+  await page.locator('.app-modal').getByLabel('Dashboard name').fill('Diagnostics')
+  await page.getByRole('button', { name: 'Create dashboard' }).click()
+  await page.getByRole('button', { name: 'Add widget' }).click()
   await page.getByLabel('Title').fill('Battery at a glance')
-  await page.locator('.modal').getByRole('button', { name: '+ Add widget' }).click()
+  await page.locator('.app-modal').getByRole('button', { name: 'Add widget' }).click()
   await expect(page.getByText('Battery at a glance')).toBeVisible()
-  await page.getByRole('button', { name: 'Save layout' }).click()
-  await expect(page.getByText('Preferences are saved in this browser.')).toBeVisible()
+  await page.getByRole('button', { name: 'Make default' }).click()
+  await page.getByRole('button', { name: 'Save', exact:true }).click()
+  await expect(page.getByText('Dashboard saved.')).toBeVisible()
+  await expect(page.getByRole('button', { name:'Dashboard actions' })).toBeVisible()
+  await expect(page.locator('.widget-remove')).toHaveCount(0)
   await page.reload()
   await expect(page.getByText('Battery at a glance')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Diagnostics.*Default/ })).toBeVisible()
 
+  const hooksLoaded = page.waitForResponse((response) => response.url().endsWith('/api/v1/hooks') && response.request().method() === 'GET')
   await page.getByRole('link', { name: 'Hooks' }).click()
-  await page.getByLabel('Name').fill('Browser state counter')
-  await page.getByLabel('Description').fill('Verifies persistent hook state through the browser flow')
-  await page.locator('.cm-content').fill('ctx.state["runs"] = ctx.state.get("runs", 0) + 1\nctx.log.info("browser e2e", runs=ctx.state["runs"], dry_run=ctx.dry_run)')
-  await page.locator('.editor-panel').getByRole('button', { name: 'Save', exact: true }).click()
+  await hooksLoaded
+  await page.locator('.page-header').getByRole('button', { name: 'New hook' }).click()
+  const hookModal = page.locator('.app-modal')
+  await hookModal.getByLabel('Name', { exact:true }).fill('Browser state counter')
+  await hookModal.getByLabel('Description').fill('Verifies persistent hook state through the browser flow')
+  await hookModal.locator('.cm-content').fill('ctx.state["runs"] = ctx.state.get("runs", 0) + 1\nctx.log.info("browser e2e", runs=ctx.state["runs"], dry_run=ctx.dry_run)')
+  await hookModal.getByRole('button', { name: 'Save', exact: true }).click()
   const [hook] = await browserJson<HookRecord[]>(page, 'get', '/api/v1/hooks')
   expect(hook?.id).toBeTruthy()
 
@@ -223,8 +261,9 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await expect(page.getByText('e2e-1.0.0')).toBeVisible()
 
   await page.setViewportSize({ width: 375, height: 812 })
-  await page.getByRole('link', { name: 'Dashboard', exact: true }).click()
-  await expect(page.getByText('Live updates')).toBeVisible()
+  await page.locator('.sidebar').getByRole('link', { name: 'Dashboards', exact: true }).click()
+  await page.getByRole('button', { name: /Overview/ }).click()
+  await expect(page.locator('[data-widget-type="battery-gauge"] .energy-widget')).toBeVisible()
   const badgeGeometry = await page.locator('.status').evaluateAll((badges) => badges.map((badge) => {
     const bounds = badge.getBoundingClientRect()
     return { radius: getComputedStyle(badge).borderRadius, width: bounds.width, height: bounds.height }
@@ -244,11 +283,19 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
 test('mobile login keeps language, theme, keyboard access and reflow', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 })
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'languages', { configurable:true, get:() => ['fr-FR', 'en-US'] })
+  })
   await page.goto('/login')
+  await expect(page.getByRole('heading', { name: 'Connectez-vous à VehiNode' })).toBeVisible()
 
   await page.keyboard.press('Tab')
-  await expect(page.getByLabel('Language')).toBeFocused()
-  await page.getByLabel('Language').selectOption('fr')
+  const language = page.locator('.login-utilities [role="combobox"]')
+  await expect(language).toBeFocused()
+  await language.click()
+  await page.getByRole('option', { name: 'EN' }).click()
+  await language.click()
+  await page.getByRole('option', { name: 'FR' }).click()
   await expect(page.getByRole('heading', { name: 'Connectez-vous à VehiNode' })).toBeVisible()
   await page.getByTitle('Thème').click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')

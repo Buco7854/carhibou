@@ -9,7 +9,8 @@ file. Invalid or older configuration cannot replace a working configuration.
   "version": 1,
   "sampling": { "default_seconds": 10 },
   "upload": { "default_seconds": 30 },
-  "vehicle_profile": "citroen-c-zero-v1"
+  "vehicle_profile": "citroen-c-zero-v1",
+  "vehicle_profile_definition": null
 }
 ```
 
@@ -19,8 +20,33 @@ network loss and deletes only sample IDs acknowledged by the server.
 
 The service authenticates and checks for server configuration every five minutes.
 Same-version responses cause no file write. A syntactically invalid value, rollback, or
-reference to an uninstalled profile is rejected before replacing the working file.
+invalid profile definition is rejected before replacing the working file. Both bundled
+and owner-created profiles arrive as a validated `vehicle_profile_definition` object
+whose `id` must exactly match `vehicle_profile`; that definition is persisted in the
+last-known-good file. The standalone executable therefore does not need a separately
+installed profile package.
 
-Inspect the accepted configuration with `vehinode-agent config`. Hardware serial paths
-can be overridden on `vehinode-agent run` with `--gps-device` and `--obd-device`; use
-stable `/dev/serial/by-id/...` paths whenever possible.
+Inspect the accepted server configuration with `sudo vehinode-agent config`. Hardware is
+host-local rather than server configuration: the server cannot reliably know which Linux
+serial path belongs to a modem or an OBD adapter. Inspect discovery and the current saved
+selection with:
+
+```sh
+sudo vehinode-agent devices
+```
+
+Each source can be `auto`, `off`, or an explicit path. Save a verified stable choice and
+restart the service with:
+
+```sh
+sudo vehinode-agent devices set \
+  --gps /dev/serial/by-id/usb-SimTech_SIM7600... \
+  --obd /dev/serial/by-id/usb-OBDLink_SX...
+sudo systemctl restart vehinode-agent
+```
+
+Use `--gps off` or `--obd off` when the hardware is intentionally absent. `auto` prefers
+recognizable USB identities and otherwise presents conventional `ttyUSB`/`ttyACM`
+candidates. Always prefer `/dev/serial/by-id/...` over changing `/dev/ttyUSB0` numbers.
+The low-level `run --gps-device` and `run --obd-device` options remain temporary runtime
+overrides; normal installations should persist choices through `devices set`.

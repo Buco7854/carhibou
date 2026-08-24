@@ -17,7 +17,7 @@ def _prepare_device(client: TestClient, csrf: str) -> tuple[str, str]:
     vehicle = client.post(
         "/api/v1/vehicles",
         headers={"X-CSRF-Token": csrf},
-        json={"name": "Hook car", "propulsion_type": "electric"},
+        json={"name": "Hook car"},
     ).json()
     token = client.post(
         f"/api/v1/vehicles/{vehicle['id']}/enrollments",

@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -13,14 +14,23 @@ from agent.vehicle_agent import __version__
 from agent.vehicle_agent.capture import CANRecorder, replay_capture
 from agent.vehicle_agent.config import AgentConfiguration, ConfigurationError, ConfigurationStore
 from agent.vehicle_agent.enrollment import enroll, store_credentials
+from agent.vehicle_agent.hardware import (
+    AUTO,
+    OFF,
+    HardwareConfiguration,
+    HardwareConfigurationError,
+    HardwareConfigurationStore,
+    gps_candidates,
+    obd_candidates,
+    resolve_selection,
+)
 from agent.vehicle_agent.interfaces import VehicleDataProvider
 from agent.vehicle_agent.profile_decoder import VehicleProfileDecoder
 from agent.vehicle_agent.providers.nmea import (
     NullPositionProvider,
     SIM7600NMEAProvider,
-    discover_sim7600_nmea,
 )
-from agent.vehicle_agent.providers.obdlink import OBDLinkSXAdapter, discover_obdlink
+from agent.vehicle_agent.providers.obdlink import OBDLinkSXAdapter
 from agent.vehicle_agent.providers.raw_can import RawCANProfileProvider
 from agent.vehicle_agent.providers.standard_obd import (
     StandardOBDProvider,
@@ -35,6 +45,17 @@ from agent.vehicle_agent.transport import HTTPSBatchTransport, TransportError
 
 DEFAULT_DATA = Path("/var/lib/vehinode-agent")
 DEFAULT_CONFIG = Path("/etc/vehinode-agent")
+
+
+def _profile_decoder(config: AgentConfiguration) -> VehicleProfileDecoder | None:
+    if not config.vehicle_profile:
+        return None
+    if config.vehicle_profile_definition:
+        return VehicleProfileDecoder(config.vehicle_profile_definition)
+    profile_path = Path(__file__).parents[1] / "profiles" / f"{config.vehicle_profile}.yaml"
+    if not profile_path.is_file():
+        raise ConfigurationError(f"vehicle profile is not installed: {config.vehicle_profile}")
+    return VehicleProfileDecoder.from_path(profile_path)
 
 
 def _credentials(path: Path) -> dict[str, str]:
@@ -53,16 +74,90 @@ def command_status(args: argparse.Namespace) -> int:
     return 0 if credentials_present else 1
 
 
+def _hardware(args: argparse.Namespace) -> HardwareConfiguration:
+    return HardwareConfigurationStore(args.config_dir / "hardware.json").load()
+
+
+def _selected_devices(args: argparse.Namespace) -> tuple[str | None, str | None]:
+    hardware = _hardware(args)
+    return (
+        resolve_selection(hardware.gps, gps_candidates()),
+        resolve_selection(hardware.obd, obd_candidates()),
+    )
+
+
+def command_devices(args: argparse.Namespace) -> int:
+    try:
+        hardware = _hardware(args)
+    except HardwareConfigurationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    gps = gps_candidates()
+    obd = obd_candidates()
+    print(
+        json.dumps(
+            {
+                "selection": hardware.as_dict(),
+                "resolved": {
+                    "gps": resolve_selection(hardware.gps, gps),
+                    "obd": resolve_selection(hardware.obd, obd),
+                },
+                "candidates": {"gps": gps, "obd": obd},
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def command_devices_set(args: argparse.Namespace) -> int:
+    if args.gps is None and args.obd is None:
+        print("Choose --gps and/or --obd (auto, off, or an absolute /dev path)", file=sys.stderr)
+        return 2
+    try:
+        current = _hardware(args)
+        candidate = HardwareConfiguration.parse(
+            {
+                "gps": args.gps if args.gps is not None else current.gps,
+                "obd": args.obd if args.obd is not None else current.obd,
+            }
+        )
+    except HardwareConfigurationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    for source, selection in candidate.as_dict().items():
+        if selection not in {AUTO, OFF} and not Path(selection).exists():
+            print(f"{source.upper()} device does not exist: {selection}", file=sys.stderr)
+            return 2
+    HardwareConfigurationStore(args.config_dir / "hardware.json").save(candidate)
+    print(json.dumps(candidate.as_dict(), indent=2))
+    print("Saved. Restart the service with: sudo systemctl restart vehinode-agent")
+    return 0
+
+
 def command_doctor(args: argparse.Namespace) -> int:
+    try:
+        hardware = _hardware(args)
+        gps_device, obd_device = _selected_devices(args)
+        hardware_error = None
+    except HardwareConfigurationError as exc:
+        hardware = None
+        gps_device = None
+        obd_device = None
+        hardware_error = str(exc)
     checks = {
         "platform": platform.platform(),
         "credentials": (args.config_dir / "credentials.json").is_file(),
         "queue_writable": args.data_dir.exists() and args.data_dir.is_dir(),
-        "gps_device": str(discover_sim7600_nmea() or "not detected"),
-        "obd_devices": discover_obdlink(),
+        "hardware_selection": hardware.as_dict() if hardware else None,
+        "hardware_error": hardware_error,
+        "gps_device": gps_device,
+        "obd_device": obd_device,
+        "gps_candidates": gps_candidates(),
+        "obd_candidates": obd_candidates(),
     }
     print(json.dumps(checks, indent=2))
-    return 0 if checks["credentials"] and checks["queue_writable"] else 1
+    return 0 if checks["credentials"] and checks["queue_writable"] and not hardware_error else 1
 
 
 def command_logs(_args: argparse.Namespace) -> int:
@@ -80,7 +175,12 @@ def command_config(args: argparse.Namespace) -> int:
 
 
 def command_gps(args: argparse.Namespace) -> int:
-    device = args.device or discover_sim7600_nmea()
+    try:
+        selected, _ = _selected_devices(args)
+    except HardwareConfigurationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    device = args.device or selected
     if not device:
         print("No SIM7600 NMEA serial device detected", file=sys.stderr)
         return 1
@@ -94,14 +194,19 @@ def command_gps(args: argparse.Namespace) -> int:
 
 
 def command_obd(args: argparse.Namespace) -> int:
-    devices = [args.device] if args.device else discover_obdlink()
-    if not devices:
+    try:
+        _, selected = _selected_devices(args)
+    except HardwareConfigurationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    device = args.device or selected
+    if not device:
         print("No OBDLink serial device detected", file=sys.stderr)
         return 1
-    adapter = OBDLinkSXAdapter(devices[0])
+    adapter = OBDLinkSXAdapter(device)
     try:
         adapter.connect()
-        details: dict[str, object] = {"device": devices[0], **adapter.identity()}
+        details: dict[str, object] = {"device": device, **adapter.identity()}
         try:
             details["vin"] = parse_vin_response(adapter.command("0902"))
         except Exception:  # unsupported services are normal across vehicles
@@ -117,17 +222,22 @@ def command_obd(args: argparse.Namespace) -> int:
 
 
 def command_record(args: argparse.Namespace) -> int:
-    devices = [args.device] if args.device else discover_obdlink()
-    if not devices:
+    try:
+        _, selected = _selected_devices(args)
+    except HardwareConfigurationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    device = args.device or selected
+    if not device:
         print("No OBDLink serial device detected", file=sys.stderr)
         return 1
-    adapter = OBDLinkSXAdapter(devices[0])
+    adapter = OBDLinkSXAdapter(device)
     try:
         adapter.connect()
         metadata = {
             "adapter": adapter.identity(),
             "vehicle_profile": args.profile,
-            "device": devices[0],
+            "device": device,
         }
         with args.output.open("w") as output:
             recorder = CANRecorder(output, metadata)
@@ -201,21 +311,32 @@ def command_run(args: argparse.Namespace) -> int:
     config_store = ConfigurationStore(args.config_dir / "config.json")
     config = config_store.load()
     queue = SQLiteQueue(args.data_dir / "queue.sqlite3")
-    gps_device = args.gps_device or discover_sim7600_nmea()
+    try:
+        selected_gps, selected_obd = _selected_devices(args)
+    except HardwareConfigurationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    gps_device = args.gps_device or selected_gps
     position = SIM7600NMEAProvider(str(gps_device)) if gps_device else NullPositionProvider()
-    obd_devices = [args.obd_device] if args.obd_device else discover_obdlink()
+    obd_device = args.obd_device or selected_obd
+    if (
+        gps_device
+        and obd_device
+        and Path(gps_device).resolve(strict=False) == Path(obd_device).resolve(strict=False)
+    ):
+        print("GPS and OBD cannot use the same serial device", file=sys.stderr)
+        return 1
     vehicle: VehicleDataProvider = StaticVehicleProvider()
-    if obd_devices and config.vehicle_profile:
-        profile_path = Path(__file__).parents[1] / "profiles" / f"{config.vehicle_profile}.yaml"
-        if profile_path.is_file():
-            vehicle = RawCANProfileProvider(
-                OBDLinkSXAdapter(obd_devices[0]), VehicleProfileDecoder.from_path(profile_path)
-            )
-        else:
-            print(f"Vehicle profile is not installed: {config.vehicle_profile}", file=sys.stderr)
+    if obd_device and config.vehicle_profile:
+        try:
+            decoder = _profile_decoder(config)
+        except ConfigurationError as exc:
+            print(str(exc), file=sys.stderr)
             return 1
-    elif obd_devices:
-        vehicle = StandardOBDProvider(OBDLinkSXAdapter(obd_devices[0]))
+        if decoder:
+            vehicle = RawCANProfileProvider(OBDLinkSXAdapter(obd_device), decoder)
+    elif obd_device:
+        vehicle = StandardOBDProvider(OBDLinkSXAdapter(obd_device))
     transport = HTTPSBatchTransport(
         credentials["server_url"], credentials["credential"], str(uuid4())
     )
@@ -235,35 +356,25 @@ def command_run(args: argparse.Namespace) -> int:
             try:
                 remote_config = transport.fetch_config()
                 preview = AgentConfiguration.parse(remote_config)
-                if preview.vehicle_profile:
-                    preview_path = (
-                        Path(__file__).parents[1] / "profiles" / f"{preview.vehicle_profile}.yaml"
-                    )
-                    if not preview_path.is_file():
-                        raise ConfigurationError(
-                            f"vehicle profile is not installed: {preview.vehicle_profile}"
-                        )
+                _profile_decoder(preview)
                 candidate = config_store.install_if_newer(remote_config)
-                if candidate.vehicle_profile != config.vehicle_profile:
+                if (
+                    candidate.vehicle_profile != config.vehicle_profile
+                    or candidate.vehicle_profile_definition != config.vehicle_profile_definition
+                ):
                     old_adapter = getattr(runtime.vehicle, "adapter", None)
                     if old_adapter:
                         old_adapter.close()
-                    if obd_devices and candidate.vehicle_profile:
-                        candidate_path = (
-                            Path(__file__).parents[1]
-                            / "profiles"
-                            / f"{candidate.vehicle_profile}.yaml"
-                        )
-                        if not candidate_path.is_file():
-                            raise ConfigurationError(
-                                f"vehicle profile is not installed: {candidate.vehicle_profile}"
-                            )
+                    if obd_device and candidate.vehicle_profile:
+                        decoder = _profile_decoder(candidate)
+                        if not decoder:
+                            raise ConfigurationError("vehicle profile decoder is unavailable")
                         runtime.vehicle = RawCANProfileProvider(
-                            OBDLinkSXAdapter(obd_devices[0]),
-                            VehicleProfileDecoder.from_path(candidate_path),
+                            OBDLinkSXAdapter(obd_device),
+                            decoder,
                         )
-                    elif obd_devices:
-                        runtime.vehicle = StandardOBDProvider(OBDLinkSXAdapter(obd_devices[0]))
+                    elif obd_device:
+                        runtime.vehicle = StandardOBDProvider(OBDLinkSXAdapter(obd_device))
                     else:
                         runtime.vehicle = StaticVehicleProvider()
                 config = candidate
@@ -290,21 +401,35 @@ def command_update(args: argparse.Namespace) -> int:
     with NamedTemporaryFile("wb", delete=False) as temporary:
         temporary.write(installer)
         path = temporary.name
+    command = [
+        "sudo",
+        "sh",
+        path,
+        "--server",
+        credentials["server_url"],
+        "--version",
+        args.version,
+        "--update-only",
+    ]
+    if credentials["server_url"].startswith("http://"):
+        command.append("--allow-insecure-http")
     try:
-        return subprocess.call(
-            [
-                "sudo",
-                "sh",
-                path,
-                "--server",
-                credentials["server_url"],
-                "--version",
-                args.version,
-                "--update-only",
-            ]
-        )
+        return subprocess.call(command)
     finally:
         Path(path).unlink(missing_ok=True)
+
+
+def command_uninstall(args: argparse.Namespace) -> int:
+    uninstaller = Path("/usr/local/bin/vehinode-agent-uninstall")
+    if not uninstaller.is_file():
+        print(f"Uninstaller is missing: {uninstaller}", file=sys.stderr)
+        return 1
+    command = [str(uninstaller)]
+    if getattr(os, "geteuid", lambda: 1)() != 0:
+        command.insert(0, "sudo")
+    if args.yes:
+        command.append("--yes")
+    return subprocess.call(command)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -316,9 +441,19 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor").set_defaults(handler=command_doctor)
     sub.add_parser("logs").set_defaults(handler=command_logs)
     sub.add_parser("config").set_defaults(handler=command_config)
+    devices = sub.add_parser("devices", help="show or save local GPS and OBD device choices")
+    devices.set_defaults(handler=command_devices)
+    device_actions = devices.add_subparsers(dest="device_action")
+    device_set = device_actions.add_parser("set", help="persist device paths, auto, or off")
+    device_set.add_argument("--gps")
+    device_set.add_argument("--obd")
+    device_set.set_defaults(handler=command_devices_set)
     update = sub.add_parser("update")
     update.add_argument("--version", required=True)
     update.set_defaults(handler=command_update)
+    uninstall = sub.add_parser("uninstall", help="fully remove the local agent and its data")
+    uninstall.add_argument("--yes", action="store_true")
+    uninstall.set_defaults(handler=command_uninstall)
     gps = sub.add_parser("gps-info")
     gps.add_argument("--device")
     gps.add_argument("--seconds", type=float, default=10)

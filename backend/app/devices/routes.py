@@ -116,4 +116,4 @@ def get_config(device: CurrentDevice, db: Db) -> DeviceConfig:
         raise HTTPException(status_code=404, detail="vehicle not found")
     device.last_config_sync_at = utcnow()
     db.commit()
-    return device_config(device, vehicle)
+    return device_config(db, device, vehicle)

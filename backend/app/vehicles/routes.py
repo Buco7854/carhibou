@@ -1,14 +1,18 @@
+import logging
 from hashlib import sha256
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 
 from backend.app.auth.dependencies import CurrentUser, CurrentUserWrite, Db
+from backend.app.vehicle_profiles.schemas import VehicleProfileSelection
+from backend.app.vehicle_profiles.services import assign_profile, profile_definition
 from backend.app.vehicles.photo_storage import photo_path, remove_photo_file, store_photo
 from backend.app.vehicles.photos import PhotoValidationError, validate_photo
 from backend.app.vehicles.schemas import VehicleCreate, VehicleResponse
 from backend.app.vehicles.services import (
     create_vehicle,
+    delete_vehicle,
     delete_vehicle_photo,
     list_vehicles,
     owned_vehicle,
@@ -18,6 +22,7 @@ from backend.app.vehicles.services import (
 )
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -27,6 +32,8 @@ def vehicles(db: Db, auth: CurrentUser) -> list[VehicleResponse]:
 
 @router.post("", response_model=VehicleResponse, status_code=status.HTTP_201_CREATED)
 def add_vehicle(data: VehicleCreate, db: Db, auth: CurrentUserWrite) -> VehicleResponse:
+    if data.vehicle_profile and not profile_definition(db, auth.user.id, data.vehicle_profile):
+        raise HTTPException(status_code=422, detail="vehicle profile is not available")
     vehicle = create_vehicle(db, auth.user, data)
     db.commit()
     return serialize_vehicle(vehicle)
@@ -37,6 +44,34 @@ def vehicle(vehicle_id: str, db: Db, auth: CurrentUser) -> VehicleResponse:
     model = owned_vehicle(db, auth.user.id, vehicle_id)
     if not model:
         raise HTTPException(status_code=404, detail="vehicle not found")
+    return serialize_vehicle(model)
+
+
+@router.delete("/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_vehicle(vehicle_id: str, db: Db, auth: CurrentUserWrite) -> None:
+    model = owned_vehicle(db, auth.user.id, vehicle_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="vehicle not found")
+    storage_key = delete_vehicle(db, model)
+    db.commit()
+    if storage_key:
+        try:
+            remove_photo_file(storage_key)
+        except (OSError, ValueError):
+            logger.exception("vehicle deleted but its photo file could not be removed")
+
+
+@router.put("/{vehicle_id}/profile", response_model=VehicleResponse)
+def select_vehicle_profile(
+    vehicle_id: str, data: VehicleProfileSelection, db: Db, auth: CurrentUserWrite
+) -> VehicleResponse:
+    model = owned_vehicle(db, auth.user.id, vehicle_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="vehicle not found")
+    if data.profile_id and not profile_definition(db, auth.user.id, data.profile_id):
+        raise HTTPException(status_code=422, detail="vehicle profile is not available")
+    assign_profile(db, model, data.profile_id)
+    db.commit()
     return serialize_vehicle(model)
 
 

@@ -8,6 +8,7 @@ from backend.app.jobs.models import Job, WorkerHeartbeat
 from backend.app.secrets.models import Secret
 from backend.app.telemetry.models import Telemetry
 from backend.app.users.models import User
+from backend.app.vehicle_profiles.models import VehicleProfile
 from backend.app.vehicle_state.models import VehicleState
 from backend.app.vehicles.models import Vehicle, VehiclePhoto
 
@@ -27,6 +28,7 @@ __all__ = [
     "Trigger",
     "User",
     "Vehicle",
+    "VehicleProfile",
     "VehiclePhoto",
     "VehicleState",
     "WorkerHeartbeat",

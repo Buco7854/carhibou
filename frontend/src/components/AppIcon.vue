@@ -72,6 +72,30 @@ withDefaults(defineProps<{ name: string; size?: number }>(), { size: 20 })
     <template v-else-if="name === 'theme'">
       <circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
     </template>
+    <template v-else-if="name === 'profile'">
+      <path d="M4 7h7m4 0h5M4 17h3m4 0h9" /><circle cx="13" cy="7" r="2" /><circle cx="9" cy="17" r="2" />
+    </template>
+    <template v-else-if="name === 'chevron-down'">
+      <path d="m7 9.5 5 5 5-5" />
+    </template>
+    <template v-else-if="name === 'copy'">
+      <rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+    </template>
+    <template v-else-if="name === 'check'">
+      <path d="m5 12 4 4L19 6" />
+    </template>
+    <template v-else-if="name === 'close'">
+      <path d="M6 6l12 12M18 6 6 18" />
+    </template>
+    <template v-else-if="name === 'edit'">
+      <path d="M4 20h4l11-11-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" />
+    </template>
+    <template v-else-if="name === 'arrow-left'">
+      <path d="m14 6-6 6 6 6M8 12h11" />
+    </template>
+    <template v-else-if="name === 'more'">
+      <circle cx="5" cy="12" r="1.25" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.25" fill="currentColor" stroke="none" />
+    </template>
     <template v-else>
       <circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="2" />
     </template>

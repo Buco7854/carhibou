@@ -16,7 +16,6 @@ class Vehicle(TimestampMixin, Base):
     model: Mapped[str] = mapped_column(String(120), default="")
     year: Mapped[int | None] = mapped_column(Integer)
     vin: Mapped[str | None] = mapped_column(String(17))
-    propulsion_type: Mapped[str] = mapped_column(String(30), default="unknown")
     battery_nominal_capacity_kwh: Mapped[float | None] = mapped_column(Float)
     vehicle_profile: Mapped[str | None] = mapped_column(String(120))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
@@ -25,8 +24,10 @@ class Vehicle(TimestampMixin, Base):
     icon: Mapped[str] = mapped_column(String(50), default="car")
 
     owner = relationship("User", back_populates="vehicles")
-    devices = relationship("Device", back_populates="vehicle")
-    state = relationship("VehicleState", back_populates="vehicle", uselist=False)
+    devices = relationship("Device", back_populates="vehicle", passive_deletes="all")
+    state = relationship(
+        "VehicleState", back_populates="vehicle", uselist=False, passive_deletes="all"
+    )
     photo = relationship(
         "VehiclePhoto", back_populates="vehicle", uselist=False, cascade="all, delete-orphan"
     )

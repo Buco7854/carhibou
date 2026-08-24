@@ -21,7 +21,6 @@ export interface Vehicle {
   manufacturer: string
   model: string
   year: number | null
-  propulsion_type: string
   battery_nominal_capacity_kwh: number | null
   vehicle_profile: string | null
   timezone: string
@@ -31,6 +30,46 @@ export interface Vehicle {
   state: VehicleState | null
   created_at: string
   updated_at: string
+}
+
+export type ProfileDataType = 'uint8' | 'uint16' | 'uint32' | 'int8' | 'int16' | 'int32' | 'bytes' | 'boolean'
+export interface VehicleProfileSignal {
+  name: string
+  display_name?: string
+  description?: string
+  source: { type: 'can'; can_id: number }
+  decoder: {
+    byte_offset: number
+    data_type: ProfileDataType
+    endianness?: 'big' | 'little'
+    scale?: number
+    offset?: number
+    length?: number | null
+    bit?: number | null
+  }
+  unit?: string | null
+  minimum?: number | null
+  maximum?: number | null
+  references?: string[]
+  notes?: string
+}
+
+export interface VehicleProfile {
+  id: string
+  name: string
+  description: string
+  built_in: boolean
+  definition: {
+    id: string
+    name: string
+    family?: string
+    version: number
+    description?: string
+    signals: VehicleProfileSignal[]
+    computed_metrics?: Array<Record<string, unknown>>
+  }
+  created_at: string | null
+  updated_at: string | null
 }
 
 export interface User {
@@ -79,7 +118,7 @@ export interface Dashboard {
   id: string
   name: string
   is_default: boolean
-  layout: { widgets: DashboardWidget[] }
+  layout: { widgets: DashboardWidget[]; preset?: string }
   created_at: string
   updated_at: string
 }

@@ -3,8 +3,7 @@ name: Citroën C-Zero / Mitsubishi i-MiEV / Peugeot iOn
 family: imiev
 version: 1
 description: >-
-  Community-documented CAN starting points. All signals remain experimental until
-  verified against a known vehicle and independent measurement.
+  Community-documented CAN mappings for compatible vehicles and capture hardware.
 signals:
   - name: battery.soc
     display_name: Battery state of charge

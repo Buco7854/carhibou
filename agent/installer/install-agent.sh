@@ -6,17 +6,19 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-VERSION="0.1.0"
+AGENT_VERSION="0.1.0"
 SERVER=""
 TOKEN=""
 UPDATE_ONLY="false"
+ALLOW_INSECURE_HTTP="false"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --server) SERVER="$2"; shift 2 ;;
     --token) TOKEN="$2"; shift 2 ;;
-    --version) VERSION="$2"; shift 2 ;;
+    --version) AGENT_VERSION="$2"; shift 2 ;;
     --update-only) UPDATE_ONLY="true"; shift ;;
+    --allow-insecure-http) ALLOW_INSECURE_HTTP="true"; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -31,83 +33,93 @@ if [ "$UPDATE_ONLY" = "false" ] && [ -z "$TOKEN" ]; then
 fi
 case "$SERVER" in
   https://*|http://localhost|http://localhost:*|http://127.0.0.1|http://127.0.0.1:*) ;;
+  http://*)
+    if [ "$ALLOW_INSECURE_HTTP" != "true" ]; then
+      echo "HTTP outside localhost requires --allow-insecure-http" >&2
+      exit 2
+    fi
+    echo "Warning: enrollment credentials and telemetry will cross the network without TLS." >&2
+    ;;
   *) echo "Server must use HTTPS (except localhost)" >&2; exit 2 ;;
 esac
 
-if [ ! -r /etc/os-release ]; then
-  echo "Unsupported OS: /etc/os-release is missing" >&2
+if [ "$(uname -s)" != "Linux" ]; then
+  echo "The automatic installer supports Linux" >&2
   exit 1
 fi
-. /etc/os-release
-case "${ID:-}:${ID_LIKE:-}" in
-  *debian*|raspbian:*) ;;
-  *) echo "VehiNode supports Raspberry Pi OS and Debian" >&2; exit 1 ;;
+if [ -r /etc/os-release ]; then
+  . /etc/os-release
+  case "${VERSION_CODENAME:-}" in
+    stretch|buster|bullseye)
+      echo "Warning: ${PRETTY_NAME:-this OS release} no longer receives normal security support." >&2
+      echo "Re-image with a current Raspberry Pi OS release before using this tracker outside local testing." >&2
+      ;;
+  esac
+fi
+
+case "$(uname -m)" in
+  armv6l) TARGET="linux-armv6" ;;
+  armv7l|armv8l) TARGET="linux-armv7" ;;
+  aarch64|arm64) TARGET="linux-arm64" ;;
+  x86_64|amd64) TARGET="linux-amd64" ;;
+  *) echo "Unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl python3 python3-venv
+for command in curl sha256sum install systemctl; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "Required command is missing: $command" >&2
+    exit 1
+  fi
+done
 
-if ! id vehinode-agent >/dev/null 2>&1; then
-  useradd --system --home /var/lib/vehinode-agent --shell /usr/sbin/nologin vehinode-agent
-fi
-install -d -o root -g root -m 0755 /opt/vehinode-agent
-install -d -o vehinode-agent -g vehinode-agent -m 0750 /var/lib/vehinode-agent
-install -d -o vehinode-agent -g vehinode-agent -m 0750 /etc/vehinode-agent
-
-ARTIFACT="vehinode-${VERSION}-py3-none-any.whl"
-BASE="${SERVER%/}/agent/releases/${VERSION}"
+ARTIFACT="vehinode-agent-${AGENT_VERSION}-${TARGET}"
+BASE="${SERVER%/}/agent/releases/${AGENT_VERSION}"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT INT TERM
-case "$SERVER" in
-  https://*)
-    curl -fL --proto '=https' --tlsv1.2 "${BASE}/${ARTIFACT}" -o "${TMPDIR}/${ARTIFACT}"
-    curl -fL --proto '=https' --tlsv1.2 "${BASE}/${ARTIFACT}.sha256" -o "${TMPDIR}/${ARTIFACT}.sha256"
-    ;;
-  *)
-    curl -fL "${BASE}/${ARTIFACT}" -o "${TMPDIR}/${ARTIFACT}"
-    curl -fL "${BASE}/${ARTIFACT}.sha256" -o "${TMPDIR}/${ARTIFACT}.sha256"
-    ;;
-esac
+
+download() {
+  url="$1"
+  destination="$2"
+  attempt=1
+  while [ "$attempt" -le 8 ]; do
+    case "$SERVER" in
+      https://*)
+        if curl -fL --proto '=https' --tlsv1.2 --connect-timeout 20 --continue-at - "$url" -o "$destination"; then
+          return 0
+        fi
+        ;;
+      *)
+        if curl -fL --connect-timeout 20 --continue-at - "$url" -o "$destination"; then
+          return 0
+        fi
+        ;;
+    esac
+    if [ "$attempt" -eq 8 ]; then
+      echo "Download failed after ${attempt} attempts: ${url}" >&2
+      return 1
+    fi
+    attempt=$((attempt + 1))
+    echo "Transfer interrupted; resuming download (attempt ${attempt}/8)..." >&2
+    sleep "$attempt"
+  done
+}
+
+download "${BASE}/${ARTIFACT}" "${TMPDIR}/${ARTIFACT}"
+download "${BASE}/${ARTIFACT}.sha256" "${TMPDIR}/${ARTIFACT}.sha256"
 (cd "$TMPDIR" && sha256sum -c "${ARTIFACT}.sha256")
+install -m 0755 "${TMPDIR}/${ARTIFACT}" /usr/local/bin/vehinode-agent
 
-if [ ! -x /opt/vehinode-agent/venv/bin/python ]; then
-  python3 -m venv /opt/vehinode-agent/venv
+set -- install --server "$SERVER"
+if [ "$UPDATE_ONLY" = "true" ]; then
+  set -- "$@" --update-only
+else
+  set -- "$@" --token "$TOKEN"
 fi
-/opt/vehinode-agent/venv/bin/pip install --no-cache-dir --upgrade "${TMPDIR}/${ARTIFACT}"
-
-if [ "$UPDATE_ONLY" = "false" ]; then
-  runuser -u vehinode-agent -- /opt/vehinode-agent/venv/bin/vehinode-agent \
-    --config-dir /etc/vehinode-agent --data-dir /var/lib/vehinode-agent \
-    enroll --server "$SERVER" --token "$TOKEN"
+if [ "$ALLOW_INSECURE_HTTP" = "true" ]; then
+  set -- "$@" --allow-insecure-http
 fi
+/usr/local/bin/vehinode-agent "$@"
 
-install -m 0644 /dev/stdin /etc/systemd/system/vehinode-agent.service <<'UNIT'
-[Unit]
-Description=VehiNode vehicle telemetry agent
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=vehinode-agent
-Group=vehinode-agent
-ExecStart=/opt/vehinode-agent/venv/bin/vehinode-agent --config-dir /etc/vehinode-agent --data-dir /var/lib/vehinode-agent run
-Restart=always
-RestartSec=10
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/vehinode-agent /etc/vehinode-agent
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-systemctl daemon-reload
-systemctl enable --now vehinode-agent
-ln -sf /opt/vehinode-agent/venv/bin/vehinode-agent /usr/local/bin/vehinode-agent
-systemctl --no-pager --full status vehinode-agent || true
-/opt/vehinode-agent/venv/bin/vehinode-agent --config-dir /etc/vehinode-agent --data-dir /var/lib/vehinode-agent doctor || true
-echo "VehiNode agent ${VERSION} installed. Run: vehinode-agent status"
+/usr/local/bin/vehinode-agent doctor || true
+echo "Review hardware: sudo vehinode-agent devices"
+echo "Full removal: sudo vehinode-agent uninstall"

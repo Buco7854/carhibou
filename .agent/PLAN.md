@@ -12,11 +12,13 @@
 - [x] Enrollable journey simulator
 - [x] Responsive SPA login, vehicle creation and live dashboard
 - [x] Tailwind design system, extensible i18n (English/French) and Light/Dark/Auto themes
-- [x] Original live-routebook workspace, route-first dashboard and photo-led garage grid
+- [x] Full-viewport live-routebook workspace and dimensionally stable photo-led garage grid
+- [x] Browser-language detection and reusable modern select component
 - [x] Original node-route mark, instance-focused login and modern open map treatment
 - [x] Optional 25 MiB file-backed vehicle photos with an explicit missing-photo placeholder
+- [x] Confirmed vehicle deletion with database cascades and photo cleanup
 - [x] Authenticated SSE live state with resilient browser reconnection
-- [x] Propulsion-aware EV, combustion, hybrid and unknown vehicle presentation
+- [x] Metric-key-driven vehicle presentation without propulsion classification
 
 ## Phase 2 — history and dashboards
 
@@ -24,6 +26,11 @@
 - [x] History chart, route map and metric selection
 - [x] Registry-based dashboard widgets with drag/resize/configuration
 - [x] PostgreSQL dashboard persistence
+- [x] Premade default Overview plus multiple owner dashboards
+- [x] Responsive dashboard grid with stable single-column phone layout
+- [x] Normal live dashboard pages with in-place editing and a composed premade Overview
+- [x] Shared dashboard vehicle selector with dynamic and explicitly pinned widgets
+- [x] Responsive history identity, filter and summary sections with unclipped dropdowns
 
 ## Phase 3 — Pi agent
 
@@ -31,6 +38,10 @@
 - [x] SQLite queue, retry/catch-up and HTTP batch transport
 - [x] Versioned last-known-good configuration
 - [x] CLI diagnostics and simulated providers
+- [x] Persistent host-local GPS/OBD selection and confirmation-gated full uninstall
+- [x] Standalone CGO-free Go executable for ARMv6, ARMv7, ARM64 and AMD64
+- [x] Package-manager-free bootstrap, verified self-update and executable-owned uninstall
+- [x] Resumable bootstrap downloads with bounded retry and end-to-end checksum verification
 
 ## Phase 4 — physical integrations
 
@@ -38,6 +49,8 @@
 - [x] OBDLink SX/STN adapter, standard OBD and reconnection
 - [x] Portable CAN capture and offline replay
 - [x] Safe declarative profile decoder and experimental C-Zero profile
+- [x] Owner-created profile CRUD, assignment and versioned agent distribution
+- [x] Dedicated profiles page with distinct profile/signal modals and no proof-level UX
 - [x] Accurate hardware validation ledger
 - [ ] Physical SIM7600, OBDLink SX and C-Zero validation (external hardware required)
 
@@ -48,7 +61,7 @@
 - [x] Child-process runtime, timeout/resource/log limits and crash recovery
 - [x] Persistent state, encrypted secrets and central redaction
 - [x] Stable context with HTTP, geometry, logging and dry-run helpers
-- [x] Execution history, manual/retry APIs and SPA editor
+- [x] Execution history, manual/retry APIs and SPA editor with modal creation and compact empty state
 
 ## Phase 6 — recipes
 
@@ -67,6 +80,6 @@
 - [x] Full API/agent/hook end-to-end scenario and frontend behavior tests
 - [x] Real-browser Playwright E2E with app/worker, mobile and accessibility coverage
 - [x] Lockfile-based local CI-equivalent checks available in `scripts/check.sh`
-- [ ] Real PostgreSQL, Docker image and Compose smoke (runner lacks both)
+- [x] Real PostgreSQL, Docker image and Compose smoke
 - [ ] GitHub Actions, Pages and GHCR publication (requires remote repository execution)
 - [ ] Backup/restore exercise against a disposable PostgreSQL deployment

@@ -55,7 +55,6 @@ def test_complete_simulator_dashboard_and_hook_scenario(
                 "name": "Simulated C-Zero",
                 "manufacturer": "Citroën",
                 "model": "C-Zero",
-                "propulsion_type": "electric",
                 "vehicle_profile": "citroen-c-zero-v1",
             },
         ).json()

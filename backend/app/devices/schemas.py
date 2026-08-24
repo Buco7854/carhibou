@@ -26,6 +26,7 @@ class DeviceConfig(BaseModel):
     sampling: dict[str, int]
     upload: dict[str, int]
     vehicle_profile: str | None
+    vehicle_profile_definition: dict[str, object] | None = None
 
 
 class EnrollResponse(BaseModel):

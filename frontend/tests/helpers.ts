@@ -11,7 +11,6 @@ export const vehicle = {
   manufacturer: 'Citroën',
   model: 'C-Zero',
   year: 2018,
-  propulsion_type: 'electric',
   battery_nominal_capacity_kwh: 16,
   vehicle_profile: 'citroen-c-zero-v1',
   timezone: 'UTC',

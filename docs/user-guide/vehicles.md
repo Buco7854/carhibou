@@ -1,17 +1,33 @@
 # Vehicles
 
-Vehicles belong to a user independently of the login provider. Generic fields describe
-identity, propulsion, nominal battery capacity, timezone and display metadata. Raw
-C-Zero fields never enter the generic table; choose a vehicle profile for decoding.
+Vehicles belong to a user independently of the login provider. Creation asks only for a
+name and, optionally, a telemetry profile. It does not ask the owner to classify the
+powertrain or enter specifications that are unrelated to collecting telemetry. Raw
+C-Zero fields never enter the generic table; choose a profile only when it matches the
+vehicle and capture hardware.
+
+## Telemetry profiles
+
+A vehicle profile is a declarative decoding map from raw CAN frames and bytes to named
+metrics such as `battery.soc`. VehiNode ships reviewed built-in definitions and lets each
+owner create profiles on the dedicated **Telemetry profiles** page. Custom profiles remain owner-scoped and
+can be assigned directly from a vehicle card. Saving, changing or deleting a profile
+increments the assigned tracker configuration; the server then sends the complete,
+validated definition to the agent as last-known-good configuration.
+
+Only enter CAN identifiers and formulas backed by evidence you trust. VehiNode validates
+the structure but cannot prove that a reverse-engineered formula matches a physical car,
+and it never invents one.
 
 Live state shows the latest position, canonical metrics and device health. Online state
 uses reporting freshness rather than assuming every parked vehicle reports rapidly.
 
-The vehicle catalog is arranged as a photographic garage: each card leads with the
-vehicle image, followed by identity, live energy/speed/contact readings and direct
-history/tracker actions. Electric vehicles show traction-battery state; petrol and
-diesel vehicles show fuel level; hybrids use the available battery or fuel signal.
-VehiNode never turns a missing reading into `0%`. The compact overview above it shows
+The vehicle catalog is arranged as a photographic garage: each fixed-ratio media area
+leads with the vehicle image, followed by live energy/speed/contact readings and direct
+history/tracker actions. It never labels a vehicle electric, combustion or hybrid.
+Instead, `battery.soc` is shown when reported, then `fuel.level` when that is reported;
+other cards likewise use metrics that actually exist. VehiNode never turns a missing
+reading into `0%`. The compact overview above it shows
 fleet totals, connected vehicles and average reported energy. Search is local and
 immediate; the All, Online and Parked filters only change the visible catalog and do
 not alter reporting configuration.
@@ -19,7 +35,8 @@ not alter reporting configuration.
 ## Vehicle photos
 
 Use **Add photo** on a vehicle to upload a JPEG, PNG or WebP image up to 25 MiB. You can
-replace or remove it from the same media frame. Until then, VehiNode shows a plain
+replace or remove it from the same media frame. Adding a photo does not change the card
+dimensions. Until then, VehiNode shows a plain
 missing-image icon directly in the empty photo area, without placeholder copy or a
 substitute vehicle illustration.
 
@@ -27,3 +44,11 @@ Photos remain private to the vehicle owner. VehiNode stores the image as a file 
 media directory; PostgreSQL contains only its content type, size, fingerprint and
 storage key. Docker installations persist these files in the `vehicle-media` volume,
 which must be backed up together with PostgreSQL.
+
+## Vehicle deletion
+
+Delete a vehicle from its garage card. The confirmation explains that deletion is
+permanent: telemetry history, current state, trackers and credentials, pending enrollment
+tokens, the photo, and vehicle-specific hooks are removed together. Dashboard widgets
+that were pinned to the deleted vehicle are retained and return to following the
+dashboard vehicle selector.

@@ -14,7 +14,6 @@ def _vehicle_and_device(client: TestClient, csrf: str) -> tuple[dict[str, Any], 
             "manufacturer": "Citroën",
             "model": "C-Zero",
             "year": 2018,
-            "propulsion_type": "electric",
             "battery_nominal_capacity_kwh": 16,
             "vehicle_profile": "citroen-c-zero-v1",
         },
@@ -120,3 +119,81 @@ def test_idempotent_telemetry_current_state_history_and_dashboard(
     )
     assert empty_dashboard.status_code == 201, empty_dashboard.text
     assert empty_dashboard.json()["layout"] == {"widgets": []}
+
+
+def test_vehicle_deletion_removes_owned_data_and_unpins_dashboard_widgets(
+    registered: tuple[TestClient, str],
+) -> None:
+    client, csrf = registered
+    vehicle, enrolled = _vehicle_and_device(client, csrf)
+    credential = enrolled["credential"]
+    telemetry = {
+        "boot_id": str(uuid4()),
+        "samples": [
+            {
+                "id": str(uuid4()),
+                "sequence": 1,
+                "recorded_at": datetime.now(UTC).isoformat(),
+                "position": None,
+                "metrics": {"vehicle.speed": 12},
+                "device": {},
+            }
+        ],
+    }
+    assert (
+        client.post(
+            "/api/v1/device/telemetry/batch",
+            headers={"Authorization": f"Device {credential}"},
+            json=telemetry,
+        ).status_code
+        == 200
+    )
+    dashboard = client.post(
+        "/api/v1/dashboards",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "name": "Pinned",
+            "layout": {
+                "widgets": [
+                    {
+                        "id": "speed",
+                        "type": "metric-card",
+                        "vehicle_id": vehicle["id"],
+                        "metric": "vehicle.speed",
+                        "x": 0,
+                        "y": 0,
+                        "w": 3,
+                        "h": 2,
+                    }
+                ]
+            },
+        },
+    )
+    assert dashboard.status_code == 201
+    hook = client.post(
+        "/api/v1/hooks",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "name": "Vehicle-only hook",
+            "vehicle_id": vehicle["id"],
+            "source": "ctx.log.info('test')",
+        },
+    )
+    assert hook.status_code == 201, hook.text
+
+    deleted = client.delete(f"/api/v1/vehicles/{vehicle['id']}", headers={"X-CSRF-Token": csrf})
+
+    assert deleted.status_code == 204, deleted.text
+    assert client.get(f"/api/v1/vehicles/{vehicle['id']}").status_code == 404
+    assert client.get("/api/v1/devices").json() == []
+    assert client.get("/api/v1/hooks").json() == []
+    widgets = client.get("/api/v1/dashboards").json()[0]["layout"]["widgets"]
+    assert "vehicle_id" not in widgets[0]
+    assert (
+        client.post(
+            "/api/v1/device/telemetry/batch",
+            headers={"Authorization": f"Device {credential}"},
+            json=telemetry,
+        ).status_code
+        == 401
+    )

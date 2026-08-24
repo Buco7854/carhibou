@@ -3,7 +3,7 @@
 VehiNode is a self-hosted modular monolith for vehicle telemetry. The browser is
 a Vue 3/TypeScript SPA; FastAPI owns HTTP and domain services; PostgreSQL owns
 durable data and jobs; the worker runs trusted Python hooks in child processes;
-the ARMv6-friendly Python agent uses serial devices, HTTP and a SQLite queue.
+the ARMv6-friendly Go agent uses serial devices, HTTP and a compiled-in SQLite queue.
 
 ## Invariants
 
@@ -34,14 +34,15 @@ At session start read this file, `.agent/STATE.md`, relevant `.agent/PLAN.md`,
 
 ```bash
 ./scripts/check.sh                 # all local lint/type/test/build checks
-pytest backend/tests agent/tests   # Python tests
+pytest backend/tests agent/tests   # Python/backend and reference-fixture tests
+cd agent && go test ./... && go vet ./...
 ruff check . && ruff format --check . && mypy backend agent
 cd frontend && npm test && npm run typecheck && npm run build
 cd frontend && npx playwright install chromium && npm run test:e2e
 cd docs && npm ci && npm run docs:build
 alembic upgrade head
 python -m backend.app.worker --once
-python -m agent.vehicle_agent.cli --help
+go run ./agent/cmd/vehinode-agent --help
 ```
 
 Before a cohesive commit: run focused tests, inspect the diff, update docs plus

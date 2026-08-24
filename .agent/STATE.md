@@ -1,6 +1,6 @@
 # Current project state
 
-Updated: 2026-08-24
+Updated: 2026-08-25
 
 ## Works
 
@@ -10,27 +10,55 @@ Updated: 2026-08-24
   Local registration can create only the first administrator. That account can instead
   be bootstrapped idempotently from environment variables; later registration is always
   rejected and the identity boundary remains ready for a future OIDC provider.
-- The Tailwind Vue SPA uses an original live-routebook workspace with a clear sidebar,
-  continuous vehicle switcher, real route-first dashboard, telemetry ledger and
-  photo-led searchable garage grid. Route/history charts, registry-based draggable
-  dashboards, tracker administration, hooks and settings remain functional. Self-hosted
+- The Tailwind Vue SPA uses a full-viewport live-routebook workspace with a clear,
+  full-height sidebar and one dashboard destination. A versioned premade Overview, multiple
+  owner dashboards, responsive single-column mobile widgets, route/history charts,
+  tracker administration, hooks and settings are functional. The searchable garage
+  uses dimensionally stable photo cards and leaves optional vehicle facts blank. Self-hosted
   IBM Plex typography, an original node-route mark, a modern neutralized OpenStreetMap treatment,
   optional owner-scoped vehicle photos with a plain missing-image placeholder, a
   cobalt recorded-route accent,
-  extensible English/French catalogs and persistent Light, Dark and Auto themes work
-  across the application. Login copy is operational and instance-focused rather than
-  promotional. The live dashboard consumes an
-  authenticated, session-revalidating SSE stream instead of browser polling, and its
-  status badges keep a consistent rounded-rectangle shape at mobile widths.
-- Garage, live dashboard, history and custom widgets share a canonical propulsion-aware
-  display policy: EVs prioritize battery/charging, combustion vehicles fuel/engine data,
-  hybrids available signals from both, and missing readings remain neutral rather than 0%.
+  extensible English/French catalogs, browser-language detection, app-owned accessible
+  dropdowns, modal creation flows and persistent Light, Dark and Auto themes work across
+  the application.
+  Login copy is operational and instance-focused rather than promotional.
+- Vehicle deletion uses an explicit confirmation modal, removes the vehicle's uploaded
+  photo, cascades dependent tracker credentials and telemetry in PostgreSQL, and leaves
+  reusable dashboard widgets present but no longer pinned to the deleted vehicle.
+- Vehicles have no propulsion classification in the UI, API or current schema. Garage,
+  dashboards, history and widgets choose their presentation only from metric keys that
+  are actually present; battery and fuel readings may coexist, and missing readings
+  remain neutral rather than 0%.
+- Dashboards render as normal live pages; one overflow menu opens edit/create actions and
+  edit mode adds controls directly to the same canvas. The versioned Overview is composed
+  from ordinary selector, map, media, energy, telemetry, chart and tracker widgets and is
+  added without removing older dashboards. Unpinned widgets react to the shared vehicle
+  selector while explicitly pinned widgets remain fixed. The selector is a bounded,
+  searchable dropdown for large fleets. Data widgets share a deliberate no-data state,
+  avoid mounting empty maps/charts, and omit unavailable telemetry rows.
+  History keeps identity, filters and summary data in responsive sections. Vehicle and
+  tracker creation use focused modals. Profiles have their own routed page, full-width
+  profile rows, aligned vertical details, and distinct profile/signal modals with no
+  artificial user-facing proof level. Hook creation also uses a focused modal and the
+  page no longer renders an unused blank editor before the first hook.
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,
   HTTP/geometry helpers, manual dry-run and execution history.
-- The lightweight agent implements an offline SQLite queue, enrollment, remote
-  last-known-good configuration, simulator, SIM7600 NMEA parsing, OBDLink/OBD support,
-  safe profiles, CAN capture/replay, diagnostics, installer and systemd integration.
+- The deployed vehicle agent is a standalone CGO-free Go executable. Versioned Linux
+  builds cover ARMv6, ARMv7, ARM64 and AMD64; the bootstrap downloads the matching
+  checksum-verified artifact without running `apt`, Python or a compiler on the tracker.
+  It implements enrollment, a compiled-in offline SQLite outbox, remote last-known-good
+  configuration, SIM7600 NMEA parsing, OBDLink/OBD support, safe profiles, CAN
+  capture/replay, diagnostics, installation and systemd integration.
+  Host-local hardware selection persists GPS and OBD as `auto`, `off`, or a verified
+  stable `/dev/serial/by-id` path; diagnostics expose candidates without claiming that a
+  name alone proves the protocol. Installation grants serial access and the executable
+  retries and resumes interrupted downloads before checksum verification. The executable
+  provides checksum-verified self-updates plus confirmation-gated complete removal of the
+  service, executable, credentials and queued telemetry.
+  Owners can create declarative profiles in the SPA; definitions are owner-scoped,
+  server-validated, versioned with assigned devices, and validated again by the agent
+  before replacing last-known-good configuration. Built-in profiles remain read-only.
 - Production artifacts include a non-root multi-stage image, three-service Compose,
   CI/Pages/GHCR/release workflows, operator-focused VitePress docs and backup/restore
   scripts. A deployed server needs only the image-based Compose file and its private
@@ -43,33 +71,42 @@ Updated: 2026-08-24
 
 ## Verification
 
-- Ruff, Ruff format, mypy: passing for 93 Python source files.
-- Backend/agent tests runnable without PostgreSQL: 40 passing, including vehicle photo
+- Ruff and Ruff format pass across backend/agent; mypy passes for 105 source files in Linux.
+- Backend/agent tests runnable without PostgreSQL pass on Linux, including vehicle photo
   validation/storage/ownership coverage and the complete
-  simulator-to-hook E2E scenario.
-- Frontend: ESLint and strict type check passing; 6 files / 20 behavior tests passing;
+  simulator-to-hook E2E scenario plus custom-profile distribution and ownership.
+- Frontend: ESLint and strict type check passing; 6 files / 27 behavior tests passing;
   production build passing.
 - Playwright: 2 Chromium scenarios passing locally against a fresh migrated database,
   real API and worker. CI runs the same suite on PostgreSQL. They cover the primary
   product journey, idempotency, auth-realm isolation, live SSE state changes,
   environment-based admin bootstrap, rejection of later registration, file-backed photo
-  upload/dashboard display, persistent hook state, mobile reflow/badge geometry, EN/FR,
-  themes, propulsion-aware EV/combustion rendering and automated axe checks. The
-  expanded stale-vehicle check found and fixed a light-theme status contrast defect.
+  upload with invariant card height, multiple/default dashboard persistence, mobile
+  widget reflow, the routed profile/modal flow, browser-language detection, EN/FR,
+  themes, metric-key-driven rendering
+  and automated axe checks. The
+  expanded stale-vehicle check found and fixed a light-theme status contrast defect. The
+  composed dashboard selector also passes axe after correcting its grouped-button semantics.
+- The Go agent passes format, vet, unit tests and CGO-free cross-builds for all four
+  release targets. Every packaged artifact has a matching verified SHA-256 checksum and
+  the Linux AMD64 executable runs from the production image.
 - VitePress build (including the repository Compose import), secret-file generation
-  smoke test and Python wheel build pass. Alembic upgrade/check/downgrade passes with
+  smoke test and Python server wheel build pass. Alembic upgrade/check/downgrade passes with
   the local SQLite migration smoke database.
 - The committed lockfiles install from a fresh checkout and `scripts/check.sh` resolves
   the checkout directly; no prior editable installation is required for validation.
-- PostgreSQL integration and Docker image/Compose smoke cannot run locally because this
-  runner has no PostgreSQL or container engine. Browser E2E is encoded in CI and runs
-  locally; GitHub publication still requires the remote repository.
+- The production image builds on Docker Desktop. Compose is running against PostgreSQL
+  with migration `91c5e8a3f204` at head; app/PostgreSQL are healthy and the worker uses
+  its role-appropriate no-HTTP health policy. The packaged image serves the bootstrap and
+  all four standalone agent targets; lifecycle operations live in the executable. The
+  browser suite passes against a disposable Linux image/SQLite app and worker. GitHub
+  publication still requires the remote.
 
 ## Broken or failing
 
 - No known runnable test or build failure.
-- External validation remains: CI on GitHub, GHCR/Pages publication, real PostgreSQL and
-  Docker execution, backup/restore against that deployment, and physical hardware/car.
+- External validation remains: CI on GitHub, GHCR/Pages publication, backup/restore
+  against a disposable deployment, and physical hardware/car.
 
 ## Hardware validation
 
@@ -79,7 +116,6 @@ Updated: 2026-08-24
 
 ## Exact next action
 
-On a machine with Docker and PostgreSQL, run the deployment smoke flow in
-`docs/operations/deployment.md`, then exercise backup/restore. Run the GitHub workflows
-from the remote repository. Validate hardware using the ledger without promoting
-experimental signal status prematurely.
+Exercise backup/restore against a disposable deployment. Run the GitHub workflows from
+the remote repository. Validate hardware using the ledger without promoting experimental
+signal status prematurely.

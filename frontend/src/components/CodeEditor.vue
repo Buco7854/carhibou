@@ -23,4 +23,4 @@ watch(resolvedTheme,(value)=>view?.dispatch({effects:theme.reconfigure(value==='
 onBeforeUnmount(()=>view?.destroy())
 </script>
 <template><div ref="host" class="code-editor" /></template>
-<style scoped>.code-editor{overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--input)}:deep(.cm-editor){min-height:380px;font-size:13px}:deep(.cm-scroller){font-family:'DM Mono',ui-monospace,monospace}:deep(.cm-editor.cm-focused){outline:2px solid var(--accent-soft)}</style>
+<style scoped>.code-editor{overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--input)}:deep(.cm-editor){height:300px;font-size:13px}:deep(.cm-scroller){font-family:'DM Mono',ui-monospace,monospace}:deep(.cm-editor.cm-focused){outline:2px solid var(--accent-soft)}@media(max-width:620px){:deep(.cm-editor){height:250px}}</style>

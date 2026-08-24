@@ -19,8 +19,11 @@ def install_agent() -> FileResponse:
 def agent_release(version: str, filename: str) -> FileResponse:
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise HTTPException(status_code=404, detail="release not found")
-    expected = f"vehinode-{version}-py3-none-any.whl"
-    if filename not in {expected, f"{expected}.sha256"}:
+    expected = {
+        f"vehinode-agent-{version}-{target}"
+        for target in ("linux-amd64", "linux-arm64", "linux-armv7", "linux-armv6")
+    }
+    if filename.removesuffix(".sha256") not in expected:
         raise HTTPException(status_code=404, detail="release not found")
     path = Path(get_settings().agent_release_dir) / version / filename
     if not path.is_file():
