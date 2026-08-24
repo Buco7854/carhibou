@@ -14,6 +14,7 @@
 - [x] Tailwind design system, extensible i18n (English/French) and Light/Dark/Auto themes
 - [x] Original live-routebook workspace, route-first dashboard and garage roster
 - [x] Original node-route mark, instance-focused login and modern open map treatment
+- [x] Neutral modern compact-car silhouette for the vehicle roster
 - [x] Authenticated SSE live state with resilient browser reconnection
 
 ## Phase 2 — history and dashboards
@@ -56,6 +57,7 @@
 
 - [x] Multi-stage non-root Docker image and Compose definition
 - [x] Image-only two-file server deployment without a retained source checkout
+- [x] Role-aware image entrypoint and declarative Compose service commands
 - [x] Health, diagnostics, structured/request-ID logging and payload limits
 - [x] Operator-focused VitePress install, usage and operations documentation
 - [x] Canonical Compose file import and safe `.env` secret-generation workflow

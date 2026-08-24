@@ -15,9 +15,10 @@ Updated: 2026-08-24
   searchable garage roster. Route/history charts, registry-based draggable dashboards,
   tracker administration, hooks and settings remain functional. Self-hosted IBM Plex
   typography, an original node-route mark, a modern neutralized OpenStreetMap treatment,
-  a cobalt recorded-route accent, extensible English/French catalogs and persistent
-  Light, Dark and Auto themes work across the application. Login copy is operational
-  and instance-focused rather than promotional. The live dashboard consumes an
+  a proportioned modern compact-car garage silhouette, a cobalt recorded-route accent,
+  extensible English/French catalogs and persistent Light, Dark and Auto themes work
+  across the application. Login copy is operational and instance-focused rather than
+  promotional. The live dashboard consumes an
   authenticated, session-revalidating SSE stream instead of browser polling, and its
   status badges keep a consistent rounded-rectangle shape at mobile widths.
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
@@ -30,7 +31,9 @@ Updated: 2026-08-24
   CI/Pages/GHCR/release workflows, operator-focused VitePress docs and backup/restore
   scripts. A deployed server needs only the image-based Compose file and its private
   `.env`; it does not retain the source tree or require helper scripts. The Docker guide
-  imports the canonical Compose file and documents direct backup/restore commands.
+  imports the canonical Compose file and documents direct backup/restore commands. A
+  role-aware image entrypoint owns migrations and app/worker startup; Compose contains
+  no project `name` or embedded shell startup pipeline.
 
 ## Verification
 

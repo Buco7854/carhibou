@@ -3,15 +3,33 @@ withDefaults(defineProps<{ color?: string }>(), { color: '#315fcf' })
 </script>
 
 <template>
-  <svg class="vehicle-silhouette" viewBox="0 0 320 150" fill="none" aria-hidden="true">
-    <ellipse cx="160" cy="132" rx="122" ry="6" fill="currentColor" opacity=".08" />
-    <path d="M42 105V82c0-9 7-16 16-18l41-8 28-34c4-5 10-8 17-8h48c11 0 21 6 27 15l22 36 31 9c11 3 19 13 19 25v14H42v-8Z" fill="currentColor" opacity=".12" />
-    <path d="M58 98V78l47-9 33-40c3-4 8-6 13-6h37c9 0 16 4 21 12l23 39 32 9c7 2 12 8 12 16v12H58V98Z" :stroke="color" stroke-width="3" stroke-linejoin="round" />
-    <path d="M114 68 143 33h17v35h-46Zm54 0V33h18c6 0 11 3 14 8l16 27h-48Z" fill="currentColor" opacity=".1" :stroke="color" stroke-width="2" />
-    <path d="M58 84h25m151-3h30M90 106h131M163 24v85" :stroke="color" stroke-width="2" stroke-linecap="round" opacity=".72" />
-    <circle cx="96" cy="112" r="22" fill="var(--panel)" :stroke="color" stroke-width="3" /><circle cx="96" cy="112" r="9" fill="currentColor" opacity=".16" :stroke="color" stroke-width="2" />
-    <circle cx="235" cy="112" r="22" fill="var(--panel)" :stroke="color" stroke-width="3" /><circle cx="235" cy="112" r="9" fill="currentColor" opacity=".16" :stroke="color" stroke-width="2" />
-    <path d="M49 93h15v9H49m210-9h17v9h-17" :stroke="color" stroke-width="2" />
+  <svg class="vehicle-silhouette" viewBox="0 0 360 150" fill="none" aria-hidden="true">
+    <ellipse cx="181" cy="132" rx="145" ry="6" fill="currentColor" opacity=".07" />
+
+    <path
+      d="M29 106 33 88c2-8 7-12 16-15l43-8 30-31c7-7 15-10 27-10h68c14 0 23 4 31 14l23 29 47 10c10 2 16 8 18 18l2 12c1 6-3 10-10 10H39c-7 0-11-4-10-11Z"
+      :fill="color"
+      fill-opacity=".11"
+    />
+    <path
+      d="M29 106 33 88c2-8 7-12 16-15l43-8 30-31c7-7 15-10 27-10h68c14 0 23 4 31 14l23 29 47 10c10 2 16 8 18 18l2 12c1 6-3 10-10 10H39c-7 0-11-4-10-11Z"
+      :stroke="color"
+      stroke-width="2.6"
+      stroke-linejoin="round"
+    />
+
+    <path d="m101 65 29-29c4-4 10-6 17-6h20v35h-66Z" fill="var(--panel)" :stroke="color" stroke-width="1.8" />
+    <path d="M175 30h40c9 0 15 3 21 10l20 25h-81V30Z" fill="var(--panel)" :stroke="color" stroke-width="1.8" />
+    <path d="M168 29v88m88-50 14 50M97 66l-9 51M34 91h38m200-15h43" :stroke="color" stroke-width="1.6" stroke-linecap="round" opacity=".68" />
+    <path d="M45 91h33m201-7h33M134 77h15m55 0h15M49 105h259" :stroke="color" stroke-width="2" stroke-linecap="round" opacity=".76" />
+
+    <circle cx="100" cy="115" r="20" fill="var(--panel)" stroke="currentColor" stroke-width="5" />
+    <circle cx="100" cy="115" r="9" :fill="color" fill-opacity=".15" :stroke="color" stroke-width="2" />
+    <circle cx="282" cy="115" r="20" fill="var(--panel)" stroke="currentColor" stroke-width="5" />
+    <circle cx="282" cy="115" r="9" :fill="color" fill-opacity=".15" :stroke="color" stroke-width="2" />
+
+    <path d="M29 99h13c4 0 6 2 6 6v4H30m291-17h13l2 12h-18" :stroke="color" stroke-width="2" stroke-linejoin="round" />
+    <path d="M328 83h-12v8h17M34 84h10v7H32" :fill="color" fill-opacity=".5" />
   </svg>
 </template>
 

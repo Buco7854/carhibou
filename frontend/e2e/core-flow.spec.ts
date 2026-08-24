@@ -61,6 +61,11 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByLabel('Year').fill('2018')
   await page.getByRole('button', { name: 'Create vehicle' }).click()
   await expect(page.getByRole('heading', { name: 'Éclair' })).toBeVisible()
+  const vehicleSilhouette = page.locator('.vehicle-silhouette')
+  await expect(vehicleSilhouette).toBeVisible()
+  const silhouetteBounds = await vehicleSilhouette.boundingBox()
+  expect(silhouetteBounds?.width).toBeGreaterThan(180)
+  expect(silhouetteBounds?.height).toBeLessThan(120)
   const [vehicle] = await browserJson<VehicleRecord[]>(page, 'get', '/api/v1/vehicles')
   expect(vehicle?.name).toBe('Éclair')
 
