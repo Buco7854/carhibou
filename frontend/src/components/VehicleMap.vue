@@ -89,8 +89,8 @@ onBeforeUnmount(() => map?.remove())
 .map-frame{--map-route-halo:rgba(255,255,255,.9);position:relative;width:100%;height:100%;min-height:300px;overflow:hidden;background:var(--panel-2)}
 .vehicle-map{width:100%;height:100%;min-height:300px;background:var(--panel-2)}
 :deep(.leaflet-tile-pane){filter:grayscale(.42) saturate(.62) contrast(.9) brightness(1.055)}
-:global([data-theme="dark"]) .map-frame{--map-route-halo:rgba(13,16,14,.86)}
-:global([data-theme="dark"]) :deep(.leaflet-tile-pane){filter:brightness(.5) saturate(.22) contrast(1.16)}
+:global([data-theme="dark"] .map-frame){--map-route-halo:rgba(13,16,14,.86)}
+:global([data-theme="dark"] .map-frame .leaflet-tile-pane){filter:brightness(.5) saturate(.22) contrast(1.16)}
 :deep(.leaflet-control-zoom){margin:0 13px 13px 0!important;overflow:hidden;border:1px solid var(--line-strong)!important;border-radius:9px!important;box-shadow:0 7px 20px rgba(16,24,20,.15)!important}
 :deep(.leaflet-control-zoom a){width:34px!important;height:32px!important;display:grid!important;place-items:center;color:var(--text)!important;background:color-mix(in srgb,var(--panel) 94%,transparent)!important;border:0!important;border-bottom:1px solid var(--line)!important;font:500 17px/1 "IBM Plex Sans",sans-serif!important}
 :deep(.leaflet-control-zoom a:last-child){border-bottom:0!important}

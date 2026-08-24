@@ -75,6 +75,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(vehicleAccessibility.violations).toEqual([])
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark' })
   await expect.poll(() => page.getByRole('heading', { name: 'Vehicles', exact: true }).evaluate((element) => getComputedStyle(element).color)).toBe('rgb(241, 243, 239)')
+  await expect.poll(() => page.locator('html').evaluate((element) => getComputedStyle(element).filter)).toBe('none')
   const darkVehicleAccessibility = await new AxeBuilder({ page }).analyze()
   expect(darkVehicleAccessibility.violations).toEqual([])
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light' })
