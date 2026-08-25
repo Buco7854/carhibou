@@ -43,6 +43,37 @@ def _position(row: Telemetry | VehicleState) -> dict[str, object] | None:
     }
 
 
+def _sample(telemetry: Telemetry) -> dict[str, Any]:
+    return {
+        "id": telemetry.id,
+        "recorded_at": telemetry.recorded_at.isoformat(),
+        "sequence": telemetry.sequence,
+        "position": _position(telemetry),
+        "metrics": telemetry.metrics,
+        "device": telemetry.device_data,
+    }
+
+
+def _batch(db: Session, trigger: Trigger, latest: Telemetry) -> list[Telemetry]:
+    """Every sample the triggering upload stored, oldest first.
+
+    Rows deleted since the trigger fired are simply absent; the batch always ends with
+    the sample the execution is pinned to.
+    """
+    payload = trigger.payload if isinstance(trigger.payload, dict) else {}
+    identifiers = payload.get("telemetry_ids")
+    if not isinstance(identifiers, list) or not identifiers:
+        return [latest]
+    rows = list(
+        db.scalars(
+            select(Telemetry)
+            .where(Telemetry.id.in_([str(value) for value in identifiers]))
+            .order_by(Telemetry.recorded_at, Telemetry.sequence)
+        )
+    )
+    return rows or [latest]
+
+
 def build_runtime_input(
     db: Session, execution: HookExecution
 ) -> tuple[Hook, dict[str, Any], list[str]]:
@@ -51,6 +82,7 @@ def build_runtime_input(
     telemetry = db.get(Telemetry, execution.telemetry_id) if execution.telemetry_id else None
     if not hook or not trigger or not telemetry:
         raise LookupError("hook execution inputs no longer exist")
+    batch = _batch(db, trigger, telemetry)
     vehicle = db.get(Vehicle, telemetry.vehicle_id)
     device = db.get(Device, telemetry.device_id)
     if not vehicle or not device:
@@ -73,13 +105,8 @@ def build_runtime_input(
             "device_id": trigger.device_id,
             "payload": trigger.payload,
         },
-        "telemetry": {
-            "id": telemetry.id,
-            "recorded_at": telemetry.recorded_at.isoformat(),
-            "position": _position(telemetry),
-            "metrics": telemetry.metrics,
-            "device": telemetry.device_data,
-        },
+        "telemetry": _sample(telemetry),
+        "telemetry_batch": [_sample(row) for row in batch],
         "vehicle": {
             "id": vehicle.id,
             "name": vehicle.name,

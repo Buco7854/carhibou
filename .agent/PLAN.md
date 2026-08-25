@@ -31,6 +31,7 @@
 - [x] Normal live dashboard pages with in-place editing and a composed premade Overview
 - [x] Shared dashboard vehicle selector with dynamic and explicitly pinned widgets
 - [x] Responsive history identity, filter and summary sections with unclipped dropdowns
+- [x] Paginated raw-entry table with per-column sort, numeric filter and saved column layout
 
 ## Phase 3 — Pi agent
 
@@ -62,6 +63,7 @@
 - [x] Persistent state, encrypted secrets and central redaction
 - [x] Stable context with HTTP, geometry, logging and dry-run helpers
 - [x] Execution history, manual/retry APIs and SPA editor with modal creation and compact empty state
+- [x] One execution per upload with `ctx.telemetry_batch`, leaving iteration to hook code
 
 ## Phase 6 — recipes
 
@@ -79,6 +81,7 @@
 - [x] Database/media backup and restore procedures plus security threat model
 - [x] Full API/agent/hook end-to-end scenario and frontend behavior tests
 - [x] Real-browser Playwright E2E with app/worker, mobile and accessibility coverage
+- [x] Interface rewrite removing generated-looking chrome across every view
 - [x] Lockfile-based local CI-equivalent checks available in `scripts/check.sh`
 - [x] Real PostgreSQL, Docker image and Compose smoke
 - [ ] GitHub Actions, Pages and GHCR publication (requires remote repository execution)

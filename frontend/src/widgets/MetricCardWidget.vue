@@ -18,4 +18,18 @@ const value = computed(() => {
 const unit = computed(() => props.widget.unit ?? reading.value.unit)
 </script>
 
-<template><article class="widget-card"><span class="eyebrow">{{ widget.title || metricLabel(reading,t) }}</span><template v-if="reading.value!==null"><div class="metric-value">{{ value }}<span v-if="reading.kind==='number'&&unit" class="metric-unit">{{ unit }}</span></div><small class="muted">{{ vehicle?.name }}</small></template><DashboardWidgetEmpty v-else :icon="reading.icon" /></article></template>
+<template>
+  <article class="widget-card metric-widget">
+    <div class="widget-head"><h2>{{ widget.title || metricLabel(reading,t) }}</h2></div>
+    <template v-if="reading.value!==null">
+      <div class="metric-value">{{ value }}<span v-if="reading.kind==='number'&&unit" class="metric-unit">{{ unit }}</span></div>
+      <small class="metric-owner">{{ vehicle?.name }}</small>
+    </template>
+    <DashboardWidgetEmpty v-else :icon="reading.icon" />
+  </article>
+</template>
+
+<style scoped>
+.metric-widget .metric-value{margin-top:auto}
+.metric-owner{margin-top:4px;overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+</style>

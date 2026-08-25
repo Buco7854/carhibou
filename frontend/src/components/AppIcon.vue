@@ -78,6 +78,12 @@ withDefaults(defineProps<{ name: string; size?: number }>(), { size: 20 })
     <template v-else-if="name === 'chevron-down'">
       <path d="m7 9.5 5 5 5-5" />
     </template>
+    <template v-else-if="name === 'chevron-up'">
+      <path d="m7 14.5 5-5 5 5" />
+    </template>
+    <template v-else-if="name === 'columns'">
+      <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9.5 4v16m5-16v16" />
+    </template>
     <template v-else-if="name === 'copy'">
       <rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
     </template>

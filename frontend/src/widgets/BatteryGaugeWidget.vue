@@ -15,7 +15,7 @@ const charging = computed(() => vehicle.value?.state?.metrics['charging.active']
 
 <template>
   <article class="widget-card energy-widget">
-    <header><span class="eyebrow">{{ widget.title || metricLabel(energy,t) }}</span><small>{{ vehicle?.name }}</small></header>
+    <div class="widget-head"><h2>{{ widget.title || metricLabel(energy,t) }}</h2><small>{{ vehicle?.name }}</small></div>
     <template v-if="energy.value!==null">
       <div class="gauge"><strong class="energy-value">{{ Math.round(energy.value) }}</strong><em>{{ energy.unit }}</em><small v-if="typeof charging==='boolean'">{{ t('metrics.charging') }} · {{ t(charging ? 'metrics.active' : 'metrics.inactive') }}</small></div>
       <i class="energy-track"><b :style="{ width:`${energy.progress}%` }" /></i>
@@ -25,5 +25,10 @@ const charging = computed(() => vehicle.value?.state?.metrics['charging.active']
 </template>
 
 <style scoped>
-.energy-widget{padding:15px 17px}.energy-widget header{display:flex;align-items:center;justify-content:space-between;gap:12px}.energy-widget header .eyebrow{margin:0}.energy-widget header small{overflow:hidden;color:var(--muted);font-size:8px;text-overflow:ellipsis;white-space:nowrap}.gauge{min-height:0;display:flex;align-items:end;flex:1}.gauge strong{font-size:clamp(37px,4vw,53px);font-weight:500;letter-spacing:-.075em;line-height:.86}.gauge em{margin:0 0 4px 5px;color:var(--accent);font-size:14px;font-style:normal}.gauge small{margin:0 0 5px auto;color:var(--muted);font-size:8px}.energy-track{height:6px;display:block;overflow:hidden;background:var(--panel-2);border-radius:4px}.energy-track b{display:block;height:100%;background:var(--accent)}
+.gauge{min-height:0;display:flex;align-items:baseline;flex:1;padding-bottom:10px}
+.gauge strong{font-size:clamp(30px,3.4vw,44px);font-weight:500;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums}
+.gauge em{margin-left:4px;color:var(--muted);font-size:13px;font-style:normal}
+.gauge small{margin-left:auto;color:var(--muted);font-size:12px}
+.energy-track{height:3px;display:block;overflow:hidden;background:var(--panel-2);border-radius:2px}
+.energy-track b{display:block;height:100%;background:var(--muted);border-radius:2px}
 </style>

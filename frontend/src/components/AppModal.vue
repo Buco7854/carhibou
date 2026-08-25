@@ -55,8 +55,8 @@ onBeforeUnmount(() => {
     <div v-if="open" class="app-modal-backdrop" @pointerdown.self="close">
       <section ref="dialog" :class="['app-modal panel', { wide, inactive }]" role="dialog" :aria-modal="!inactive" :aria-hidden="inactive || undefined" :inert="inactive || undefined" :aria-label="title">
         <header class="app-modal-heading">
-          <div><slot name="eyebrow" /><h2>{{ title }}</h2></div>
-          <button class="icon-button app-modal-close" type="button" :aria-label="$t('common.close')" @click="close"><AppIcon name="close" :size="18" /></button>
+          <h2>{{ title }}</h2>
+          <button class="icon-button" type="button" :aria-label="$t('common.close')" @click="close"><AppIcon name="close" :size="16" /></button>
         </header>
         <div class="app-modal-content"><slot /></div>
       </section>
@@ -65,7 +65,18 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.app-modal-backdrop{position:fixed;inset:0;z-index:3000;display:grid;place-items:center;padding:20px;background:rgba(5,8,7,.64);backdrop-filter:blur(6px)}.app-modal{width:min(100%,520px);max-height:calc(100vh - 40px);display:flex;flex-direction:column;overflow:hidden;border-color:var(--line-strong);box-shadow:0 28px 90px rgba(0,0,0,.34)}.app-modal.wide{width:min(100%,940px)}.app-modal.inactive{filter:saturate(.7);pointer-events:none}.app-modal-heading{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:15px 18px;border-bottom:1px solid var(--line)}.app-modal-heading h2{margin:0;font-size:18px}.app-modal-heading :deep(.eyebrow){margin-bottom:4px}.app-modal-close{width:36px;height:36px;border:1px solid var(--line);border-radius:8px}.app-modal-content{min-height:0;overflow-y:auto;padding:20px}@media(max-width:620px){.app-modal-backdrop{align-items:end;padding:0}.app-modal,.app-modal.wide{width:100%;max-height:calc(100vh - 16px);border-radius:14px 14px 0 0}.app-modal-content{padding:17px}}
+.app-modal-backdrop{position:fixed;inset:0;z-index:3000;display:grid;place-items:center;padding:20px;background:rgba(10,14,10,.5)}
+.app-modal{width:min(100%,500px);max-height:calc(100vh - 40px);display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow)}
+.app-modal.wide{width:min(100%,900px)}
+.app-modal.inactive{pointer-events:none}
+.app-modal-heading{min-height:50px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px 12px 18px;border-bottom:1px solid var(--line)}
+.app-modal-heading h2{margin:0;font-size:15px;font-weight:600}
+.app-modal-content{min-height:0;overflow-y:auto;padding:18px}
+@media(max-width:620px){
+  .app-modal-backdrop{align-items:end;padding:0}
+  .app-modal,.app-modal.wide{width:100%;max-height:calc(100vh - 16px);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
+  .app-modal-content{padding:16px}
+}
 </style>
 
 <style>

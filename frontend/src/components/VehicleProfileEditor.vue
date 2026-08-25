@@ -137,7 +137,6 @@ watch(() => [props.open, props.profile?.id] as const, ([open]) => { if (open) re
 
 <template>
   <AppModal :open="open" :inactive="signalOpen" :title="editing ? t('profiles.editTitle') : t('profiles.createTitle')" wide @close="close">
-    <template #eyebrow><span class="eyebrow">{{ t('profiles.eyebrow') }}</span></template>
     <form class="profile-editor" @submit.prevent="save">
       <div class="profile-details">
         <label class="field"><span>{{ t('profiles.name') }}</span><input v-model="form.name" class="input" required autofocus /></label>
@@ -166,7 +165,6 @@ watch(() => [props.open, props.profile?.id] as const, ([open]) => { if (open) re
   </AppModal>
 
   <AppModal :open="signalOpen" :title="signalIndex === null ? t('profiles.addSignal') : t('profiles.editSignal')" wide @close="signalOpen=false">
-    <template #eyebrow><span class="eyebrow">{{ t('profiles.signalEditor') }}</span></template>
     <form class="signal-editor" @submit.prevent="saveSignal">
       <section class="field-section">
         <header><h3>{{ t('profiles.signalIdentity') }}</h3><p>{{ t('profiles.signalIdentityHint') }}</p></header>
@@ -201,5 +199,32 @@ watch(() => [props.open, props.profile?.id] as const, ([open]) => { if (open) re
 </template>
 
 <style scoped>
-.profile-editor,.signal-editor{display:grid;gap:18px}.profile-details{display:grid;grid-template-columns:1fr;gap:14px}.profile-details .textarea{min-height:104px;resize:none}.signal-section{display:grid;gap:11px}.signal-section>header{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}.signal-section h3,.field-section h3{margin:0;font-size:13px}.signal-section p,.field-section header p{margin:4px 0 0;color:var(--muted);font-size:9px;line-height:1.45}.signal-rows{overflow:hidden;border:1px solid var(--line);border-radius:10px}.signal-row{min-height:66px;display:flex;align-items:center;gap:13px;padding:12px 14px;border-bottom:1px solid var(--line)}.signal-row:last-child{border-bottom:0}.signal-row>div{min-width:0;flex:1}.signal-row strong,.signal-row small{display:block}.signal-row strong{font-size:11px}.signal-row small{margin-top:4px;color:var(--muted);font-size:9px}.signal-row code{color:var(--text)}.signal-index{width:27px;height:27px;display:grid;place-items:center;flex:none;color:var(--accent);background:var(--accent-soft);border-radius:7px;font:600 9px "IBM Plex Mono",monospace}.profile-empty{margin:0;padding:18px;color:var(--muted);font-size:10px;text-align:center}.danger-text{color:var(--danger)}.field-section{display:grid;gap:12px;padding:15px;background:color-mix(in srgb,var(--panel-2) 45%,var(--panel));border:1px solid var(--line);border-radius:10px}.signal-grid{display:grid;gap:13px}.identity-grid,.source-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.conversion-grid{grid-template-columns:repeat(5,minmax(0,1fr))}.form-actions{justify-content:flex-end;margin-top:0}@media(max-width:760px){.identity-grid,.source-grid,.conversion-grid{grid-template-columns:1fr}.signal-section>header{align-items:flex-start;flex-direction:column}.signal-row{align-items:flex-start}}
+.profile-editor,.signal-editor{display:grid;gap:18px}
+.profile-details{display:grid;gap:14px}
+.profile-details .textarea{min-height:88px;resize:vertical}
+.signal-section{display:grid;gap:10px}
+.signal-section>header{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}
+.signal-section h3,.field-section h3{margin:0;font-size:13px;font-weight:600}
+.signal-section p,.field-section header p{margin:3px 0 0;color:var(--muted);font-size:12px;line-height:1.45}
+.signal-rows{overflow:hidden;border:1px solid var(--line);border-radius:var(--radius-lg)}
+.signal-row{min-height:52px;display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.signal-row:last-child{border-bottom:0}
+.signal-row>div{min-width:0;flex:1}
+.signal-row strong{display:block;font-size:13px;font-weight:500}
+.signal-row small{display:block;margin-top:2px;color:var(--muted);font-size:12px}
+.signal-row code{font-family:var(--mono);color:var(--text)}
+.signal-index{width:22px;flex:none;color:var(--muted);font-family:var(--mono);font-size:12px;text-align:right}
+.profile-empty{margin:0;padding:16px;color:var(--muted);font-size:13px;text-align:center}
+.danger-text{color:var(--danger)}
+.danger-text:hover{color:var(--danger);background:var(--danger-soft)}
+.field-section{display:grid;gap:12px;padding:0 0 16px;border-bottom:1px solid var(--line)}
+.field-section:last-of-type{padding-bottom:0;border-bottom:0}
+.signal-grid{display:grid;gap:12px}
+.identity-grid,.source-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.conversion-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+.form-actions{justify-content:flex-end;margin-top:0}
+@media(max-width:760px){
+  .identity-grid,.source-grid,.conversion-grid{grid-template-columns:1fr}
+  .signal-section>header{align-items:flex-start;flex-direction:column}
+}
 </style>

@@ -75,12 +75,16 @@ def queue_manual_execution(
 ) -> HookExecution:
     trigger = Trigger(
         type="manual.test",
-        version=1,
+        version=2,
         occurred_at=utcnow(),
         vehicle_id=telemetry.vehicle_id,
         device_id=telemetry.device_id,
         telemetry_id=telemetry.id,
-        payload={"telemetry_id": telemetry.id, "dry_run": dry_run},
+        payload={
+            "telemetry_id": telemetry.id,
+            "telemetry_ids": [telemetry.id],
+            "dry_run": dry_run,
+        },
     )
     db.add(trigger)
     db.flush()

@@ -297,9 +297,9 @@ onBeforeUnmount(() => { destroyGrid(); eventSource?.close() })
 <template>
   <div class="page dashboard-page">
     <header class="dashboard-topbar">
-      <div class="dashboard-heading"><span class="eyebrow">{{ t('dashboards.eyebrow') }}</span><h1>{{ active?.name || t('dashboards.title') }}</h1></div>
+      <h1>{{ active?.name || t('dashboards.title') }}</h1>
       <div v-if="!editing" class="dashboard-view-actions" @keydown.esc="actionsOpen=false">
-        <button class="dashboard-menu-button" type="button" :aria-label="t('dashboards.actions')" aria-haspopup="menu" :aria-expanded="actionsOpen" @click="actionsOpen=!actionsOpen"><AppIcon name="more" :size="19" /></button>
+        <button class="dashboard-menu-button" type="button" :aria-label="t('dashboards.actions')" aria-haspopup="menu" :aria-expanded="actionsOpen" @click="actionsOpen=!actionsOpen"><AppIcon name="more" :size="18" /></button>
         <div v-if="actionsOpen" class="dashboard-menu panel" role="menu">
           <button type="button" role="menuitem" @click="beginEdit"><AppIcon name="edit" :size="15" />{{ t('dashboards.edit') }}</button>
           <button type="button" role="menuitem" @click="openCreate"><AppIcon name="plus" :size="15" />{{ t('dashboards.new') }}</button>
@@ -313,13 +313,13 @@ onBeforeUnmount(() => { destroyGrid(); eventSource?.close() })
     </header>
     <p v-if="message" class="dashboard-message success" role="status">{{ message }}</p>
 
-    <section v-if="editing && active" class="dashboard-editor-bar panel">
-      <div class="dashboard-name"><label :for="`dashboard-name-${active.id}`">{{ t('dashboards.name') }}</label><input :id="`dashboard-name-${active.id}`" v-model="active.name" class="dashboard-name-input" /></div>
-      <p>{{ t('dashboards.canvasHint') }}</p>
+    <section v-if="editing && active" class="dashboard-editor-bar">
+      <div class="dashboard-name"><label :for="`dashboard-name-${active.id}`">{{ t('dashboards.name') }}</label><input :id="`dashboard-name-${active.id}`" v-model="active.name" class="input dashboard-name-input" /></div>
+      <p class="editor-hint">{{ t('dashboards.canvasHint') }}</p>
       <div class="canvas-controls">
-        <button v-if="!active.is_default" class="text-button" @click="makeDefault">{{ t('dashboards.makeDefault') }}</button>
+        <button v-if="!active.is_default" class="link-button" @click="makeDefault">{{ t('dashboards.makeDefault') }}</button>
         <span v-else class="default-label">{{ t('dashboards.defaultBadge') }}</span>
-        <button v-if="!activeIsPremade" class="text-button danger" :disabled="dashboards.length===1" @click="deleteActive">{{ t('dashboards.delete') }}</button>
+        <button v-if="!activeIsPremade" class="link-button danger" :disabled="dashboards.length===1" @click="deleteActive">{{ t('dashboards.delete') }}</button>
         <button class="button secondary" @click="configuring=true"><AppIcon name="plus" :size="15" />{{ t('dashboards.addWidget') }}</button>
         <button class="button secondary" @click="cancelEdit">{{ t('common.cancel') }}</button>
         <button class="button" :disabled="saving" @click="save()">{{ t('common.save') }}</button>
@@ -330,7 +330,7 @@ onBeforeUnmount(() => { destroyGrid(); eventSource?.close() })
       <div ref="gridElement" class="grid-stack min-h-80" :class="{ 'is-narrow':narrowCanvas }">
         <div v-for="currentWidget in active.layout.widgets" :key="currentWidget.id" class="grid-stack-item" :data-widget-id="currentWidget.id" :data-widget-type="currentWidget.type" :gs-x="currentWidget.x" :gs-y="currentWidget.y" :gs-w="currentWidget.w" :gs-h="currentWidget.h">
           <div class="grid-stack-item-content panel">
-            <button v-if="editing" class="widget-remove" :aria-label="t('common.delete')" @click="removeWidget(currentWidget.id)"><AppIcon name="close" :size="14" /></button>
+            <button v-if="editing" class="widget-remove" :aria-label="t('common.delete')" @click="removeWidget(currentWidget.id)"><AppIcon name="close" :size="13" /></button>
             <component :is="widgetRegistry[currentWidget.type]?.component" :widget="currentWidget" />
           </div>
         </div>
@@ -342,25 +342,65 @@ onBeforeUnmount(() => { destroyGrid(); eventSource?.close() })
       <form class="dashboard-modal-form widget-modal-form" @submit.prevent="addWidget">
         <label class="field"><span>{{ t('common.type') }}</span><AppSelect v-model="form.type"><option v-for="definition in definitions" :key="definition.type" :value="definition.type">{{ t(definition.titleKey) }}</option></AppSelect></label>
         <label v-if="widgetRegistry[form.type]?.configSchema.fields.includes('vehicle_id')" class="field"><span>{{ t('devices.vehicle') }}</span><AppSelect v-model="form.vehicle_id"><option value="">{{ t('dashboards.selectedVehicle') }}</option><option v-for="vehicle in vehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.name }}</option></AppSelect><small class="field-hint">{{ t('dashboards.selectedVehicleHint') }}</small></label>
-        <label v-if="widgetRegistry[form.type]?.needsMetric" class="field"><span>{{ t('history.metric') }}</span><input v-model="form.metric" class="input" list="metric-options" /><datalist id="metric-options"><option v-for="name in availableMetrics" :key="name">{{ name }}</option></datalist></label>
-        <label v-if="widgetRegistry[form.type]?.needsMetrics" class="field"><span>{{ t('dashboards.metrics') }}</span><input v-model="form.metrics" class="input" :placeholder="metricSuggestion" /></label>
+        <label v-if="widgetRegistry[form.type]?.needsMetric" class="field"><span>{{ t('history.metric') }}</span><input v-model="form.metric" class="input mono" list="metric-options" /><datalist id="metric-options"><option v-for="name in availableMetrics" :key="name">{{ name }}</option></datalist></label>
+        <label v-if="widgetRegistry[form.type]?.needsMetrics" class="field"><span>{{ t('dashboards.metrics') }}</span><input v-model="form.metrics" class="input mono" :placeholder="metricSuggestion" /></label>
         <label v-if="['time-series','multi-series'].includes(form.type)" class="field"><span>{{ t('dashboards.timeRange') }}</span><AppSelect v-model="form.time_range_days"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></AppSelect></label>
         <label class="field"><span>{{ t('common.title') }}</span><input v-model="form.title" class="input" /></label>
-        <div class="form-actions"><button class="button">{{ t('dashboards.addWidget') }}</button><button class="button secondary" type="button" @click="configuring=false">{{ t('common.cancel') }}</button></div>
+        <div class="form-actions"><button class="button">{{ t('dashboards.addWidget') }}</button><button class="button ghost" type="button" @click="configuring=false">{{ t('common.cancel') }}</button></div>
       </form>
     </AppModal>
 
     <AppModal :open="creating" :title="t('dashboards.new')" @close="creating=false">
       <form class="dashboard-modal-form create-dashboard-form" @submit.prevent="createDashboard">
         <label class="field"><span>{{ t('dashboards.name') }}</span><input v-model="newDashboardName" class="input" required autofocus /></label>
-        <div class="form-actions"><button class="button">{{ t('dashboards.create') }}</button><button class="button secondary" type="button" @click="creating=false">{{ t('common.cancel') }}</button></div>
+        <div class="form-actions"><button class="button">{{ t('dashboards.create') }}</button><button class="button ghost" type="button" @click="creating=false">{{ t('common.cancel') }}</button></div>
       </form>
     </AppModal>
   </div>
 </template>
 
 <style scoped>
-.field-hint{color:var(--muted);font-size:9px;line-height:1.45}
-.dashboard-page{max-width:none}.dashboard-topbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:15px 20px;margin-bottom:34px;padding:0 4px;border-bottom:1px solid var(--line)}.dashboard-heading h1{margin:0;font-size:clamp(25px,2.4vw,34px);font-weight:600;letter-spacing:-.045em}.dashboard-view-actions{position:relative;display:flex;align-items:center}.dashboard-menu-button{width:38px;height:38px;display:grid;place-items:center;color:var(--muted);background:transparent;border:1px solid transparent;border-radius:8px;cursor:pointer}.dashboard-menu-button:hover,.dashboard-menu-button[aria-expanded="true"]{color:var(--accent);background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 25%,var(--line))}.dashboard-menu{position:absolute;z-index:1400;top:44px;right:0;width:190px;padding:5px;box-shadow:var(--shadow)}.dashboard-menu button{width:100%;display:flex;align-items:center;gap:9px;padding:10px;color:var(--text);background:transparent;border:0;border-radius:6px;font-size:10px;text-align:left;cursor:pointer}.dashboard-menu button:hover{color:var(--accent);background:var(--accent-soft)}.dashboard-tabs{grid-column:1/-1;display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}.dashboard-tabs::-webkit-scrollbar{display:none}.dashboard-tabs button{position:relative;flex:0 0 auto;padding:10px 13px 13px;color:var(--muted);background:transparent;border:0;cursor:pointer}.dashboard-tabs button::after{content:"";position:absolute;right:10px;bottom:0;left:10px;height:2px;background:transparent;border-radius:2px}.dashboard-tabs button.active{color:var(--text)}.dashboard-tabs button.active::after{background:var(--accent)}.dashboard-tabs button:disabled{opacity:.48;cursor:not-allowed}.dashboard-tabs span{margin-left:5px;color:var(--accent);font-size:7px;text-transform:uppercase;letter-spacing:.08em}.dashboard-message{position:fixed;right:24px;bottom:24px;z-index:1200;margin:0;padding:11px 14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}.dashboard-editor-bar{display:grid;grid-template-columns:minmax(210px,320px) minmax(160px,1fr) auto;align-items:end;gap:15px;margin:-18px 4px 14px;padding:13px 15px;border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}.dashboard-editor-bar>p{align-self:center;margin:0;color:var(--muted);font-size:9px;line-height:1.45}.dashboard-name{display:grid;gap:6px}.dashboard-name label{color:var(--muted);font-size:9px;font-weight:600}.dashboard-name-input{width:100%;min-height:38px;padding:7px 9px;color:var(--text);background:var(--input);border:1px solid var(--line);border-radius:7px;font-size:13px;font-weight:600}.dashboard-name-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);outline:none}.canvas-controls{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;color:var(--muted);font-size:10px}.text-button{padding:7px;color:var(--accent);background:none;border:0;cursor:pointer}.text-button:disabled{opacity:.4;cursor:not-allowed}.text-button.danger{color:var(--danger)}.default-label{padding:5px 7px;background:var(--accent-soft);border-radius:6px;color:var(--accent)}.dashboard-canvas{min-width:0}.grid-stack{padding:0;background:transparent}.dashboard-canvas.is-editing{margin:0 4px;padding:7px;background:color-mix(in srgb,var(--accent-soft) 28%,transparent);border:1px dashed color-mix(in srgb,var(--accent) 45%,var(--line));border-radius:10px}.grid-stack-item-content{inset:4px!important;min-width:0;overflow:hidden!important}.dashboard-canvas:not(.is-editing) .grid-stack-item-content{box-shadow:var(--shadow-soft)}.grid-stack.is-narrow .grid-stack-item-content{inset:3px!important}.widget-remove{position:absolute;right:8px;top:7px;z-index:600;width:29px;height:29px;display:grid;place-items:center;color:var(--danger);background:var(--panel);border:1px solid color-mix(in srgb,var(--danger) 35%,var(--line));border-radius:7px;cursor:pointer;box-shadow:var(--shadow-soft)}.widget-remove:hover{color:#fff;background:var(--danger);border-color:var(--danger)}.dashboard-modal-form{display:grid;gap:16px}.dashboard-modal-form .form-actions{justify-content:flex-end;margin-top:2px}
-@media(max-width:980px){.dashboard-editor-bar{grid-template-columns:1fr}.canvas-controls{justify-content:flex-start}}@media(max-width:560px){.dashboard-topbar{grid-template-columns:minmax(0,1fr) auto}.dashboard-heading h1{font-size:26px}.dashboard-tabs button{padding-inline:10px}.dashboard-editor-bar{margin-inline:0}.canvas-controls .button{flex:1}.dashboard-canvas.is-editing{margin-inline:0}}
+.dashboard-page{max-width:none}
+.dashboard-topbar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px 16px;margin-bottom:18px;border-bottom:1px solid var(--line)}
+.dashboard-topbar h1{margin:0;font-size:24px;font-weight:600;letter-spacing:-.015em}
+.dashboard-view-actions{position:relative;display:flex;align-items:center}
+.dashboard-menu-button{width:30px;height:30px;display:grid;place-items:center;color:var(--muted);background:transparent;border:1px solid transparent;border-radius:var(--radius);cursor:pointer}
+.dashboard-menu-button:hover,.dashboard-menu-button[aria-expanded="true"]{color:var(--text);background:var(--panel-2)}
+.dashboard-menu{position:absolute;z-index:1400;top:36px;right:0;width:186px;padding:4px;box-shadow:var(--shadow)}
+.dashboard-menu button{width:100%;display:flex;align-items:center;gap:9px;padding:8px 9px;color:var(--text);background:transparent;border:0;border-radius:var(--radius);font-size:13px;text-align:left;cursor:pointer}
+.dashboard-menu button:hover{background:var(--panel-2)}
+
+.dashboard-tabs{grid-column:1/-1;display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+.dashboard-tabs::-webkit-scrollbar{display:none}
+.dashboard-tabs button{position:relative;flex:0 0 auto;padding:8px 10px 10px;color:var(--muted);background:transparent;border:0;font-size:13px;cursor:pointer}
+.dashboard-tabs button:hover{color:var(--text)}
+.dashboard-tabs button::after{content:"";position:absolute;right:10px;bottom:-1px;left:10px;height:2px;background:transparent}
+.dashboard-tabs button.active{color:var(--text);font-weight:500}
+.dashboard-tabs button.active::after{background:var(--text)}
+.dashboard-tabs button:disabled{opacity:.45;cursor:not-allowed}
+.dashboard-tabs span{margin-left:5px;padding:1px 4px;color:var(--muted);background:var(--panel-2);border-radius:3px;font-size:10px;font-weight:400;text-transform:uppercase;letter-spacing:.04em}
+
+.dashboard-message{position:fixed;right:20px;bottom:20px;z-index:1200;margin:0;padding:9px 13px;font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+
+.dashboard-editor-bar{display:grid;grid-template-columns:minmax(200px,300px) minmax(140px,1fr) auto;align-items:end;gap:14px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.dashboard-name{display:grid;gap:5px}
+.dashboard-name label{color:var(--text);font-size:12px;font-weight:500}
+.dashboard-name-input{font-weight:500}
+.editor-hint{align-self:center;margin:0;color:var(--muted);font-size:12px;line-height:1.45}
+.canvas-controls{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:14px}
+.default-label{color:var(--muted);font-size:12px}
+
+.dashboard-canvas{min-width:0}
+.grid-stack{padding:0;background:transparent}
+.dashboard-canvas.is-editing{padding:6px;background:var(--panel-2);border-radius:var(--radius-lg)}
+.grid-stack-item-content{inset:4px!important;min-width:0;overflow:hidden!important;border-radius:var(--radius-lg)}
+.grid-stack.is-narrow .grid-stack-item-content{inset:3px!important}
+.widget-remove{position:absolute;right:6px;top:6px;z-index:600;width:24px;height:24px;display:grid;place-items:center;color:var(--danger);background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);cursor:pointer}
+.widget-remove:hover{color:#fff;background:var(--danger);border-color:var(--danger)}
+
+.dashboard-modal-form{display:grid;gap:15px}
+.dashboard-modal-form .form-actions{justify-content:flex-end;margin-top:2px}
+
+@media(max-width:980px){.dashboard-editor-bar{grid-template-columns:1fr}.canvas-controls{justify-content:flex-start}}
+@media(max-width:560px){.dashboard-topbar h1{font-size:21px}.canvas-controls .button{flex:1}}
 </style>

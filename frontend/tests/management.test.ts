@@ -140,7 +140,7 @@ describe('vehicle and dashboard management', () => {
     expect(wrapper.find('.vehicle-photo-placeholder .app-icon').exists()).toBe(true)
     expect(wrapper.find('.vehicle-color').exists()).toBe(false)
     expect(wrapper.get('.charge-reading strong').text()).toBe('—')
-    expect(wrapper.get('.vehicle-readings dd.is-empty').text()).toBe('—')
+    expect(wrapper.get('.vehicle-meta dd.is-empty').text()).toBe('—')
     const image = new File(['image-content'], 'eclair.webp', { type: 'image/webp' })
     const input = wrapper.get('input[type="file"]')
     Object.defineProperty(input.element, 'files', { configurable: true, value: [image] })
@@ -175,7 +175,7 @@ describe('vehicle and dashboard management', () => {
 
     await wrapper.get('.vehicle-card footer .danger').trigger('click')
     expect(wrapper.get('[role="dialog"]').attributes('aria-label')).toBe('Delete vehicle')
-    expect(wrapper.get('.vehicle-delete-confirmation').text()).toContain('telemetry history')
+    expect(wrapper.get('.delete-warning').text()).toContain('telemetry history')
     await wrapper.get('.delete-actions .danger').trigger('click')
     await flushPromises()
 

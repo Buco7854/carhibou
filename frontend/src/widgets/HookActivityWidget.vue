@@ -22,7 +22,7 @@ onMounted(async () => {
 
 <template>
   <article class="widget-card">
-    <span class="eyebrow">{{ t('dashboards.hookActivity') }}</span>
+    <div class="widget-head"><h2>{{ t('dashboards.hookActivity') }}</h2></div>
     <ul v-if="latest.length" class="activity">
       <li v-for="row in latest" :key="row.execution.id">
         <span :class="['status',{online:row.execution.status==='success'}]">{{ row.execution.status }}</span>
@@ -35,5 +35,8 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.activity{list-style:none;padding:0;margin:8px 0;display:grid;gap:8px}.activity li{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;font-size:11px}.activity small{color:var(--muted)}
+.activity{list-style:none;padding:0;margin:0;display:grid;gap:7px;overflow:auto;min-height:0}
+.activity li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:9px;align-items:center;font-size:13px}
+.activity strong{overflow:hidden;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+.activity small{color:var(--muted);font-size:12px}
 </style>

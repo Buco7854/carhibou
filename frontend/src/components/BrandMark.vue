@@ -1,5 +1,5 @@
 <script setup lang="ts">
-withDefaults(defineProps<{ size?: number }>(), { size: 38 })
+withDefaults(defineProps<{ size?: number }>(), { size: 24 })
 </script>
 
 <template>
@@ -14,6 +14,6 @@ withDefaults(defineProps<{ size?: number }>(), { size: 38 })
 </template>
 
 <style scoped>
-.brand-symbol{display:grid;place-items:center;border-radius:10px;color:var(--accent-contrast);background:var(--accent);box-shadow:0 8px 22px rgba(var(--accent-rgb),.2)}
-.brand-symbol svg{width:72%;height:72%}
+.brand-symbol{display:grid;place-items:center;flex:none;color:var(--primary-contrast);background:var(--primary);border-radius:5px}
+.brand-symbol svg{width:74%;height:74%}
 </style>

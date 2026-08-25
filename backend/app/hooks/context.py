@@ -184,6 +184,14 @@ class CappedWriter(io.TextIOBase):
         return True
 
 
+def _sample(raw: dict[str, Any]) -> Any:
+    sample = dict(raw)
+    sample["recorded_at"] = _datetime(sample.get("recorded_at"))
+    sample["metrics"] = MappingProxyType(sample.get("metrics", {}))
+    sample["device"] = MappingProxyType(sample.get("device", {}))
+    return _object(sample)
+
+
 class HookContext:
     def __init__(self, data: dict[str, Any], records: list[dict[str, object]]):
         self.sdk_version = int(data.get("sdk_version", 1))
@@ -191,11 +199,10 @@ class HookContext:
         event["payload"] = MappingProxyType(event.get("payload", {}))
         event["occurred_at"] = _datetime(event.get("occurred_at"))
         self.event = _object(event)
-        telemetry = dict(data["telemetry"])
-        telemetry["recorded_at"] = _datetime(telemetry.get("recorded_at"))
-        telemetry["metrics"] = MappingProxyType(telemetry.get("metrics", {}))
-        telemetry["device"] = MappingProxyType(telemetry.get("device", {}))
-        self.telemetry = _object(telemetry)
+        raw_batch = data.get("telemetry_batch") or [data["telemetry"]]
+        # Oldest first, so the batch reads like a timeline and [-1] is the newest sample.
+        self.telemetry_batch = tuple(_sample(row) for row in raw_batch)
+        self.telemetry = self.telemetry_batch[-1]
         vehicle = dict(data["vehicle"])
         vehicle_state = dict(vehicle.get("state", {}))
         vehicle_state["metrics"] = MappingProxyType(vehicle_state.get("metrics", {}))

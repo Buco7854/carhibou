@@ -53,6 +53,29 @@ def _send_sample(client: TestClient, credential: str) -> str:
     return sample_id
 
 
+def _send_batch(client: TestClient, credential: str, soc_values: list[float]) -> list[str]:
+    base = datetime.now(UTC)
+    identifiers = [str(uuid4()) for _ in soc_values]
+    response = client.post(
+        "/api/v1/device/telemetry/batch",
+        headers={"Authorization": f"Device {credential}"},
+        json={
+            "boot_id": str(uuid4()),
+            "samples": [
+                {
+                    "id": identifier,
+                    "sequence": index,
+                    "recorded_at": (base + timedelta(seconds=index)).isoformat(),
+                    "metrics": {"battery.soc": soc},
+                }
+                for index, (identifier, soc) in enumerate(zip(identifiers, soc_values, strict=True))
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    return identifiers
+
+
 def _run_pending(db_factory: sessionmaker[Session]) -> HookExecution:
     with db_factory() as db:
         job = db.scalar(select(Job).where(Job.status == "pending").order_by(Job.created_at))
@@ -231,3 +254,68 @@ def test_expired_worker_lease_is_failed_for_manual_retry(
         assert job.status == "failed"
         assert execution.status == "failed"
         assert "manual retry" in (execution.error or "")
+
+
+def test_one_batch_queues_one_execution_that_can_iterate_every_sample(
+    registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
+) -> None:
+    client, csrf = registered
+    _vehicle_id, credential = _prepare_device(client, csrf)
+    hook = client.post(
+        "/api/v1/hooks",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "name": "Batch reader",
+            "enabled": True,
+            "source": (
+                'ctx.state["runs"] = ctx.state.get("runs", 0) + 1\n'
+                'ctx.state["seen"] = [row.metrics["battery.soc"] for row in ctx.telemetry_batch]\n'
+                'ctx.state["latest"] = ctx.telemetry.metrics["battery.soc"]'
+            ),
+        },
+    )
+    assert hook.status_code == 201, hook.text
+
+    _send_batch(client, credential, [80, 60, 40])
+    with db_factory() as db:
+        pending = list(db.scalars(select(Job).where(Job.status == "pending")))
+        # Ten rows must not mean ten child processes: the batch is one execution.
+        assert len(pending) == 1
+
+    execution = _run_pending(db_factory)
+    assert execution.status == "success", execution.error
+    with db_factory() as db:
+        state = db.get(HookState, hook.json()["id"])
+        assert state is not None
+        assert state.value == {"runs": 1, "seen": [80, 60, 40], "latest": 40}
+
+
+def test_manual_test_run_exposes_a_single_sample_batch(
+    registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
+) -> None:
+    client, csrf = registered
+    _vehicle_id, credential = _prepare_device(client, csrf)
+    sample_id = _send_sample(client, credential)
+    hook = client.post(
+        "/api/v1/hooks",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "name": "Manual batch",
+            "enabled": False,
+            "source": 'ctx.state["size"] = len(ctx.telemetry_batch)',
+        },
+    )
+    assert hook.status_code == 201, hook.text
+    queued = client.post(
+        f"/api/v1/hooks/{hook.json()['id']}/test",
+        headers={"X-CSRF-Token": csrf},
+        json={"telemetry_id": sample_id, "dry_run": True},
+    )
+    assert queued.status_code == 200, queued.text
+
+    execution = _run_pending(db_factory)
+    assert execution.status == "success", execution.error
+    with db_factory() as db:
+        state = db.get(HookState, hook.json()["id"])
+        assert state is not None
+        assert state.value == {"size": 1}

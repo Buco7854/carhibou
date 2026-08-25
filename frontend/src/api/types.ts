@@ -98,6 +98,32 @@ export interface History {
   points: HistoryPoint[]
 }
 
+export interface HistoryEntry {
+  id: string
+  recorded_at: string
+  sequence: number
+  latitude: number | null
+  longitude: number | null
+  altitude: number | null
+  speed: number | null
+  heading: number | null
+  accuracy: number | null
+  metrics: Record<string, unknown>
+  device: Record<string, unknown>
+}
+
+export interface HistoryEntries {
+  vehicle_id: string
+  start: string
+  end: string
+  total: number
+  limit: number
+  offset: number
+  metric_keys: string[]
+  device_keys: string[]
+  entries: HistoryEntry[]
+}
+
 export interface DashboardWidget {
   id: string
   type: string

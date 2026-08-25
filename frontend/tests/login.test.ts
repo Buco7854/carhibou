@@ -52,7 +52,7 @@ describe('login', () => {
     const wrapper = mount(LoginView, { global: { plugins: [router, i18n] } })
     await flushPromises()
 
-    expect(wrapper.get('h2').text()).toBe('Create the administrator account')
+    expect(wrapper.get('h1').text()).toBe('Create the administrator account')
     await wrapper.get('#name').setValue('Owner')
     await wrapper.get('#email').setValue('owner@example.com')
     await wrapper.get('#password').setValue('first-owner-password')

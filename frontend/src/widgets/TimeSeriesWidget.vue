@@ -29,5 +29,15 @@ async function loadHistory(): Promise<void> {
 }
 watch([() => vehicle.value?.id, () => props.widget.time_range_days], loadHistory, { immediate:true })
 </script>
-<template><article class="widget-card history-widget"><header><div><span class="eyebrow">{{ t('dashboard.pastDay') }}</span><strong>{{ widget.title||metricLabel(definition,t) }}</strong></div><small>{{ vehicle?.name }}</small></header><div v-if="hasData" class="chart"><TimeSeriesChart :series="series" height="100%" /></div><DashboardWidgetEmpty v-else :icon="definition.icon" :loading="Boolean(vehicle)&&history===null" /></article></template>
-<style scoped>.history-widget{padding:14px 16px 4px}.history-widget header{display:flex;align-items:center;justify-content:space-between;gap:12px}.history-widget header .eyebrow{margin-bottom:3px}.history-widget header strong{font-size:14px}.history-widget header small{color:var(--muted);font-size:8px}.chart{min-width:0;min-height:120px;flex:1}</style>
+<template>
+  <article class="widget-card history-widget">
+    <div class="widget-head"><h2>{{ widget.title||metricLabel(definition,t) }}</h2><small>{{ vehicle?.name }}</small></div>
+    <div v-if="hasData" class="chart"><TimeSeriesChart :series="series" height="100%" /></div>
+    <DashboardWidgetEmpty v-else :icon="definition.icon" :loading="Boolean(vehicle)&&history===null" />
+  </article>
+</template>
+
+<style scoped>
+.history-widget{padding:13px 14px 2px}
+.chart{min-width:0;min-height:110px;flex:1}
+</style>

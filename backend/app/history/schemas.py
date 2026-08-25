@@ -20,3 +20,29 @@ class HistoryResponse(BaseModel):
     available_metrics: list[str]
     original_count: int
     points: list[HistoryPoint]
+
+
+class HistoryEntry(BaseModel):
+    id: str
+    recorded_at: datetime
+    sequence: int
+    latitude: float | None
+    longitude: float | None
+    altitude: float | None
+    speed: float | None
+    heading: float | None
+    accuracy: float | None
+    metrics: dict[str, object]
+    device: dict[str, object]
+
+
+class HistoryEntriesResponse(BaseModel):
+    vehicle_id: str
+    start: datetime
+    end: datetime
+    total: int
+    limit: int
+    offset: int
+    metric_keys: list[str]
+    device_keys: list[str]
+    entries: list[HistoryEntry]

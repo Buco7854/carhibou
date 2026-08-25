@@ -5,14 +5,20 @@ UUID, boot-local sequence, UTC timestamp, optional position, canonical metric ma
 device-health map. PostgreSQL uniquely constrains sample UUIDs; a retry after a lost
 response reports the row as duplicate without changing history or rerunning hooks.
 
+Accepted samples queue one hook execution per batch rather than per row, so a buffered
+upload costs one child process and the hook decides what to do with the rest of the batch.
+
 Position and common query dimensions are relational columns. Variable canonical
 metrics remain JSONB. The newest recorded sample updates `vehicle_state`, making live
 dashboards cheap. Older delayed samples are stored in history but cannot rewind current
 state.
 
-History requests have a bounded range and result size. The service reduces dense data
-server-side before returning route/chart points. PostgreSQL remains the only time-series
-store at the intended 1–100 vehicle scale.
+History requests have a bounded range and result size. `GET .../history` reduces dense
+data server-side before returning route/chart points; `GET .../history/entries` returns raw
+rows with limit/offset paging, so the table never downsamples what it shows. Sorting and
+filtering on a JSON metric go through a dialect-guarded numeric expression, which leaves
+non-numeric values as NULL instead of failing the query. PostgreSQL remains the only
+time-series store at the intended 1–100 vehicle scale.
 
 ## Live browser state
 

@@ -233,9 +233,36 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.app-select{position:relative;min-width:0;display:block}.app-select-trigger{width:100%;min-height:41px;display:grid;grid-template-columns:minmax(0,1fr) 16px;align-items:center;gap:10px;padding:9px 10px 9px 12px;color:var(--text);background:var(--input);border:1px solid var(--line);border-radius:8px;outline:none;text-align:left;font-size:12px;cursor:pointer;transition:border-color .14s,box-shadow .14s,background-color .14s}.app-select-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.app-select-trigger:hover{border-color:var(--line-strong)}.app-select-trigger:focus-visible,.app-select.open .app-select-trigger{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}.app-select-arrow{justify-self:end;color:var(--muted);transition:transform .14s,color .14s}.app-select.open .app-select-arrow{color:var(--accent);transform:rotate(180deg)}.app-select.compact{width:max-content}.app-select.compact .app-select-trigger{min-width:58px;min-height:35px;padding:6px 8px 6px 10px;background:var(--panel);font-size:10px;font-weight:600}.app-select-trigger:disabled{opacity:.5;cursor:not-allowed}
+.app-select{position:relative;min-width:0;display:block}
+.app-select-trigger{
+  width:100%;min-height:34px;display:grid;grid-template-columns:minmax(0,1fr) 15px;align-items:center;gap:8px;
+  padding:6px 8px 6px 10px;color:var(--text);background:var(--input);
+  border:1px solid var(--line-strong);border-radius:var(--radius);outline:none;
+  text-align:left;font-size:13px;cursor:pointer;transition:border-color .12s,box-shadow .12s;
+}
+.app-select-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app-select-trigger:hover{border-color:var(--muted-2)}
+.app-select-trigger:focus-visible,.app-select.open .app-select-trigger{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.app-select-arrow{justify-self:end;color:var(--muted);transition:transform .12s}
+.app-select.open .app-select-arrow{transform:rotate(180deg)}
+.app-select.compact{width:max-content}
+.app-select.compact .app-select-trigger{min-width:52px;min-height:30px;padding:4px 6px 4px 9px;background:transparent;border-color:transparent;font-size:12px}
+.app-select.compact .app-select-trigger:hover{border-color:var(--line-strong)}
+.app-select-trigger:disabled{opacity:.5;cursor:not-allowed}
 </style>
 
 <style>
-.app-select-menu{position:fixed;z-index:5000;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:5px;background:var(--panel);border:1px solid var(--line-strong);border-radius:9px;box-shadow:0 18px 50px rgba(0,0,0,.24)}.app-select-options{min-height:0;overflow:auto}.app-select-menu button{width:100%;min-height:36px;display:grid;grid-template-columns:minmax(0,1fr) 16px;align-items:center;gap:9px;padding:8px 9px;color:var(--text);background:transparent;border:0;border-radius:6px;text-align:left;font-size:11px;cursor:pointer}.app-select-menu button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.app-select-menu button:hover,.app-select-menu button.active{background:var(--panel-2)}.app-select-menu button.selected{color:var(--accent);font-weight:600}.app-select-menu button:disabled{opacity:.4;cursor:not-allowed}.app-select-search{height:42px;display:grid;grid-template-columns:17px minmax(0,1fr);align-items:center;gap:7px;margin-bottom:4px;padding:0 9px;color:var(--muted);background:var(--input);border:1px solid var(--line);border-radius:6px}.app-select-search:focus-within{color:var(--accent);border-color:var(--accent)}.app-select-search input{min-width:0;width:100%;padding:0;color:var(--text);background:transparent;border:0;outline:0;font:inherit;font-size:11px}.app-select-search input::placeholder{color:var(--muted)}.app-select-no-results{margin:0;padding:13px 9px;color:var(--muted);font-size:10px;text-align:center}
+.app-select-menu{position:fixed;z-index:5000;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:4px;background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.app-select-options{min-height:0;overflow:auto}
+.app-select-menu button{width:100%;min-height:32px;display:grid;grid-template-columns:minmax(0,1fr) 15px;align-items:center;gap:8px;padding:6px 8px;color:var(--text);background:transparent;border:0;border-radius:var(--radius);text-align:left;font-size:13px;cursor:pointer}
+.app-select-menu button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app-select-menu button:hover,.app-select-menu button.active{background:var(--panel-2)}
+.app-select-menu button.selected{font-weight:500}
+.app-select-menu button.selected .app-icon{color:var(--accent)}
+.app-select-menu button:disabled{opacity:.4;cursor:not-allowed}
+.app-select-search{height:34px;display:grid;grid-template-columns:16px minmax(0,1fr);align-items:center;gap:7px;margin-bottom:4px;padding:0 8px;color:var(--muted);background:var(--input);border:1px solid var(--line);border-radius:var(--radius)}
+.app-select-search:focus-within{border-color:var(--accent)}
+.app-select-search input{min-width:0;width:100%;padding:0;color:var(--text);background:transparent;border:0;outline:0;font:inherit;font-size:13px}
+.app-select-search input::placeholder{color:var(--muted-2)}
+.app-select-no-results{margin:0;padding:12px 8px;color:var(--muted);font-size:13px;text-align:center}
 </style>

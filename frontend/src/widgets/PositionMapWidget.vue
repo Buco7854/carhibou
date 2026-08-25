@@ -28,5 +28,24 @@ async function loadHistory(id?: string): Promise<void> {
 watch(() => vehicle.value?.id, loadHistory, { immediate:true })
 </script>
 
-<template><article class="widget-card map-widget"><header><div><span>{{ widget.title||t('dashboard.mapAndRoute') }}</span><strong>{{ positionLabel }}</strong></div><small v-if="history">{{ t('dashboard.sampleCount',{count:history.original_count}) }}</small></header><div v-if="hasMapData" class="map-stage"><VehicleMap :position="position" :route="route" /><div v-if="vehicle" class="map-caption"><i :style="{background:vehicle.color||'#315fcf'}" /><strong>{{ vehicle.name }}</strong><small>{{ t('dashboard.latestPosition') }}</small></div></div><DashboardWidgetEmpty v-else icon="location" :loading="Boolean(vehicle)&&history===null" /></article></template>
-<style scoped>.map-widget{padding:0}.map-widget>header{min-height:60px;display:flex;align-items:center;justify-content:space-between;gap:15px;padding:11px 15px;border-bottom:1px solid var(--line)}.map-widget>header span,.map-widget>header strong{display:block}.map-widget>header span{color:var(--muted);font-size:9px}.map-widget>header strong{max-width:520px;margin-top:4px;overflow:hidden;font-family:'IBM Plex Mono',monospace;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.map-widget>header small{color:var(--muted);font-size:8px;white-space:nowrap}.map-stage{position:relative;min-height:0;flex:1}.map-stage :deep(.map-frame),.map-stage :deep(.vehicle-map){height:100%;min-height:0}.map-caption{position:absolute;z-index:500;left:13px;bottom:13px;display:grid;grid-template-columns:7px auto;align-items:center;column-gap:7px;padding:8px 10px;background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line);border-radius:7px;box-shadow:var(--shadow-soft);backdrop-filter:blur(8px)}.map-caption i{width:7px;height:7px;grid-row:1/3;border-radius:50%}.map-caption strong{font-size:10px}.map-caption small{margin-top:2px;color:var(--muted);font-size:8px}</style>
+<template>
+  <article class="widget-card map-widget">
+    <header>
+      <div><h2>{{ widget.title||t('dashboard.mapAndRoute') }}</h2><span class="mono">{{ positionLabel }}</span></div>
+      <small v-if="history">{{ t('dashboard.sampleCount',{count:history.original_count}) }}</small>
+    </header>
+    <div v-if="hasMapData" class="map-stage"><VehicleMap :position="position" :route="route" /></div>
+    <DashboardWidgetEmpty v-else icon="location" :loading="Boolean(vehicle)&&history===null" />
+  </article>
+</template>
+
+<style scoped>
+.map-widget{padding:0}
+.map-widget>header{min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 14px;border-bottom:1px solid var(--line)}
+.map-widget>header>div{min-width:0}
+.map-widget h2{margin:0;overflow:hidden;font-size:13px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+.map-widget>header span{display:block;margin-top:1px;overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+.map-widget>header small{flex:none;color:var(--muted);font-size:12px;white-space:nowrap}
+.map-stage{position:relative;min-height:0;flex:1}
+.map-stage :deep(.map-frame),.map-stage :deep(.vehicle-map){height:100%;min-height:0}
+</style>

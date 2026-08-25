@@ -65,32 +65,45 @@ def _update_current_state(db: Session, telemetry: Telemetry) -> None:
         db.add(VehicleState(vehicle_id=telemetry.vehicle_id, **values))
 
 
-def _enqueue_hooks(db: Session, telemetry: Telemetry) -> None:
+def _enqueue_hooks(db: Session, samples: list[Telemetry]) -> None:
+    """Queue one execution per hook for the whole accepted batch.
+
+    A batch is one physical upload, so the hook sees every sample in it and decides
+    whether to act on the latest reading or iterate. Firing per sample instead would
+    spawn one child process per row and force that choice on the author.
+    """
+    if not samples:
+        return
+    latest = samples[-1]
     trigger = Trigger(
         type="telemetry.received",
-        version=1,
-        occurred_at=telemetry.recorded_at,
-        vehicle_id=telemetry.vehicle_id,
-        device_id=telemetry.device_id,
-        telemetry_id=telemetry.id,
-        payload={"telemetry_id": telemetry.id},
+        version=2,
+        occurred_at=latest.recorded_at,
+        vehicle_id=latest.vehicle_id,
+        device_id=latest.device_id,
+        telemetry_id=latest.id,
+        payload={
+            "telemetry_id": latest.id,
+            "telemetry_ids": [row.id for row in samples],
+            "boot_id": latest.boot_id,
+        },
     )
     db.add(trigger)
     db.flush()
-    owner_id = db.scalar(select(Vehicle.owner_id).where(Vehicle.id == telemetry.vehicle_id))
+    owner_id = db.scalar(select(Vehicle.owner_id).where(Vehicle.id == latest.vehicle_id))
     hooks = db.scalars(
         select(Hook).where(
             Hook.owner_id == owner_id,
             Hook.enabled.is_(True),
             Hook.trigger_type == trigger.type,
-            (Hook.vehicle_id.is_(None) | (Hook.vehicle_id == telemetry.vehicle_id)),
+            (Hook.vehicle_id.is_(None) | (Hook.vehicle_id == latest.vehicle_id)),
         )
     )
     for hook in hooks:
         execution = HookExecution(
             hook_id=hook.id,
             trigger_id=trigger.id,
-            telemetry_id=telemetry.id,
+            telemetry_id=latest.id,
             status="pending",
         )
         db.add(execution)
@@ -103,6 +116,7 @@ def ingest_batch(db: Session, device: Device, batch: TelemetryBatch) -> Ingestio
     # the initial current-state row or rewinding merged JSON state.
     db.execute(select(Vehicle.id).where(Vehicle.id == device.vehicle_id).with_for_update())
     result = IngestionResult(accepted=[], duplicates=[])
+    stored: list[Telemetry] = []
     for sample in batch.samples:
         telemetry = _telemetry_model(device, str(batch.boot_id), sample)
         try:
@@ -113,7 +127,9 @@ def ingest_batch(db: Session, device: Device, batch: TelemetryBatch) -> Ingestio
             result.duplicates.append(telemetry.id)
             continue
         _update_current_state(db, telemetry)
-        _enqueue_hooks(db, telemetry)
+        stored.append(telemetry)
         result.accepted.append(telemetry.id)
+    stored.sort(key=lambda row: (as_utc(row.recorded_at), row.sequence))
+    _enqueue_hooks(db, stored)
     device.last_seen_at = utcnow()
     return result

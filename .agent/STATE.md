@@ -10,18 +10,20 @@ Updated: 2026-08-25
   Local registration can create only the first administrator. That account can instead
   be bootstrapped idempotently from environment variables; later registration is always
   rejected and the identity boundary remains ready for a future OIDC provider.
-- The Tailwind Vue SPA uses a full-viewport live-routebook workspace with a clear,
-  full-height sidebar and one dashboard destination. A versioned premade Overview, multiple
-  owner dashboards, responsive single-column mobile widgets, route/history charts,
-  tracker administration, hooks and settings are functional. The searchable garage
-  uses dimensionally stable photo cards and leaves optional vehicle facts blank. Self-hosted
-  IBM Plex typography, an original node-route mark, a modern neutralized OpenStreetMap treatment,
-  optional owner-scoped vehicle photos with a plain missing-image placeholder, a
-  cobalt recorded-route accent,
-  extensible English/French catalogs, browser-language detection, app-owned accessible
-  dropdowns, modal creation flows and persistent Light, Dark and Auto themes work across
-  the application.
-  Login copy is operational and instance-focused rather than promotional.
+- The Tailwind Vue SPA is a sidebar-only instrument workspace: navigation, account,
+  theme and language live in one rail and there is no second title bar repeating the
+  page heading. A versioned premade Overview, multiple owner dashboards, responsive
+  single-column mobile widgets, route/history charts, tracker administration, hooks and
+  settings are functional. The searchable garage uses dimensionally stable photo cards
+  and leaves optional vehicle facts blank. Self-hosted IBM Plex typography, an original
+  node-route mark, a modern neutralized OpenStreetMap treatment, optional owner-scoped
+  vehicle photos with a plain missing-image placeholder, a validated categorical chart
+  palette checked against both surfaces, extensible English/French catalogs,
+  browser-language detection, app-owned accessible dropdowns, modal creation flows and
+  persistent Light, Dark and Auto themes work across the application.
+  Surfaces carry no decorative section kickers, self-describing subtitles, duplicated
+  KPI strips or status theater; page copy states what a control does and stops.
+  Login is a single centred card and its copy is operational rather than promotional.
 - Vehicle deletion uses an explicit confirmation modal, removes the vehicle's uploaded
   photo, cascades dependent tracker credentials and telemetry in PostgreSQL, and leaves
   reusable dashboard widgets present but no longer pinned to the deleted vehicle.
@@ -36,14 +38,25 @@ Updated: 2026-08-25
   selector while explicitly pinned widgets remain fixed. The selector is a bounded,
   searchable dropdown for large fleets. Data widgets share a deliberate no-data state,
   avoid mounting empty maps/charts, and omit unavailable telemetry rows.
-  History keeps identity, filters and summary data in responsive sections. Vehicle and
+  History pairs the chart and route with a raw entries table: newest first, paginated
+  rather than downsampled, sortable and numerically filterable on any column including
+  profile-defined metrics, with per-vehicle column visibility and ordering persisted in
+  the browser. Columns are derived from reported signals, so vehicles with different
+  profiles show different columns. Vehicle and
   tracker creation use focused modals. Profiles have their own routed page, full-width
   profile rows, aligned vertical details, and distinct profile/signal modals with no
-  artificial user-facing proof level. Hook creation also uses a focused modal and the
-  page no longer renders an unused blank editor before the first hook.
+  artificial user-facing proof level. Hooks use a master-detail page: a rail holds the hook
+  list and the account-wide secrets, and one detail panel carries a sticky
+  enable/test/save bar above the settings, source and execution history, so nothing
+  spans a width the rest of the page does not share. Hook creation uses a focused modal.
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,
   HTTP/geometry helpers, manual dry-run and execution history.
+- Ingestion queues one hook execution per accepted batch, not per sample. SDK version 2
+  exposes `ctx.telemetry` (newest sample) alongside `ctx.telemetry_batch` (all samples,
+  oldest first), so a buffered ten-row upload costs one child process and the author
+  chooses whether to iterate. Batch identifiers ride in the existing trigger payload, so
+  no schema change was required.
 - The deployed vehicle agent is a standalone CGO-free Go executable. Versioned Linux
   builds cover ARMv6, ARMv7, ARM64 and AMD64; the bootstrap downloads the matching
   checksum-verified artifact without running `apt`, Python or a compiler on the tracker.
@@ -71,12 +84,13 @@ Updated: 2026-08-25
 
 ## Verification
 
-- Ruff and Ruff format pass across backend/agent; mypy passes for 105 source files in Linux.
+- Ruff and Ruff format pass across backend/agent; mypy passes for 106 source files in Linux.
 - Backend/agent tests runnable without PostgreSQL pass on Linux, including vehicle photo
   validation/storage/ownership coverage and the complete
   simulator-to-hook E2E scenario plus custom-profile distribution and ownership.
-- Frontend: ESLint and strict type check passing; 6 files / 27 behavior tests passing;
-  production build passing.
+- Frontend: ESLint and strict type check passing; 7 files / 30 behavior tests passing;
+  production build passing. Table coverage includes metric-column sorting, numeric range
+  filtering and per-vehicle column preferences.
 - Playwright: 2 Chromium scenarios passing locally against a fresh migrated database,
   real API and worker. CI runs the same suite on PostgreSQL. They cover the primary
   product journey, idempotency, auth-realm isolation, live SSE state changes,
@@ -87,6 +101,12 @@ Updated: 2026-08-25
   and automated axe checks. The
   expanded stale-vehicle check found and fixed a light-theme status contrast defect. The
   composed dashboard selector also passes axe after correcting its grouped-button semantics.
+  The axe passes caught three regressions introduced by the interface rewrite: a login page
+  without an h1, card and widget headings skipping from h1 to h3, and a muted tone carrying
+  real text below AA.
+- The history entries endpoint guards its JSON sort/filter per dialect. The SQLite path is
+  covered by tests; the PostgreSQL path is compile-verified only, since no PostgreSQL server
+  was available in this environment.
 - The Go agent passes format, vet, unit tests and CGO-free cross-builds for all four
   release targets. Every packaged artifact has a matching verified SHA-256 checksum and
   the Linux AMD64 executable runs from the production image.

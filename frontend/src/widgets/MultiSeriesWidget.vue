@@ -19,5 +19,14 @@ const hasData = computed(() => series.value.some((row) => row.data.length > 0))
 async function loadHistory():Promise<void>{const current=++request;history.value=null;const id=vehicle.value?.id;if(!id)return;const start=new Date(Date.now()-(props.widget.time_range_days??1)*86_400_000);const result=await api<History>(`/vehicles/${id}/history?start=${encodeURIComponent(start.toISOString())}&max_points=500`);if(current===request)history.value=result}
 watch([() => vehicle.value?.id, () => props.widget.time_range_days],loadHistory,{immediate:true})
 </script>
-<template><article class="widget-card"><header class="series-header"><span class="eyebrow">{{ title }}</span><small>{{ vehicle?.name }}</small></header><div v-if="hasData" class="chart"><TimeSeriesChart :series="series" height="100%" /></div><DashboardWidgetEmpty v-else icon="history" :loading="Boolean(vehicle)&&history===null" /></article></template>
-<style scoped>.series-header{display:flex;align-items:center;justify-content:space-between;gap:12px}.series-header small{color:var(--muted);font-size:8px}.chart{min-width:0;min-height:120px;flex:1}</style>
+<template>
+  <article class="widget-card">
+    <div class="widget-head"><h2>{{ title }}</h2><small>{{ vehicle?.name }}</small></div>
+    <div v-if="hasData" class="chart"><TimeSeriesChart :series="series" height="100%" /></div>
+    <DashboardWidgetEmpty v-else icon="history" :loading="Boolean(vehicle)&&history===null" />
+  </article>
+</template>
+
+<style scoped>
+.chart{min-width:0;min-height:110px;flex:1}
+</style>

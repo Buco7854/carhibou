@@ -81,12 +81,15 @@ def test_complete_simulator_dashboard_and_hook_scenario(
                 "name": "Journey receiver",
                 "enabled": True,
                 "vehicle_id": vehicle["id"],
+                # One upload, one execution: the author opts into per-sample work.
                 "source": (
                     'ctx.state["count"] = ctx.state.get("count", 0) + 1\n'
+                    'ctx.state["batch_size"] = len(ctx.telemetry_batch)\n'
                     'ctx.state["last_timestamp"] = ctx.telemetry.recorded_at.isoformat()\n'
-                    f'ctx.http.post("{receiver_url}", '
+                    "for row in ctx.telemetry_batch:\n"
+                    f'    ctx.http.post("{receiver_url}", '
                     'json={"vehicle": ctx.vehicle.id, "soc": '
-                    'ctx.telemetry.metrics["battery.soc"]})'
+                    'row.metrics["battery.soc"]})'
                 ),
             },
         )
@@ -139,7 +142,8 @@ def test_complete_simulator_dashboard_and_hook_scenario(
             jobs = list(
                 db.scalars(select(Job).where(Job.status == "pending").order_by(Job.created_at))
             )
-            assert len(jobs) == 3
+            # Three samples arrived in one upload, so the worker runs one hook process.
+            assert len(jobs) == 1
             for job in jobs:
                 job.status = "running"
                 db.commit()
@@ -147,13 +151,15 @@ def test_complete_simulator_dashboard_and_hook_scenario(
                 db.commit()
 
         executions = client.get(f"/api/v1/hooks/{hook.json()['id']}/executions").json()
-        assert len(executions) == 3
+        assert len(executions) == 1
         assert all(row["status"] == "success" for row in executions)
         with db_factory() as db:
             state = db.get(HookState, hook.json()["id"])
             assert state is not None
-            assert state.value["count"] == 3
+            assert state.value["count"] == 1
+            assert state.value["batch_size"] == 3
             assert db.scalar(select(HookExecution).where(HookExecution.status == "failed")) is None
+        # Iterating the batch still produces one side effect per sample.
         assert len(Receiver.received) == 3
         assert Receiver.received[-1]["vehicle"] == vehicle["id"]
     finally:
