@@ -193,7 +193,13 @@ jobs:
             sleep 1
           done
           curl --fail --silent http://127.0.0.1:18000/vehicles | grep -q '<title>VehiNode'
-          curl --fail --silent http://127.0.0.1:18000/install-agent | grep -q 'vehinode-agent-${VERSION}-${TARGET}'
+          # The endpoint serves the repository's installer verbatim, so compare the
+          # two rather than grepping for an internal variable name. The previous
+          # assertion matched ${VERSION}, which a rename to ${AGENT_VERSION} left
+          # silently unmatchable, and the smoke test failed on every commit after.
+          curl --fail --silent http://127.0.0.1:18000/install-agent -o /tmp/install-agent.sh
+          diff /tmp/install-agent.sh agent/installer/install-agent.sh
+          sh -n /tmp/install-agent.sh
           curl --fail --silent http://127.0.0.1:18000/agent/releases/0.1.0/vehinode-agent-0.1.0-linux-amd64 -o /tmp/vehinode-agent
           chmod +x /tmp/vehinode-agent
           /tmp/vehinode-agent version | grep -q 'VehiNode agent 0.1.0 (linux-amd64)'
