@@ -17,7 +17,7 @@ describe('tracker cadence', () => {
     // the expensive one visibly does not.
     expect(priced('live')).toBeGreaterThan(100)
     expect(priced('standard')).toBeLessThan(50)
-    expect(priced('saver')).toBeLessThan(15)
+    expect(priced('saver')).toBeLessThan(20)
     expect(priced('minimal')).toBeLessThan(5)
     expect(CADENCE_PRESETS.map((item) => priced(item.key))).toEqual(
       [...CADENCE_PRESETS.map((item) => priced(item.key))].sort((left, right) => right - left),

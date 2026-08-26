@@ -43,7 +43,7 @@ const SECONDS_PER_MONTH = 30 * 24 * 60 * 60
 export const CADENCE_PRESETS: CadencePreset[] = [
   { key: 'live', sampling_seconds: 1, upload_seconds: 1, parked_sampling_seconds: 30, parked_upload_seconds: 30 },
   { key: 'standard', sampling_seconds: 5, upload_seconds: 5, parked_sampling_seconds: 300, parked_upload_seconds: 300 },
-  { key: 'saver', sampling_seconds: 30, upload_seconds: 30, parked_sampling_seconds: 600, parked_upload_seconds: 600 },
+  { key: 'saver', sampling_seconds: 15, upload_seconds: 15, parked_sampling_seconds: 600, parked_upload_seconds: 600 },
   { key: 'minimal', sampling_seconds: 120, upload_seconds: 120, parked_sampling_seconds: 1800, parked_upload_seconds: 1800 },
 ]
 

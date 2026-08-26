@@ -15,7 +15,7 @@ Presets are starting points; every field stays editable.
 | -------- | ------- | ------ | --------------------------- |
 | Live     | 1 s     | 30 s   | 256 MB / month              |
 | Standard | 5 s     | 5 min  | 40 MB / month               |
-| Saver    | 30 s    | 10 min | 10 MB / month               |
+| Saver    | 15 s    | 10 min | 15 MB / month               |
 | Minimal  | 2 min   | 30 min | 3 MB / month                |
 
 Every preset uploads exactly as often as it samples, so one figure describes both. That

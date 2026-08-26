@@ -148,8 +148,8 @@ describe('vehicle and dashboard management', () => {
     await flushPromises()
     const enrolled = JSON.parse(fetchMock.mock.calls.find((call) => String(call[0]).includes('/enrollments'))?.[1]?.body as string)
     // A preset carries both states, so a parked vehicle stops paying the driving rate.
-    expect(enrolled.sampling_seconds).toBe(30)
-    expect(enrolled.upload_seconds).toBe(30)
+    expect(enrolled.sampling_seconds).toBe(15)
+    expect(enrolled.upload_seconds).toBe(15)
     expect(enrolled.parked_sampling_seconds).toBe(600)
     expect(enrolled.parked_upload_seconds).toBe(600)
 
