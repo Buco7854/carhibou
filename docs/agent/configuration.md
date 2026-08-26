@@ -28,6 +28,15 @@ whose `id` must exactly match `vehicle_profile`; that definition is persisted in
 last-known-good file. The standalone executable therefore does not need a separately
 installed profile package.
 
+CAN monitoring runs continuously for the life of the connection rather than for a
+window per sample, so a sample is a snapshot of values already current. Sampling
+therefore costs nothing on the bus and a one-second cadence is achievable; it also
+means nothing is missed between samples, which a window could not promise.
+
+Passive monitoring cannot discover the vehicle's protocol the way a request would,
+so the agent tries the four CAN variants an OBD port can carry until one produces a
+frame, and keeps the common one when none do.
+
 Sampling and upload intervals are set per tracker in **Devices**, at enrollment and
 afterwards. `parked_seconds` is optional: a configuration without it uses one cadence in
 both states. The tracker decides which state it is in, and publishes that decision as

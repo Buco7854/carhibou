@@ -28,6 +28,17 @@ date here. Never replace “pending” with “verified” from simulation alone
 
 ## Defects found on hardware
 
+- **2026-08-26.** CAN was monitored for a one-second window per sample. That made
+  the one-second cadence unachievable — the window alone consumed the interval —
+  and meant a five-second cadence saw a fifth of the bus, so an identifier repeating
+  slowly could be missed for minutes. Monitoring is now continuous and sampling
+  reads a snapshot.
+- **2026-08-26.** The CAN protocol was fixed at 11-bit 500 kbit/s, taken from the
+  script for one vehicle. A wrong protocol is silent rather than wrong, and silence
+  is indistinguishable from a sleeping vehicle, so any car using another would have
+  appeared simply to have nothing to say. Each is now tried until one carries
+  frames.
+
 - **2026-08-26, C-Zero.** `obd-info` judged the vehicle by whether it answered a
   standard diagnostic request, and reported "the vehicle did not answer" with a
   supply reading 14.4 V — a vehicle plainly awake. The C-Zero family answers no

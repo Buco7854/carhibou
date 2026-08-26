@@ -231,23 +231,50 @@ func (adapter *OBDAdapter) PassFilters(canIDs []int) error {
 	return nil
 }
 
+// Monitor streams frames for a fixed period. Diagnostics use it; sampling does
+// not, because a window that blocks for its whole duration cannot be part of a
+// loop that has to produce a sample every second.
 func (adapter *OBDAdapter) Monitor(duration time.Duration, onFrame func(model.CANFrame)) error {
+	stop := make(chan struct{})
+	timer := time.AfterFunc(duration, func() { close(stop) })
+	defer timer.Stop()
+	return adapter.MonitorUntil(stop, onFrame)
+}
+
+// MonitorUntil streams frames until stop is closed.
+//
+// Monitoring is continuous on the wire whether or not anyone is reading, so a
+// sampling loop that opened a window per sample saw only the fraction of the bus
+// that fell inside its windows, and blocked for the whole of each one. Running it
+// once for the life of the connection means a sample is a snapshot of values kept
+// current in the background, which costs nothing per sample and misses nothing
+// between them.
+func (adapter *OBDAdapter) MonitorUntil(stop <-chan struct{}, onFrame func(model.CANFrame)) error {
 	if adapter.port == nil {
 		return fmt.Errorf("adapter is not connected")
 	}
 	if err := adapter.port.ResetInputBuffer(); err != nil {
 		return err
 	}
+	adapter.pending = ""
 	if _, err := adapter.port.Write([]byte("STM\r")); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(duration)
-	for time.Now().Before(deadline) {
-		// Reading with the remaining window rather than retrying on error keeps a
-		// silent adapter from spinning the tracker's only core until the deadline.
-		line, err := adapter.readUntil('\r', time.Until(deadline))
+	for {
+		select {
+		case <-stop:
+			_, err := adapter.port.Write([]byte("\r"))
+			if err == nil {
+				_, err = adapter.readUntil('>', adapter.CommandWindow)
+			}
+			return err
+		default:
+		}
+		// A short read window keeps the stop signal responsive on a quiet bus
+		// without spinning: the read itself is what waits.
+		line, err := adapter.readUntil('\r', monitorReadWindow)
 		if err != nil {
-			break
+			continue
 		}
 		line = strings.TrimSpace(line)
 		if line == "" || line == "SEARCHING..." {
@@ -258,12 +285,11 @@ func (adapter *OBDAdapter) Monitor(duration time.Duration, onFrame func(model.CA
 			onFrame(frame)
 		}
 	}
-	_, err := adapter.port.Write([]byte("\r"))
-	if err == nil {
-		_, err = adapter.readUntil('>', adapter.CommandWindow)
-	}
-	return err
 }
+
+// monitorReadWindow bounds one read so a stopped monitor does not wait out a
+// silent bus before noticing.
+const monitorReadWindow = 300 * time.Millisecond
 
 func ParseCANFrame(line string, timestamp float64) (model.CANFrame, error) {
 	cleaned := strings.TrimSpace(strings.ReplaceAll(line, ":", " "))
