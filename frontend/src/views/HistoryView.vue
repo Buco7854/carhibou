@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client'
+import { useLiveVehicles } from '../api/live'
 import type { History, Position, Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import AppSelect from '../components/AppSelect.vue'
@@ -14,6 +15,15 @@ import { formatMetricNumber, metricDefinition, metricLabel, preferredHistoryMetr
 const { t } = useI18n()
 const route = useRoute()
 const vehicle = ref<Vehicle | null>(null)
+
+// The header and the map marker show the vehicle's current state, so they follow
+// the stream. The charts and the table below are a stated time range and are left
+// alone: a range that reloaded under the reader would move what they are reading.
+const live = useLiveVehicles()
+watch(live.vehicles, (next) => {
+  const current = next.find((item) => item.id === vehicle.value?.id)
+  if (current) vehicle.value = current
+})
 const history = ref<History | null>(null)
 const metric = ref('')
 const days = ref(1)

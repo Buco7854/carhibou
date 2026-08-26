@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
+import { useLiveVehicles } from '../api/live'
 import type { Vehicle, VehicleProfile } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
@@ -91,6 +92,11 @@ async function load(): Promise<void> {
     api<VehicleProfile[]>('/vehicle-profiles'),
   ])
 }
+
+// Every card here shows a live reading, so it follows the stream rather than
+// staying at whatever was true when the page opened.
+const live = useLiveVehicles()
+watch(live.vehicles, (next) => { if (next.length) vehicles.value = next })
 async function create(): Promise<void> {
   error.value = ''
   const payload = { name: form.value.name.trim(), vehicle_profile: form.value.profileId }

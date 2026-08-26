@@ -315,11 +315,16 @@ describe('vehicle and dashboard management', () => {
     const body = JSON.parse(createCall?.[1]?.body as string)
     expect(body.name).toBe('Overview')
     expect(body.is_default).toBe(true)
-    expect(body.layout.preset).toBe('overview-v4')
+    expect(body.layout.preset).toBe('overview-v5')
+    // Ordered by the questions somebody opening this has: what is the car doing,
+    // how fast, how much is left, where is it. Status comes first because it
+    // carries both the vehicle's state and the tracker's, separately.
     expect(body.layout.widgets.map((row: {type:string}) => row.type)).toEqual([
-      'vehicle-selector', 'position-map', 'battery-gauge', 'charging',
-      'telemetry-list', 'time-series', 'device-health', 'online-status', 'vehicle-media',
+      'vehicle-selector', 'online-status', 'metric-card', 'battery-gauge',
+      'position-map', 'charging', 'telemetry-list', 'time-series', 'vehicle-media',
     ])
+    const speed = body.layout.widgets.find((row: {type:string}) => row.type === 'metric-card')
+    expect(speed.metric).toBe('vehicle.speed')
     // Energy, charging and the photo opt out for vehicles that cannot report them.
     const conditional = body.layout.widgets.filter((row: {settings?:{hide_when_empty?:boolean}}) => row.settings?.hide_when_empty)
     expect(conditional.map((row: {type:string}) => row.type)).toEqual(['battery-gauge', 'charging', 'vehicle-media'])
@@ -328,7 +333,7 @@ describe('vehicle and dashboard management', () => {
 
   it('updates dynamic widgets from the vehicle selector and persists card deletion', async () => {
     const secondVehicle = { ...vehicle, id:'vehicle-2', name:'Nimbus', state:{...vehicle.state,metrics:{'fuel.level':25}} }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v4',widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v5',widgets:[
       {id:'selector',type:'vehicle-selector',x:0,y:0,w:12,h:1},
       {id:'fuel',type:'metric-card',metric:'fuel.level',x:0,y:1,w:3,h:2},
     ]}, created_at:'', updated_at:'' }
@@ -421,7 +426,7 @@ describe('vehicle and dashboard management', () => {
   it('hides opted-in widgets for a vehicle that cannot report them, and keeps the rest', async () => {
     // A standard OBD-II diesel: no traction battery, and no fuel-level PID support.
     const diesel = { ...vehicle, id:'vehicle-2', name:'Golf', photo_url:null, state:{ ...vehicle.state, metrics:{ 'engine.rpm':1800 } } }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v4', widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v5', widgets:[
       { id:'selector', type:'vehicle-selector', x:0, y:0, w:12, h:1 },
       { id:'energy', type:'battery-gauge', x:0, y:1, w:4, h:2, settings:{ hide_when_empty:true } },
       { id:'charge', type:'charging', x:4, y:1, w:4, h:2, settings:{ hide_when_empty:true } },
