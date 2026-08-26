@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Buco7854/vehinode/agent/internal/providers"
 )
 
 func TestCommandsRejectNonPositiveDurations(t *testing.T) {
@@ -37,5 +39,30 @@ func TestConfigPrintsLocallyAndOnlyPullsWhenAsked(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "flag provided but not defined") {
 		t.Fatalf("--pull is not accepted: %v", err)
+	}
+}
+
+// A port the sweep already classified must not be reopened. Reopening one this
+// process had just closed wedged the SIM7600's USB serial driver and hung every
+// diagnostic command after the sweep finished printing.
+func TestResolveReusesTheSweepRatherThanReprobing(t *testing.T) {
+	nmea := "/dev/serial/by-id/usb-SimTech-if01-port0"
+	reports := []providers.PortReport{
+		{Device: "/dev/serial/by-id/usb-OBDLink-if00-port0", Role: providers.RoleELM},
+		{Device: nmea, Role: providers.RoleNMEA},
+	}
+	if path := modemPath(reports, nmea); path != "" {
+		t.Fatalf("a port the sweep called NMEA is not a modem, got %q", path)
+	}
+
+	reports[1].Role = providers.RoleModem
+	if path := modemPath(reports, nmea); path != nmea {
+		t.Fatalf("a port the sweep called a modem must be used as one, got %q", path)
+	}
+
+	// A path the sweep never saw is still probed; here it does not exist, so the
+	// probe reports unknown rather than hanging or claiming a modem.
+	if path := modemPath(reports, "/dev/does-not-exist"); path != "" {
+		t.Fatalf("an unprobed missing device must not be taken for a modem, got %q", path)
 	}
 }

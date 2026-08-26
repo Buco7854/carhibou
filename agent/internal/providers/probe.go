@@ -126,13 +126,25 @@ func firstMeaningfulLine(reply, command string) string {
 	return "OK"
 }
 
+// portSettle is how long a probed interface is left alone after being closed.
+//
+// A cellular module publishes several interfaces from one USB serial driver, and
+// reopening one immediately after closing it is what that driver handles worst:
+// on a SIM7600 the second open never returned, hanging every diagnostic command
+// the moment the sweep finished. The sweep is the only place that closes and
+// reopens ports in quick succession, so the cost is a fraction of a second once.
+const portSettle = 200 * time.Millisecond
+
 // ProbeDevice opens one path and reports what it speaks.
 func ProbeDevice(device string) PortReport {
 	port, err := serial.Open(device, &serial.Mode{BaudRate: 115200})
 	if err != nil {
 		return PortReport{Device: device, Role: RoleUnknown, Error: err.Error()}
 	}
-	defer port.Close()
+	defer func() {
+		port.Close()
+		time.Sleep(portSettle)
+	}()
 	if err := port.SetReadTimeout(200 * time.Millisecond); err != nil {
 		return PortReport{Device: device, Role: RoleUnknown, Error: err.Error()}
 	}

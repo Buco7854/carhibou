@@ -92,6 +92,17 @@ func ChownAgent(path string) error {
 	return os.Chown(path, uid, gid)
 }
 
+// ServiceRunning reports whether the telemetry service is active.
+//
+// The service holds the serial ports it uses, and root opens them anyway because
+// the exclusive-access flag does not apply to it, so a diagnostic run alongside
+// the service has both processes reading the same stream and reconfiguring the
+// same line settings underneath each other.
+func ServiceRunning() bool {
+	output, _ := exec.Command("systemctl", "is-active", ServiceName).Output()
+	return strings.TrimSpace(string(output)) == "active"
+}
+
 func InstallService() error {
 	unit := `[Unit]
 Description=VehiNode vehicle telemetry agent

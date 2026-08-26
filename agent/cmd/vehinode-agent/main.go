@@ -326,6 +326,7 @@ func commandDevices(locations paths, arguments []string) error {
 }
 
 func commandGPS(locations paths, arguments []string) error {
+	warnIfServiceHoldsPorts()
 	flags := flag.NewFlagSet("gps-info", flag.ContinueOnError)
 	device := flags.String("device", "", "serial device")
 	seconds := flags.Int("seconds", 10, "read duration in seconds")
@@ -349,12 +350,12 @@ func commandGPS(locations paths, arguments []string) error {
 	if devices.gps == "" {
 		return fmt.Errorf("no GPS serial device found; run 'vehinode-agent doctor --probe'")
 	}
+	fmt.Fprintf(os.Stderr, "Reading %s for %ds\n", devices.gps, *seconds)
 	position, closePosition, err := startPosition(devices, 1)
 	if err != nil {
 		return err
 	}
 	defer closePosition()
-	fmt.Fprintf(os.Stderr, "Reading %s for %ds\n", devices.gps, *seconds)
 	deadline := time.Now().Add(time.Duration(*seconds) * time.Second)
 	seen := false
 	for time.Now().Before(deadline) {
@@ -374,6 +375,7 @@ func commandGPS(locations paths, arguments []string) error {
 }
 
 func commandOBD(locations paths, arguments []string) error {
+	warnIfServiceHoldsPorts()
 	flags := flag.NewFlagSet("obd-info", flag.ContinueOnError)
 	device := flags.String("device", "", "serial device")
 	if err := flags.Parse(arguments); err != nil {
@@ -389,6 +391,7 @@ func commandOBD(locations paths, arguments []string) error {
 	if *device == "" {
 		return fmt.Errorf("no OBD adapter found; run 'vehinode-agent doctor --probe'")
 	}
+	fmt.Fprintln(os.Stderr, "Connecting to", *device)
 	adapter := providers.NewOBDAdapter(*device)
 	if err := adapter.Connect(); err != nil {
 		return err
@@ -414,6 +417,7 @@ func commandOBD(locations paths, arguments []string) error {
 // commandMonitor prints what the tracker would sample, once per interval, so a
 // wiring or antenna problem is visible without waiting for a dashboard round trip.
 func commandMonitor(locations paths, arguments []string) error {
+	warnIfServiceHoldsPorts()
 	flags := flag.NewFlagSet("monitor", flag.ContinueOnError)
 	seconds := flags.Int("interval", 2, "seconds between reads")
 	count := flags.Int("count", 0, "number of reads, or zero to run until interrupted")
@@ -619,11 +623,43 @@ func resolveDevices(hardware store.Hardware) resolvedDevices {
 		result.modem = ""
 	}
 	if result.gps != "" && result.modem == "" {
-		if report := providers.ProbeDevice(result.gps); report.Role == providers.RoleModem {
-			result.modem = result.gps
-		}
+		result.modem = modemPath(result.reports, result.gps)
 	}
 	return result
+}
+
+// modemPath decides whether the GPS path is itself a modem control port.
+//
+// The sweep has almost always just classified it, and reusing that answer is the
+// point: reopening a serial port this process closed microseconds earlier is what
+// a cellular module's multi-interface USB driver handles worst, and on a SIM7600
+// it wedged the open, taking every diagnostic command down with it. Only a path
+// the sweep never saw, meaning one configured explicitly rather than found, is
+// probed here.
+func modemPath(reports []providers.PortReport, device string) string {
+	for _, report := range reports {
+		if report.Device != device {
+			continue
+		}
+		if report.Role == providers.RoleModem {
+			return device
+		}
+		return ""
+	}
+	if providers.ProbeDevice(device).Role == providers.RoleModem {
+		return device
+	}
+	return ""
+}
+
+// warnIfServiceHoldsPorts says so before a diagnostic opens hardware the service
+// is already using, because root is exempt from the exclusive-access flag that
+// would otherwise refuse the second open, and the two readers then split the
+// stream between them.
+func warnIfServiceHoldsPorts() {
+	if agentsystem.ServiceRunning() {
+		fmt.Fprintf(os.Stderr, "Warning: %s is running and holds these ports. Stop it first for a clean reading:\n  sudo systemctl stop vehinode-agent\n", agentsystem.ServiceName)
+	}
 }
 
 // startPosition prepares the GPS source, switching the receiver on first.
