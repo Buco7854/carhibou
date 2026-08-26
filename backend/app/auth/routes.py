@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import select
 
+from backend.app.access.services import permissions_for
 from backend.app.auth.dependencies import CurrentUser, CurrentUserWrite, Db
 from backend.app.auth.models import BrowserSession
 from backend.app.auth.schemas import (
@@ -67,7 +68,15 @@ def _login_response(response: Response, db: Db, request: Request, user: User) ->
     )
     db.commit()
     _set_session_cookies(response, new_session.token, new_session.csrf_token)
-    return LoginResponse(user=UserResponse.model_validate(user), csrf_token=new_session.csrf_token)
+    return LoginResponse(
+        user=UserResponse(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+            permissions=permissions_for(user),
+        ),
+        csrf_token=new_session.csrf_token,
+    )
 
 
 @router.post("/register", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
@@ -105,9 +114,14 @@ def logout(response: Response, db: Db, auth: CurrentUserWrite) -> None:
 
 
 @router.get("/me", response_model=UserResponse)
-def me(db: Db, auth: CurrentUser) -> User:
+def me(db: Db, auth: CurrentUser) -> UserResponse:
     db.commit()
-    return auth.user
+    return UserResponse(
+        id=auth.user.id,
+        email=auth.user.email,
+        display_name=auth.user.display_name,
+        permissions=permissions_for(auth.user),
+    )
 
 
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)

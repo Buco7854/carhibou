@@ -9,6 +9,7 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
+from backend.app.access.routes import router as access_router
 from backend.app.api.agent_distribution import router as agent_distribution_router
 from backend.app.api.errors import install_error_handlers
 from backend.app.api.events import router as event_router
@@ -82,6 +83,7 @@ app.include_router(health_router)
 app.include_router(agent_distribution_router)
 for api_router in (
     auth_router,
+    access_router,
     event_router,
     vehicle_router,
     human_router,

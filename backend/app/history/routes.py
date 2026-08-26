@@ -7,7 +7,8 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import Float, case, func, select
 from sqlalchemy.orm import InstrumentedAttribute
 
-from backend.app.auth.dependencies import CurrentUser, Db
+from backend.app.access.dependencies import ViewVehicle
+from backend.app.auth.dependencies import Db
 from backend.app.common.time import utcnow
 from backend.app.common.types import JSONValue
 from backend.app.history.schemas import (
@@ -17,7 +18,6 @@ from backend.app.history.schemas import (
     HistoryResponse,
 )
 from backend.app.telemetry.models import Telemetry
-from backend.app.vehicles.services import owned_vehicle
 
 router = APIRouter(prefix="/vehicles/{vehicle_id}/history", tags=["history"])
 
@@ -95,13 +95,12 @@ def _json_keys(db: Db, where: Sequence[Any], dialect: str) -> tuple[list[str], l
 def history(
     vehicle_id: str,
     db: Db,
-    auth: CurrentUser,
+    authorized: ViewVehicle,
     start: datetime | None = None,
     end: datetime | None = None,
     max_points: int = Query(default=1000, ge=10, le=5000),
 ) -> HistoryResponse:
-    if not owned_vehicle(db, auth.user.id, vehicle_id):
-        raise HTTPException(status_code=404, detail="vehicle not found")
+    del authorized
     resolved_end = end or utcnow()
     resolved_start = start or resolved_end - timedelta(hours=24)
     if resolved_start >= resolved_end:
@@ -206,7 +205,7 @@ def _parse_filter(raw: str) -> _EntryFilter:
 def history_entries(
     vehicle_id: str,
     db: Db,
-    auth: CurrentUser,
+    authorized: ViewVehicle,
     start: datetime | None = None,
     end: datetime | None = None,
     limit: int = Query(default=100, ge=1, le=500),
@@ -215,8 +214,7 @@ def history_entries(
     direction: Literal["asc", "desc"] = "desc",
     filters: Annotated[list[str] | None, Query(alias="filter", max_length=12)] = None,
 ) -> HistoryEntriesResponse:
-    if not owned_vehicle(db, auth.user.id, vehicle_id):
-        raise HTTPException(status_code=404, detail="vehicle not found")
+    del authorized
     resolved_end = end or utcnow()
     resolved_start = start or resolved_end - timedelta(hours=24)
     if resolved_start >= resolved_end:

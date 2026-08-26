@@ -84,21 +84,3 @@ def current_device(
 
 
 CurrentDevice = Annotated[Device, Depends(current_device)]
-
-
-def require_permission(name: str):  # type: ignore[no-untyped-def]
-    def check(authenticated: CurrentUserWrite) -> AuthenticatedUser:
-        if not authenticated.user.permissions.get(name, False):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="permission denied")
-        return authenticated
-
-    return check
-
-
-def require_permission_read(name: str):  # type: ignore[no-untyped-def]
-    def check(authenticated: CurrentUser) -> AuthenticatedUser:
-        if not authenticated.user.permissions.get(name, False):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="permission denied")
-        return authenticated
-
-    return check

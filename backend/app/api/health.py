@@ -3,7 +3,8 @@ from datetime import timedelta
 from fastapi import APIRouter
 from sqlalchemy import func, select, text
 
-from backend.app.auth.dependencies import CurrentUser, Db
+from backend.app.access.dependencies import RequireAdmin
+from backend.app.auth.dependencies import Db
 from backend.app.branding import APP_VERSION
 from backend.app.common.time import utcnow
 from backend.app.devices.models import Device
@@ -25,9 +26,8 @@ def ready(db: Db) -> dict[str, str]:
 
 
 @router.get("/api/v1/system/diagnostics")
-def diagnostics(auth: CurrentUser, db: Db) -> dict[str, object]:
-    if not auth.user.permissions.get("system.admin"):
-        return {"version": APP_VERSION, "access": "limited"}
+def diagnostics(auth: RequireAdmin, db: Db) -> dict[str, object]:
+    del auth
     now = utcnow()
     return {
         "version": APP_VERSION,

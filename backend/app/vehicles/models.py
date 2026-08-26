@@ -10,7 +10,9 @@ class Vehicle(TimestampMixin, Base):
     __tablename__ = "vehicles"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
     name: Mapped[str] = mapped_column(String(120))
     manufacturer: Mapped[str] = mapped_column(String(120), default="")
     model: Mapped[str] = mapped_column(String(120), default="")
@@ -23,7 +25,7 @@ class Vehicle(TimestampMixin, Base):
     color: Mapped[str] = mapped_column(String(20), default="#62d4a7")
     icon: Mapped[str] = mapped_column(String(50), default="car")
 
-    owner = relationship("User", back_populates="vehicles")
+    grants = relationship("VehicleAccessGrant", passive_deletes="all")
     devices = relationship("Device", back_populates="vehicle", passive_deletes="all")
     state = relationship(
         "VehicleState", back_populates="vehicle", uselist=False, passive_deletes="all"

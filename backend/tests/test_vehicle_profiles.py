@@ -127,7 +127,7 @@ def test_profile_validation_rejects_guessed_or_malformed_signal_definitions(
     assert vehicle.status_code == 422
 
 
-def test_custom_profiles_are_owner_scoped(
+def test_custom_profiles_are_global_but_only_the_creator_can_edit(
     registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
 ) -> None:
     client, owner_csrf = registered
@@ -158,24 +158,24 @@ def test_custom_profiles_are_owner_scoped(
     headers = {"X-CSRF-Token": second_csrf}
 
     visible_ids = {row["id"] for row in client.get("/api/v1/vehicle-profiles").json()}
-    assert created["id"] not in visible_ids
+    assert created["id"] in visible_ids
+    visible = next(
+        row for row in client.get("/api/v1/vehicle-profiles").json() if row["id"] == created["id"]
+    )
+    assert visible["editable"] is False
     assert (
         client.put(
             f"/api/v1/vehicle-profiles/{created['id']}",
             headers=headers,
             json=profile_payload(scale=0.25),
         ).status_code
-        == 404
+        == 403
     )
     assert (
         client.delete(f"/api/v1/vehicle-profiles/{created['id']}", headers=headers).status_code
-        == 404
+        == 403
     )
     assert (
-        client.post(
-            "/api/v1/vehicles",
-            headers=headers,
-            json={"name": "Other vehicle", "vehicle_profile": created["id"]},
-        ).status_code
-        == 422
+        client.post("/api/v1/vehicle-profiles", headers=headers, json=profile_payload()).status_code
+        == 403
     )

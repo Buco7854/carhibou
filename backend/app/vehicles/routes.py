@@ -4,10 +4,14 @@ from hashlib import sha256
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 
-from backend.app.auth.dependencies import CurrentUser, CurrentUserWrite, Db
+from backend.app.access.constants import OPERATE
+from backend.app.access.dependencies import OperateVehicle, RequireAdminWrite, ViewVehicle
+from backend.app.access.services import access_level, is_admin
+from backend.app.auth.dependencies import CurrentUser, Db
 from backend.app.devices.services import reset_vehicle_telemetry
 from backend.app.vehicle_profiles.schemas import VehicleProfileSelection
 from backend.app.vehicle_profiles.services import assign_profile, profile_definition
+from backend.app.vehicles.models import VehiclePhoto
 from backend.app.vehicles.photo_storage import photo_path, remove_photo_file, store_photo
 from backend.app.vehicles.photos import PhotoValidationError, validate_photo
 from backend.app.vehicles.schemas import VehicleCreate, VehicleResponse
@@ -16,8 +20,7 @@ from backend.app.vehicles.services import (
     delete_vehicle,
     delete_vehicle_photo,
     list_vehicles,
-    owned_vehicle,
-    owned_vehicle_photo,
+    load_vehicle,
     replace_vehicle_photo,
     serialize_vehicle,
 )
@@ -28,40 +31,41 @@ logger = logging.getLogger(__name__)
 
 @router.get("")
 def vehicles(db: Db, auth: CurrentUser) -> list[VehicleResponse]:
-    return [serialize_vehicle(vehicle) for vehicle in list_vehicles(db, auth.user.id)]
+    return [
+        serialize_vehicle(vehicle, access_level(db, auth.user, vehicle.id) or OPERATE)
+        for vehicle in list_vehicles(db, auth.user)
+    ]
 
 
 @router.post("", response_model=VehicleResponse, status_code=status.HTTP_201_CREATED)
-def add_vehicle(data: VehicleCreate, db: Db, auth: CurrentUserWrite) -> VehicleResponse:
-    if data.vehicle_profile and not profile_definition(db, auth.user.id, data.vehicle_profile):
+def add_vehicle(data: VehicleCreate, db: Db, auth: RequireAdminWrite) -> VehicleResponse:
+    if data.vehicle_profile and not profile_definition(db, data.vehicle_profile):
         raise HTTPException(status_code=422, detail="vehicle profile is not available")
     vehicle = create_vehicle(db, auth.user, data)
     db.commit()
-    return serialize_vehicle(vehicle)
+    return serialize_vehicle(vehicle, OPERATE)
 
 
 @router.get("/{vehicle_id}", response_model=VehicleResponse)
-def vehicle(vehicle_id: str, db: Db, auth: CurrentUser) -> VehicleResponse:
-    model = owned_vehicle(db, auth.user.id, vehicle_id)
-    if not model:
-        raise HTTPException(status_code=404, detail="vehicle not found")
-    return serialize_vehicle(model)
+def vehicle(vehicle_id: str, db: Db, authorized: ViewVehicle) -> VehicleResponse:
+    model = load_vehicle(db, authorized.vehicle.id) or authorized.vehicle
+    return serialize_vehicle(model, authorized.level)
 
 
 @router.delete("/telemetry", status_code=status.HTTP_204_NO_CONTENT)
-def clear_all_telemetry(db: Db, auth: CurrentUserWrite) -> None:
-    """Delete every reading recorded for every vehicle this account owns."""
+def clear_all_telemetry(db: Db, auth: RequireAdminWrite) -> None:
+    """Delete every reading recorded by the instance."""
 
-    for model in list_vehicles(db, auth.user.id):
+    for model in list_vehicles(db, auth.user):
         reset_vehicle_telemetry(db, model.id)
     db.commit()
 
 
 @router.delete("/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_vehicle(vehicle_id: str, db: Db, auth: CurrentUserWrite) -> None:
-    model = owned_vehicle(db, auth.user.id, vehicle_id)
-    if not model:
-        raise HTTPException(status_code=404, detail="vehicle not found")
+def remove_vehicle(vehicle_id: str, db: Db, authorized: OperateVehicle) -> None:
+    if not is_admin(authorized.authenticated.user):
+        raise HTTPException(status_code=403, detail="permission denied")
+    model = load_vehicle(db, vehicle_id) or authorized.vehicle
     storage_key = delete_vehicle(db, model)
     db.commit()
     if storage_key:
@@ -72,32 +76,27 @@ def remove_vehicle(vehicle_id: str, db: Db, auth: CurrentUserWrite) -> None:
 
 
 @router.delete("/{vehicle_id}/telemetry", status_code=status.HTTP_204_NO_CONTENT)
-def clear_vehicle_telemetry(vehicle_id: str, db: Db, auth: CurrentUserWrite) -> None:
+def clear_vehicle_telemetry(vehicle_id: str, db: Db, authorized: OperateVehicle) -> None:
     """Delete every reading recorded for this vehicle, keeping the vehicle itself.
 
     Its agents, hooks and dashboards survive, so a vehicle full of test data can
     be emptied without being set up again.
     """
 
-    model = owned_vehicle(db, auth.user.id, vehicle_id)
-    if not model:
-        raise HTTPException(status_code=404, detail="vehicle not found")
-    reset_vehicle_telemetry(db, model.id)
+    reset_vehicle_telemetry(db, authorized.vehicle.id)
     db.commit()
 
 
 @router.put("/{vehicle_id}/profile", response_model=VehicleResponse)
 def select_vehicle_profile(
-    vehicle_id: str, data: VehicleProfileSelection, db: Db, auth: CurrentUserWrite
+    vehicle_id: str, data: VehicleProfileSelection, db: Db, authorized: OperateVehicle
 ) -> VehicleResponse:
-    model = owned_vehicle(db, auth.user.id, vehicle_id)
-    if not model:
-        raise HTTPException(status_code=404, detail="vehicle not found")
-    if data.profile_id and not profile_definition(db, auth.user.id, data.profile_id):
+    model = authorized.vehicle
+    if data.profile_id and not profile_definition(db, data.profile_id):
         raise HTTPException(status_code=422, detail="vehicle profile is not available")
     assign_profile(db, model, data.profile_id)
     db.commit()
-    return serialize_vehicle(model)
+    return serialize_vehicle(model, authorized.level)
 
 
 @router.put(
@@ -114,11 +113,9 @@ def select_vehicle_profile(
     },
 )
 async def upload_vehicle_photo(
-    vehicle_id: str, request: Request, db: Db, auth: CurrentUserWrite
+    vehicle_id: str, request: Request, db: Db, authorized: OperateVehicle
 ) -> None:
-    model = owned_vehicle(db, auth.user.id, vehicle_id)
-    if not model:
-        raise HTTPException(status_code=404, detail="vehicle not found")
+    model = load_vehicle(db, authorized.vehicle.id) or authorized.vehicle
     content = await request.body()
     try:
         photo = validate_photo(content, request.headers.get("content-type", ""))
@@ -140,8 +137,8 @@ async def upload_vehicle_photo(
 
 
 @router.get("/{vehicle_id}/photo")
-def vehicle_photo(vehicle_id: str, request: Request, db: Db, auth: CurrentUser) -> Response:
-    photo = owned_vehicle_photo(db, auth.user.id, vehicle_id)
+def vehicle_photo(vehicle_id: str, request: Request, db: Db, authorized: ViewVehicle) -> Response:
+    photo = db.get(VehiclePhoto, authorized.vehicle.id)
     if not photo:
         raise HTTPException(status_code=404, detail="vehicle photo not found")
     try:
@@ -162,10 +159,8 @@ def vehicle_photo(vehicle_id: str, request: Request, db: Db, auth: CurrentUser) 
 
 
 @router.delete("/{vehicle_id}/photo", status_code=status.HTTP_204_NO_CONTENT)
-def remove_vehicle_photo(vehicle_id: str, db: Db, auth: CurrentUserWrite) -> None:
-    model = owned_vehicle(db, auth.user.id, vehicle_id)
-    if not model:
-        raise HTTPException(status_code=404, detail="vehicle not found")
+def remove_vehicle_photo(vehicle_id: str, db: Db, authorized: OperateVehicle) -> None:
+    model = load_vehicle(db, authorized.vehicle.id) or authorized.vehicle
     storage_key = model.photo.storage_key if model.photo else None
     if not delete_vehicle_photo(db, model.id):
         raise HTTPException(status_code=404, detail="vehicle photo not found")

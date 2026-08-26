@@ -38,9 +38,7 @@ def device_config(db: Session, device: Device, vehicle: Vehicle) -> DeviceConfig
             "parked_seconds": device.parked_upload_seconds,
         },
         vehicle_profile=vehicle.vehicle_profile,
-        vehicle_profile_definition=profile_definition(
-            db, vehicle.owner_id, vehicle.vehicle_profile
-        ),
+        vehicle_profile_definition=profile_definition(db, vehicle.vehicle_profile),
     )
 
 

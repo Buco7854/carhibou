@@ -89,7 +89,7 @@ def build_runtime_input(
         raise LookupError("vehicle or device no longer exists")
     current = db.get(VehicleState, vehicle.id)
     state = db.get(HookState, hook.id)
-    secret_rows = list(db.scalars(select(Secret).where(Secret.owner_id == hook.owner_id)))
+    secret_rows = list(db.scalars(select(Secret)))
     secrets = {row.name: decrypt_secret(row.encrypted_value) for row in secret_rows}
     data = {
         "sdk_version": HOOK_SDK_VERSION,

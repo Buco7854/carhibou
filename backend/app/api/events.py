@@ -9,6 +9,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, sessionmaker
 
+from backend.app.access.constants import OPERATE
+from backend.app.access.services import access_level
 from backend.app.auth.dependencies import CurrentUser, Db
 from backend.app.auth.models import BrowserSession
 from backend.app.common.time import as_utc, utcnow
@@ -40,8 +42,10 @@ def load_vehicle_snapshot(
         ):
             return None
         return [
-            serialize_vehicle(vehicle).model_dump(mode="json")
-            for vehicle in list_vehicles(db, user_id)
+            serialize_vehicle(vehicle, access_level(db, user, vehicle.id) or OPERATE).model_dump(
+                mode="json"
+            )
+            for vehicle in list_vehicles(db, user)
         ]
 
 

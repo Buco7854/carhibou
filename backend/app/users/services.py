@@ -1,17 +1,13 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.access.constants import SYSTEM_ADMIN
+from backend.app.access.services import is_admin
 from backend.app.users.models import User
-
-ADMIN_PERMISSIONS = {"hooks.manage_code": True, "system.admin": True}
 
 
 class UserAdministrationError(Exception):
     pass
-
-
-def is_admin(user: User) -> bool:
-    return bool(user.permissions.get("system.admin"))
 
 
 def list_users(db: Session) -> list[User]:
@@ -41,10 +37,9 @@ def set_admin(db: Session, user: User, admin: bool) -> None:
         _guard_last_admin(db, user)
     permissions = dict(user.permissions)
     if admin:
-        permissions.update(ADMIN_PERMISSIONS)
+        permissions[SYSTEM_ADMIN] = True
     else:
-        for name in ADMIN_PERMISSIONS:
-            permissions.pop(name, None)
+        permissions.pop(SYSTEM_ADMIN, None)
     user.permissions = permissions
 
 

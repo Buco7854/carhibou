@@ -5,6 +5,8 @@ from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
+from backend.app.access.constants import SYSTEM_ADMIN
+from backend.app.access.services import apply_default_access
 from backend.app.auth.models import AuthenticationIdentity, BrowserSession
 from backend.app.auth.provider import AuthenticatedIdentity
 from backend.app.auth.security import (
@@ -80,10 +82,11 @@ def create_local_user(
         raise AuthenticationError("password must contain between 12 and 256 characters")
     if db.scalar(select(User.id).where(func.lower(User.email) == normalized)):
         raise AuthenticationError("email is already registered")
-    permissions = {"hooks.manage_code": True, "system.admin": True} if admin else {}
+    permissions = {SYSTEM_ADMIN: True} if admin else {}
     user = User(email=normalized, display_name=normalized_name, permissions=permissions)
     db.add(user)
     db.flush()
+    apply_default_access(db, user)
     db.add(
         AuthenticationIdentity(
             user_id=user.id,

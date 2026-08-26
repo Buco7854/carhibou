@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 
 import agent
 from agent.vehicle_agent.profile_decoder import ProfileError, VehicleProfileDecoder
+from backend.app.access.services import is_admin
 from backend.app.common.ids import new_id
 from backend.app.devices.models import Device
+from backend.app.users.models import User
 from backend.app.vehicle_profiles.models import VehicleProfile
 from backend.app.vehicle_profiles.schemas import (
     ProfileDefinition,
@@ -52,13 +54,14 @@ def _definition(profile_id: str, data: VehicleProfileWrite) -> dict[str, object]
     return definition
 
 
-def list_vehicle_profiles(db: Session, owner_id: str) -> list[VehicleProfileResponse]:
+def list_vehicle_profiles(db: Session, user: User) -> list[VehicleProfileResponse]:
     built_ins = [
         VehicleProfileResponse(
             id=profile_id,
             name=str(definition["name"]),
             description=str(definition.get("description", "")),
             built_in=True,
+            editable=False,
             definition=deepcopy(definition),
         )
         for profile_id, definition in built_in_definitions().items()
@@ -69,24 +72,34 @@ def list_vehicle_profiles(db: Session, owner_id: str) -> list[VehicleProfileResp
             name=profile.name,
             description=profile.description,
             built_in=False,
+            editable=can_edit_profile(user, profile),
             definition=deepcopy(profile.definition),
             created_at=profile.created_at,
             updated_at=profile.updated_at,
         )
-        for profile in db.scalars(
-            select(VehicleProfile)
-            .where(VehicleProfile.owner_id == owner_id)
-            .order_by(VehicleProfile.created_at)
-        )
+        for profile in db.scalars(select(VehicleProfile).order_by(VehicleProfile.created_at))
     ]
     return [*built_ins, *custom]
 
 
-def owned_profile(db: Session, owner_id: str, profile_id: str) -> VehicleProfile | None:
-    return db.scalar(
-        select(VehicleProfile).where(
-            VehicleProfile.id == profile_id, VehicleProfile.owner_id == owner_id
-        )
+def profile_by_id(db: Session, profile_id: str) -> VehicleProfile | None:
+    return db.get(VehicleProfile, profile_id)
+
+
+def can_edit_profile(user: User, profile: VehicleProfile) -> bool:
+    return is_admin(user) or profile.created_by == user.id
+
+
+def serialize_profile(profile: VehicleProfile, user: User) -> VehicleProfileResponse:
+    return VehicleProfileResponse(
+        id=profile.id,
+        name=profile.name,
+        description=profile.description,
+        built_in=False,
+        editable=can_edit_profile(user, profile),
+        definition=deepcopy(profile.definition),
+        created_at=profile.created_at,
+        updated_at=profile.updated_at,
     )
 
 
@@ -119,23 +132,21 @@ def agent_definition(definition: dict[str, object]) -> dict[str, object]:
     return projected
 
 
-def profile_definition(
-    db: Session, owner_id: str, profile_id: str | None
-) -> dict[str, object] | None:
+def profile_definition(db: Session, profile_id: str | None) -> dict[str, object] | None:
     if not profile_id:
         return None
     built_in = built_in_definitions().get(profile_id)
     if built_in:
         return agent_definition(built_in)
-    profile = owned_profile(db, owner_id, profile_id)
+    profile = profile_by_id(db, profile_id)
     return agent_definition(profile.definition) if profile else None
 
 
-def create_profile(db: Session, owner_id: str, data: VehicleProfileWrite) -> VehicleProfile:
+def create_profile(db: Session, creator_id: str, data: VehicleProfileWrite) -> VehicleProfile:
     profile_id = new_id()
     profile = VehicleProfile(
         id=profile_id,
-        owner_id=owner_id,
+        created_by=creator_id,
         name=data.name,
         description=data.description,
         definition=_definition(profile_id, data),
@@ -145,10 +156,8 @@ def create_profile(db: Session, owner_id: str, data: VehicleProfileWrite) -> Veh
     return profile
 
 
-def _bump_assigned_devices(db: Session, owner_id: str, profile_id: str) -> None:
-    vehicle_ids = select(Vehicle.id).where(
-        Vehicle.owner_id == owner_id, Vehicle.vehicle_profile == profile_id
-    )
+def _bump_assigned_devices(db: Session, profile_id: str) -> None:
+    vehicle_ids = select(Vehicle.id).where(Vehicle.vehicle_profile == profile_id)
     db.execute(
         update(Device)
         .where(Device.vehicle_id.in_(vehicle_ids))
@@ -163,15 +172,13 @@ def update_profile(db: Session, profile: VehicleProfile, data: VehicleProfileWri
     definition = _definition(profile.id, data)
     definition["version"] = current_version + 1
     profile.definition = definition
-    _bump_assigned_devices(db, profile.owner_id, profile.id)
+    _bump_assigned_devices(db, profile.id)
 
 
 def delete_profile(db: Session, profile: VehicleProfile) -> None:
-    _bump_assigned_devices(db, profile.owner_id, profile.id)
+    _bump_assigned_devices(db, profile.id)
     db.execute(
-        update(Vehicle)
-        .where(Vehicle.owner_id == profile.owner_id, Vehicle.vehicle_profile == profile.id)
-        .values(vehicle_profile=None)
+        update(Vehicle).where(Vehicle.vehicle_profile == profile.id).values(vehicle_profile=None)
     )
     db.delete(profile)
 

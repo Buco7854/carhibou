@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -53,6 +54,7 @@ class VehicleResponse(BaseModel):
     timezone: str
     color: str
     icon: str
+    access: Literal["view", "operate"]
     photo_url: str | None = None
     created_at: datetime
     updated_at: datetime

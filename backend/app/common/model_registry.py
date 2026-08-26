@@ -1,5 +1,6 @@
 """Import all models so Alembic and relationship resolution see one metadata graph."""
 
+from backend.app.access.models import AppSetting, VehicleAccessGrant
 from backend.app.auth.models import AuthenticationIdentity, BrowserSession
 from backend.app.dashboards.models import Dashboard
 from backend.app.devices.models import Device, EnrollmentToken
@@ -14,6 +15,7 @@ from backend.app.vehicles.models import Vehicle, VehiclePhoto
 
 __all__ = [
     "AuthenticationIdentity",
+    "AppSetting",
     "BrowserSession",
     "Dashboard",
     "Device",
@@ -27,6 +29,7 @@ __all__ = [
     "Telemetry",
     "Trigger",
     "User",
+    "VehicleAccessGrant",
     "Vehicle",
     "VehicleProfile",
     "VehiclePhoto",

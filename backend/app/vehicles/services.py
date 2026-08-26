@@ -3,6 +3,8 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from backend.app.access.constants import VehicleAccessLevel
+from backend.app.access.services import visible_vehicle_ids
 from backend.app.common.settings import get_settings
 from backend.app.common.time import as_utc, utcnow
 from backend.app.dashboards.models import Dashboard
@@ -17,37 +19,32 @@ from backend.app.vehicles.schemas import (
 )
 
 
-def create_vehicle(db: Session, owner: User, data: VehicleCreate) -> Vehicle:
-    vehicle = Vehicle(owner_id=owner.id, **data.model_dump())
+def create_vehicle(db: Session, creator: User, data: VehicleCreate) -> Vehicle:
+    vehicle = Vehicle(created_by=creator.id, **data.model_dump())
     db.add(vehicle)
     db.flush()
     return vehicle
 
 
-def list_vehicles(db: Session, owner_id: str) -> list[Vehicle]:
+def list_vehicles(db: Session, user: User) -> list[Vehicle]:
+    visible = visible_vehicle_ids(db, user)
+    if not visible:
+        return []
     return list(
         db.scalars(
             select(Vehicle)
-            .where(Vehicle.owner_id == owner_id)
+            .where(Vehicle.id.in_(visible))
             .options(selectinload(Vehicle.state), selectinload(Vehicle.photo))
             .order_by(Vehicle.created_at)
         )
     )
 
 
-def owned_vehicle(db: Session, owner_id: str, vehicle_id: str) -> Vehicle | None:
+def load_vehicle(db: Session, vehicle_id: str) -> Vehicle | None:
     return db.scalar(
         select(Vehicle)
-        .where(Vehicle.id == vehicle_id, Vehicle.owner_id == owner_id)
+        .where(Vehicle.id == vehicle_id)
         .options(selectinload(Vehicle.state), selectinload(Vehicle.photo))
-    )
-
-
-def owned_vehicle_photo(db: Session, owner_id: str, vehicle_id: str) -> VehiclePhoto | None:
-    return db.scalar(
-        select(VehiclePhoto)
-        .join(Vehicle, Vehicle.id == VehiclePhoto.vehicle_id)
-        .where(VehiclePhoto.vehicle_id == vehicle_id, Vehicle.owner_id == owner_id)
     )
 
 
@@ -87,7 +84,7 @@ def delete_vehicle_photo(db: Session, vehicle_id: str) -> bool:
 
 def delete_vehicle(db: Session, vehicle: Vehicle) -> str | None:
     """Delete a vehicle graph and remove its fixed references from dashboard JSON."""
-    dashboards = db.scalars(select(Dashboard).where(Dashboard.owner_id == vehicle.owner_id))
+    dashboards = db.scalars(select(Dashboard))
     for dashboard in dashboards:
         layout = dict(dashboard.layout)
         widgets = layout.get("widgets", [])
@@ -110,12 +107,15 @@ def delete_vehicle(db: Session, vehicle: Vehicle) -> str | None:
     return storage_key
 
 
-def serialize_vehicle(vehicle: Vehicle) -> VehicleResponse:
+def serialize_vehicle(vehicle: Vehicle, level: VehicleAccessLevel) -> VehicleResponse:
     response = VehicleResponse.model_validate(
         {
-            name: getattr(vehicle, name)
-            for name in VehicleResponse.model_fields
-            if name not in {"state", "photo_url"}
+            "access": level,
+            **{
+                name: getattr(vehicle, name)
+                for name in VehicleResponse.model_fields
+                if name not in {"state", "photo_url", "access"}
+            },
         }
     )
     if vehicle.photo:

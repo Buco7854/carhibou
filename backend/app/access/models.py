@@ -1,0 +1,28 @@
+from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+
+from backend.app.common.models import Base
+from backend.app.common.types import JSONType, JSONValue
+
+
+class VehicleAccessGrant(Base):
+    __tablename__ = "vehicle_access_grants"
+    __table_args__ = (
+        CheckConstraint("level IN ('view', 'operate')", name="vehicle_access_level"),
+        UniqueConstraint("vehicle_id", "user_id"),
+    )
+
+    vehicle_id: Mapped[str] = mapped_column(
+        ForeignKey("vehicles.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    level: Mapped[str] = mapped_column(String(10))
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[JSONValue] = mapped_column(JSONType)

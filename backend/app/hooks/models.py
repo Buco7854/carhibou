@@ -31,7 +31,9 @@ class Hook(TimestampMixin, Base):
     __tablename__ = "hooks"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
     vehicle_id: Mapped[str | None] = mapped_column(
         ForeignKey("vehicles.id", ondelete="CASCADE"), index=True
     )

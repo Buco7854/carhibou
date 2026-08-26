@@ -24,15 +24,13 @@ def validate_source(source: str) -> None:
         raise HookValidationError(f"line {max(1, (exc.lineno or 2) - 1)}: {exc.msg}") from exc
 
 
-def create_hook(db: Session, owner: User, data: HookWrite) -> Hook:
+def create_hook(db: Session, creator: User, data: HookWrite) -> Hook:
     validate_source(data.source)
     if data.vehicle_id:
-        vehicle = db.scalar(
-            select(Vehicle.id).where(Vehicle.id == data.vehicle_id, Vehicle.owner_id == owner.id)
-        )
+        vehicle = db.scalar(select(Vehicle.id).where(Vehicle.id == data.vehicle_id))
         if not vehicle:
-            raise HookValidationError("vehicle filter does not belong to current user")
-    hook = Hook(owner_id=owner.id, **data.model_dump())
+            raise HookValidationError("vehicle filter does not exist")
+    hook = Hook(created_by=creator.id, **data.model_dump())
     db.add(hook)
     db.flush()
     db.add(
@@ -40,20 +38,18 @@ def create_hook(db: Session, owner: User, data: HookWrite) -> Hook:
             hook_id=hook.id,
             revision=1,
             source=hook.source,
-            created_by=owner.id,
+            created_by=creator.id,
         )
     )
     return hook
 
 
-def update_hook(db: Session, hook: Hook, owner: User, data: HookWrite) -> Hook:
+def update_hook(db: Session, hook: Hook, editor: User, data: HookWrite) -> Hook:
     validate_source(data.source)
     if data.vehicle_id:
-        vehicle = db.scalar(
-            select(Vehicle.id).where(Vehicle.id == data.vehicle_id, Vehicle.owner_id == owner.id)
-        )
+        vehicle = db.scalar(select(Vehicle.id).where(Vehicle.id == data.vehicle_id))
         if not vehicle:
-            raise HookValidationError("vehicle filter does not belong to current user")
+            raise HookValidationError("vehicle filter does not exist")
     changed_source = hook.source != data.source
     for key, value in data.model_dump().items():
         setattr(hook, key, value)
@@ -64,7 +60,7 @@ def update_hook(db: Session, hook: Hook, owner: User, data: HookWrite) -> Hook:
                 hook_id=hook.id,
                 revision=hook.revision,
                 source=hook.source,
-                created_by=owner.id,
+                created_by=editor.id,
             )
         )
     return hook

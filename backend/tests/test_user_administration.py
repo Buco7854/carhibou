@@ -98,34 +98,39 @@ def test_the_last_administrator_cannot_be_removed_or_demoted(
     assert promoted.status_code == 200, promoted.text
 
 
-def test_deleting_an_account_removes_the_vehicles_it_owned(
+def test_deleting_an_account_removes_grants_and_preserves_instance_vehicles(
     registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
 ) -> None:
     client, csrf = registered
     user = _create(client, csrf).json()
-    session = TestClient(client.app)
-    session.post(
-        "/api/v1/auth/login",
-        json={"email": "driver@example.com", "password": "another-long-password"},
+    with db_factory() as db:
+        vehicle = Vehicle(name="Imported car", created_by=str(user["id"]))
+        db.add(vehicle)
+        db.commit()
+        vehicle_id = vehicle.id
+    granted = client.put(
+        f"/api/v1/vehicles/{vehicle_id}/access",
+        headers={"X-CSRF-Token": csrf},
+        json=[{"user_id": user["id"], "level": "operate"}],
     )
-    token = session.cookies.get("vehinode_csrf")
-    vehicle = session.post(
-        "/api/v1/vehicles", headers={"X-CSRF-Token": token}, json={"name": "Their car"}
-    )
-    assert vehicle.status_code == 201, vehicle.text
+    assert granted.status_code == 200, granted.text
 
     removed = client.delete(f"/api/v1/users/{user['id']}", headers={"X-CSRF-Token": csrf})
     assert removed.status_code == 204, removed.text
     assert all(row["id"] != user["id"] for row in client.get("/api/v1/users").json())
 
-    # The vehicle and the sign-in identity go with the account rather than being
-    # orphaned; the deletion confirmation in the interface says so.
+    # Vehicles belong to the instance. Removing their creator erases the audit
+    # pointer and grant, but leaves the vehicle itself available to administrators.
     with db_factory() as db:
-        assert db.scalars(select(Vehicle).where(Vehicle.owner_id == user["id"])).all() == []
+        preserved = db.get(Vehicle, vehicle_id)
+        assert preserved is not None
+        assert preserved.created_by is None
         identities = select(AuthenticationIdentity).where(
             AuthenticationIdentity.user_id == user["id"]
         )
         assert db.scalars(identities).all() == []
+    assert client.get(f"/api/v1/vehicles/{vehicle_id}").status_code == 200
+    assert client.get(f"/api/v1/vehicles/{vehicle_id}/access").json() == []
 
 
 def test_a_non_administrator_cannot_reach_the_endpoints(

@@ -3,6 +3,9 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
+from backend.app.access.constants import OPERATE, VehicleAccessLevel, level_allows
+from backend.app.access.dependencies import OperateVehicle
+from backend.app.access.services import access_level, visible_vehicle_ids
 from backend.app.auth.dependencies import CurrentDevice, CurrentUser, CurrentUserWrite, Db
 from backend.app.common.settings import get_settings
 from backend.app.common.time import as_utc, utcnow
@@ -27,19 +30,20 @@ from backend.app.devices.services import (
     rotate_credential,
     update_device,
 )
+from backend.app.users.models import User
 from backend.app.vehicles.models import Vehicle
-from backend.app.vehicles.services import owned_vehicle
 
 human_router = APIRouter(tags=["devices"])
 device_router = APIRouter(prefix="/device", tags=["device API"])
 
 
-def _owned_device(db: Db, owner_id: str, device_id: str) -> Device:
-    device = db.scalar(
-        select(Device).join(Vehicle).where(Device.id == device_id, Vehicle.owner_id == owner_id)
-    )
-    if not device:
+def _authorized_device(db: Db, user: User, device_id: str, required: VehicleAccessLevel) -> Device:
+    device = db.get(Device, device_id)
+    level = access_level(db, user, device.vehicle_id) if device else None
+    if not device or level is None:
         raise HTTPException(status_code=404, detail="device not found")
+    if not level_allows(level, required):
+        raise HTTPException(status_code=403, detail="permission denied")
     return device
 
 
@@ -49,12 +53,9 @@ def _owned_device(db: Db, owner_id: str, device_id: str) -> Device:
     status_code=status.HTTP_201_CREATED,
 )
 def new_enrollment(
-    vehicle_id: str, data: EnrollmentCreate, db: Db, auth: CurrentUserWrite
+    vehicle_id: str, data: EnrollmentCreate, db: Db, authorized: OperateVehicle
 ) -> EnrollmentCreated:
-    vehicle = owned_vehicle(db, auth.user.id, vehicle_id)
-    if not vehicle:
-        raise HTTPException(status_code=404, detail="vehicle not found")
-    raw, token = create_enrollment(db, vehicle, data)
+    raw, token = create_enrollment(db, authorized.vehicle, data)
     db.commit()
     return EnrollmentCreated(
         token=raw, expires_at=token.expires_at, install_command=install_command(raw)
@@ -82,7 +83,10 @@ def _device_response(device: Device, now: datetime | None = None) -> DeviceRespo
 
 @human_router.get("/devices", response_model=list[DeviceResponse])
 def list_devices(db: Db, auth: CurrentUser) -> list[DeviceResponse]:
-    devices = db.scalars(select(Device).join(Vehicle).where(Vehicle.owner_id == auth.user.id))
+    visible = visible_vehicle_ids(db, auth.user)
+    if not visible:
+        return []
+    devices = db.scalars(select(Device).where(Device.vehicle_id.in_(visible)))
     now = utcnow()
     return [_device_response(device, now) for device in devices]
 
@@ -91,7 +95,7 @@ def list_devices(db: Db, auth: CurrentUser) -> list[DeviceResponse]:
 def edit_device(
     device_id: str, data: DeviceSettings, db: Db, auth: CurrentUserWrite
 ) -> DeviceResponse:
-    device = _owned_device(db, auth.user.id, device_id)
+    device = _authorized_device(db, auth.user, device_id, OPERATE)
     update_device(device, data)
     db.commit()
     db.refresh(device)
@@ -107,20 +111,20 @@ def remove_device(device_id: str, db: Db, auth: CurrentUserWrite) -> None:
     nothing behind.
     """
 
-    delete_device(db, _owned_device(db, auth.user.id, device_id))
+    delete_device(db, _authorized_device(db, auth.user, device_id, OPERATE))
     db.commit()
 
 
 @human_router.post("/devices/{device_id}/revoke", status_code=status.HTTP_204_NO_CONTENT)
 def revoke_device(device_id: str, db: Db, auth: CurrentUserWrite) -> None:
-    device = _owned_device(db, auth.user.id, device_id)
+    device = _authorized_device(db, auth.user, device_id, OPERATE)
     device.revoked_at = utcnow()
     db.commit()
 
 
 @human_router.post("/devices/{device_id}/rotate", response_model=RotateCredentialResponse)
 def rotate_device(device_id: str, db: Db, auth: CurrentUserWrite) -> RotateCredentialResponse:
-    device = _owned_device(db, auth.user.id, device_id)
+    device = _authorized_device(db, auth.user, device_id, OPERATE)
     if device.revoked_at:
         raise HTTPException(status_code=409, detail="revoked device cannot rotate credentials")
     credential = rotate_credential(device)

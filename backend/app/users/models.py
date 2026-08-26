@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, String, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.common.ids import new_id
@@ -13,6 +13,9 @@ class User(TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(120))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    can_create_profiles: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
     permissions: Mapped[JSONValue] = mapped_column(JSONType, default=dict)
 
     # Both foreign keys cascade in the database. Without passive_deletes the ORM
@@ -21,4 +24,4 @@ class User(TimestampMixin, Base):
     identities = relationship(
         "AuthenticationIdentity", back_populates="user", passive_deletes="all"
     )
-    vehicles = relationship("Vehicle", back_populates="owner", passive_deletes="all")
+    vehicle_grants = relationship("VehicleAccessGrant", passive_deletes="all")

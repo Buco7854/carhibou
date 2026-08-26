@@ -90,10 +90,8 @@ def _enqueue_hooks(db: Session, samples: list[Telemetry]) -> None:
     )
     db.add(trigger)
     db.flush()
-    owner_id = db.scalar(select(Vehicle.owner_id).where(Vehicle.id == latest.vehicle_id))
     hooks = db.scalars(
         select(Hook).where(
-            Hook.owner_id == owner_id,
             Hook.enabled.is_(True),
             Hook.trigger_type == trigger.type,
             (Hook.vehicle_id.is_(None) | (Hook.vehicle_id == latest.vehicle_id)),

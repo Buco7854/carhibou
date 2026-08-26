@@ -18,7 +18,7 @@ def test_only_first_admin_can_register_then_use_session(client: TestClient) -> N
     assert registered.status_code == 201
     assert registered.json()["user"]["email"] == "test@example.com"
     assert registered.json()["user"]["permissions"] == {
-        "hooks.manage_code": True,
+        "profiles.create": False,
         "system.admin": True,
     }
     assert "vehinode_session" in client.cookies
@@ -71,7 +71,7 @@ def test_environment_bootstrap_is_idempotent_and_never_adds_future_users(
         )
         db.commit()
         assert created is not None
-        assert created.permissions == {"hooks.manage_code": True, "system.admin": True}
+        assert created.permissions == {"system.admin": True}
 
     with db_factory() as db:
         skipped = bootstrap_local_admin(

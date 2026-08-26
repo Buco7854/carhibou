@@ -90,6 +90,7 @@ class VehicleProfileResponse(BaseModel):
     name: str
     description: str
     built_in: bool
+    editable: bool
     definition: dict[str, Any]
     created_at: datetime | None = None
     updated_at: datetime | None = None
