@@ -92,3 +92,30 @@ issued directly to the agent and is never embedded in the installer URL.
 
 Next, read the [Docker Compose guide](./docker.md), configure
 [backups](../operations/backups.md), and review the [agent installation](../agent/installation.md).
+
+## Single sign-on (OpenID Connect)
+
+OIDC is enabled entirely from the environment; leaving it unset changes nothing.
+It turns on when both the issuer and client id are present:
+
+```dotenv
+VEHINODE_OIDC_ISSUER=https://sso.example.com/realms/home
+VEHINODE_OIDC_CLIENT_ID=vehinode
+VEHINODE_OIDC_CLIENT_SECRET=…            # omit for a public client; PKCE is used either way
+VEHINODE_OIDC_SCOPES="openid email profile"   # default; openid is required
+VEHINODE_OIDC_GROUP_CLAIM=groups         # default
+VEHINODE_OIDC_ADMIN_GROUP=vehinode-admins
+VEHINODE_OIDC_AUTO_PROVISION=true        # default
+VEHINODE_OIDC_DISPLAY_NAME=Keycloak      # login button label, default "SSO"
+```
+
+The redirect URI to register with the provider is
+`{VEHINODE_PUBLIC_URL}/api/v1/auth/oidc/callback`.
+
+Accounts are matched by linked identity first, then by verified email; otherwise
+one is provisioned (when auto-provisioning is on) with the default-access
+template from Administration. Members of the admin group are administrators —
+re-evaluated at every login, except that the last active administrator is never
+demoted by a group change. Sessions are the same server-side cookies password
+login uses. Public registration stays closed either way; the bootstrap
+administrator variables keep working for first start.

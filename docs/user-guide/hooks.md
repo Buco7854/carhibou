@@ -84,7 +84,7 @@ Failures and timeouts are recorded and retries are explicit, because side effect
 assumed to be repeatable. Revisions keep earlier source and can be restored as a new
 revision, leaving the audit trail intact.
 
-Secrets are shared by every hook you own, are write-only, and appear masked after saving.
+Secrets are instance-wide, shared by every hook, write-only, and appear masked after saving. Like hooks themselves, they are managed by administrators.
 
 ::: danger Privileged capability
 Anyone who can edit Python hooks has privileged code execution inside the hook worker.

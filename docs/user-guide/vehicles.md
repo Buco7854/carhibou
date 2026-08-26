@@ -2,7 +2,7 @@
 
 Vehicles belong to a user independently of the login provider. An administrator adds
 people from **Settings → People**; self-registration closes after the first account. Creation asks only for a
-name and, optionally, a telemetry profile. It does not ask the owner to classify the
+name and, optionally, a telemetry profile. Creating vehicles is an administrator action; see [Who sees what](./access.md). It does not ask anyone to classify the
 powertrain or enter specifications that are unrelated to collecting telemetry. Raw
 C-Zero fields never enter the generic table; choose a profile only when it matches the
 vehicle and capture hardware.
@@ -11,7 +11,7 @@ vehicle and capture hardware.
 
 A vehicle profile is a declarative decoding map from raw CAN frames and bytes to named
 metrics such as `battery.soc`. VehiNode ships reviewed built-in definitions and lets each
-owner create profiles on the dedicated **Telemetry profiles** page. Custom profiles remain owner-scoped and
+accounts with the profile-creation allowance create profiles on the dedicated **Telemetry profiles** page. Profiles are instance-wide and
 can be assigned directly from a vehicle card. Saving, changing or deleting a profile
 increments the assigned agent configuration; the server then sends the complete,
 validated definition to the agent as last-known-good configuration.
@@ -45,7 +45,7 @@ dimensions. Until then, VehiNode shows a plain
 missing-image icon directly in the empty photo area, without placeholder copy or a
 substitute vehicle illustration.
 
-Photos remain private to the vehicle owner. VehiNode stores the image as a file in its
+Photos are visible to everyone who can see the vehicle. VehiNode stores the image as a file in its
 media directory; PostgreSQL contains only its content type, size, fingerprint and
 storage key. Docker installations persist these files in the `vehicle-media` volume,
 which must be backed up together with PostgreSQL.

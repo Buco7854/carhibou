@@ -24,6 +24,7 @@ export default defineConfig({
       {
         text: 'Use VehiNode',
         items: [
+          { text: 'Access', link: '/user-guide/access' },
           { text: 'Vehicles', link: '/user-guide/vehicles' },
           { text: 'Agents', link: '/user-guide/devices' },
           { text: 'Dashboards', link: '/user-guide/dashboards' },

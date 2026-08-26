@@ -1,9 +1,10 @@
 # Authentication
 
-`User` owns vehicles and application resources. `AuthenticationIdentity` maps a local
-email/password identity to that user; ownership never refers to a provider. The small
-provider boundary and provider-neutral identity table leave an OIDC provider possible
-without migrating resource ownership.
+Vehicles belong to the instance; what a `User` may do with one is a per-vehicle
+grant, resolved by the access module (`backend/app/access/`) and nowhere else.
+`AuthenticationIdentity` maps a provider identity (local password, or OIDC) to the
+user; grants never refer to a provider. Dashboards remain the one personal,
+per-user resource.
 
 Local passwords use Argon2id. Login creates an opaque browser token; only its keyed hash
 is stored. Sessions expire, can be listed/revoked, and are invalidated by password
@@ -14,8 +15,10 @@ Local registration is a one-time bootstrap boundary. `POST /auth/register` succe
 only while the database contains no users and always creates the privileged initial
 administrator. The same operation can run at app startup from
 `VEHINODE_BOOTSTRAP_ADMIN_*`; it is idempotent and never adds a later user. General
-local-user registration is intentionally unsupported. A future OIDC provider should
-link identities through `AuthenticationIdentity`, not reopen the local bootstrap path.
+local-user registration is intentionally unsupported: after the bootstrap, accounts
+come from an administrator or from OIDC auto-provisioning, both of which copy the
+default-access template. OIDC links identities through `AuthenticationIdentity` and
+never reopens the local bootstrap path.
 
 Device credentials are independent hashes with an independent dependency. Passing a
 device credential to a human route—or a browser cookie to a device route—fails.
