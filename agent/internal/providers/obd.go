@@ -135,6 +135,56 @@ func (adapter *OBDAdapter) Command(command string, delay time.Duration) ([]strin
 	return lines, nil
 }
 
+// VehicleAnswered reports whether a reply came from the vehicle rather than from
+// the adapter saying that nothing did.
+//
+// An adapter with no vehicle behind it still answers, which is why a null VIN and
+// an empty fault list look the same whether the car is asleep or the reading
+// failed. "NO DATA" and a protocol search that found nothing are the adapter
+// speaking for itself.
+func VehicleAnswered(lines []string) bool {
+	for _, line := range lines {
+		upper := strings.ToUpper(strings.TrimSpace(line))
+		if upper == "" || upper == "NO DATA" || upper == "STOPPED" || upper == "ERROR" || upper == "?" {
+			continue
+		}
+		if strings.HasPrefix(upper, "SEARCHING") || strings.Contains(upper, "UNABLE TO CONNECT") {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// Voltage reads the supply at the adapter's connector.
+//
+// It comes from the adapter, not the vehicle, so it answers with the ignition off
+// and is the one measurement that distinguishes a tracker plugged into a car from
+// one plugged into nothing. Around 12.4 V is a resting battery; 13.5 V or more
+// means something is charging it.
+func (adapter *OBDAdapter) Voltage() (string, error) {
+	lines, err := adapter.Command("ATRV", 0)
+	if err != nil {
+		return "", err
+	}
+	if len(lines) == 0 {
+		return "", fmt.Errorf("adapter reported no voltage")
+	}
+	return strings.TrimSpace(lines[0]), nil
+}
+
+// Protocol describes the link the adapter has settled on with the vehicle.
+func (adapter *OBDAdapter) Protocol() (string, error) {
+	lines, err := adapter.Command("ATDP", 0)
+	if err != nil {
+		return "", err
+	}
+	if len(lines) == 0 {
+		return "", fmt.Errorf("adapter reported no protocol")
+	}
+	return strings.TrimSpace(lines[0]), nil
+}
+
 func (adapter *OBDAdapter) Identity() (map[string]string, error) {
 	identity, err := adapter.Command("ATI", 0)
 	if err != nil {

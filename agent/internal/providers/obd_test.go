@@ -75,3 +75,50 @@ func TestCommandReadsOneReplyAtATime(t *testing.T) {
 		t.Fatalf("expected the identity line alone, got %#v", lines)
 	}
 }
+
+// An adapter with no vehicle behind it still answers, so a null VIN and an empty
+// fault list mean nothing on their own. Separating the adapter's own replies from
+// the vehicle's is what makes a silent car diagnosable.
+func TestVehicleAnsweredSeparatesTheAdapterFromTheCar(t *testing.T) {
+	silent := [][]string{
+		{"NO DATA"},
+		{"SEARCHING..."},
+		{"SEARCHING...", "UNABLE TO CONNECT"},
+		{"STOPPED"},
+		{""},
+		{},
+	}
+	for _, lines := range silent {
+		if VehicleAnswered(lines) {
+			t.Fatalf("%q is the adapter speaking for itself, not the vehicle", lines)
+		}
+	}
+	answered := [][]string{
+		{"49 02 01 00 00 00 31"},
+		{"SEARCHING...", "49 02 01 00 00 00 31"},
+		{"43 01 33 00 00"},
+	}
+	for _, lines := range answered {
+		if !VehicleAnswered(lines) {
+			t.Fatalf("%q came from the vehicle", lines)
+		}
+	}
+}
+
+func TestVoltageAndProtocolComeFromTheAdapter(t *testing.T) {
+	adapter := NewOBDAdapter("scripted")
+	adapter.port = &scriptedPort{replies: map[string]string{
+		"ATRV": "ATRV\r12.4V\r\r>",
+		"ATDP": "ATDP\rISO 15765-4 (CAN 11/500)\r\r>",
+	}}
+	adapter.CommandWindow = time.Second
+
+	voltage, err := adapter.Voltage()
+	if err != nil || voltage != "12.4V" {
+		t.Fatalf("voltage=%q err=%v", voltage, err)
+	}
+	protocol, err := adapter.Protocol()
+	if err != nil || protocol != "ISO 15765-4 (CAN 11/500)" {
+		t.Fatalf("protocol=%q err=%v", protocol, err)
+	}
+}

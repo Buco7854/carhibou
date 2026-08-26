@@ -402,15 +402,42 @@ func commandOBD(locations paths, arguments []string) error {
 		return err
 	}
 	result := map[string]any{"device": *device, "adapter": identity["adapter"], "firmware": identity["firmware"]}
+	// The adapter answers whether or not a vehicle is listening, so what it says
+	// about itself is reported separately from what the vehicle said. Voltage in
+	// particular comes from the connector and works with the ignition off.
+	if voltage, err := adapter.Voltage(); err == nil {
+		result["supply_voltage"] = voltage
+	}
+	if protocol, err := adapter.Protocol(); err == nil {
+		result["protocol"] = protocol
+	}
+
+	answered := false
 	if lines, err := adapter.Command("0902", 0); err == nil {
 		result["vin"] = nullIfEmpty(providers.ParseVIN(lines))
+		if providers.VehicleAnswered(lines) {
+			answered = true
+		} else {
+			result["vehicle_reply"] = lines
+		}
 	}
+	result["dtcs"] = []string{}
 	if lines, err := adapter.Command("03", 0); err == nil {
 		result["dtcs"] = providers.ParseDTC(lines)
-	} else {
-		result["dtcs"] = []string{}
+		if providers.VehicleAnswered(lines) {
+			answered = true
+		}
 	}
+	result["vehicle_responding"] = answered
 	printJSON(result)
+	if !answered {
+		// A null VIN and an empty fault list look identical whether the vehicle is
+		// asleep or the reading failed, so the difference is stated rather than
+		// left to be inferred from two empty fields.
+		fmt.Fprintln(os.Stderr, "The adapter is working but the vehicle did not answer.")
+		fmt.Fprintln(os.Stderr, "A bus goes quiet shortly after the ignition does. Switch it on and run this again;")
+		fmt.Fprintln(os.Stderr, "'vehinode-agent monitor' then shows the frames a profile decodes.")
+	}
 	return nil
 }
 

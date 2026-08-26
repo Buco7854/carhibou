@@ -115,6 +115,23 @@ If cellular service is unavailable, do not delete `queue.sqlite3`. Restore netwo
 and let the next upload acknowledge queued UUIDs. Repeated upload is safe because both
 SQLite and PostgreSQL preserve the stable sample ID.
 
+## `obd-info` shows no vehicle data
+
+The adapter answers whether or not a vehicle is listening, so a null VIN and an
+empty fault list mean nothing by themselves. The command separates the two:
+
+- `supply_voltage` and `protocol` come from the adapter. Voltage works with the
+  ignition off and is what distinguishes a tracker plugged into a car from one
+  plugged into nothing: around 12.4 V is a resting battery, 13.5 V or more means
+  something is charging it.
+- `vehicle_responding` is whether anything came back from the car. When it is
+  false, `vehicle_reply` carries what the adapter said instead — `NO DATA`, or a
+  protocol search that found nothing.
+
+A bus goes quiet shortly after the ignition does, so `false` with a plausible
+voltage is a parked car rather than a fault. Switch the ignition on and run it
+again; `vehinode-agent monitor` then shows the frames a profile decodes.
+
 ## The vehicle reports position but no metrics
 
 Position and CAN metrics come from two different pieces of hardware, and a tracker whose

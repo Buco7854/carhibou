@@ -8,11 +8,11 @@ parser and pseudo-serial tests do not constitute hardware validation.
 | SQLite offline queue and catch-up | Complete | Passing | Pending Pi/SD endurance |
 | SIM7600 RMC/GGA/GST parsing | Complete | Passing | **Confirmed** 2026-08-26, SIM7600 on Pi Zero W: ten consecutive fixes decoded from the `if01` stream, position agreeing with the known location to metres |
 | Serial role probing (NMEA/ELM/AT) | Complete | Passing scripted-port tests | **Confirmed** 2026-08-26, Pi Zero W: six interfaces swept, OBDLink SX as `elm`, `if01` as `nmea`, `if03` as `modem`, three abandoned; roles found by answer, never by index |
-| GNSS power-on (`AT+CGPS`/`AT+CGNSPWR`) | Complete | Passing response-parsing tests | **Failing** 2026-08-26: `if03` rejected both `AT+CGPS=1` and `AT+CGNSPWR=1`, though it answers bare `AT`. Not currently exercised, because a streaming receiver is now left alone; a module that boots with GNSS off would still not be recoverable |
+| GNSS power-on (`AT+CGPS`/`AT+CGNSPWR`) | Complete | Passing response-parsing tests | Pending SIM7600G-H. The 2026-08-26 rejection was the module refusing to switch on a receiver already running, which is expected; the agent no longer asks in that case. Switching a receiver on from cold is still untested |
 | `AT+CGPSINFO` position polling | Complete | Passing decode tests | Pending SIM7600G-H |
 | SIM7600 serial reconnection | Complete | Passing | Pending SIM7600G-H |
 | OBDLink SX discovery/identity | Complete | Passing parser tests | **Confirmed** 2026-08-26: `ELM327 v1.3a`, firmware `STN1130 v4.0.1`, DTC read returned empty with the vehicle off; VIN pending an ignition-on session |
-| Standard OBD PID decoding | Complete | Passing | Pending vehicle |
+| Standard OBD PID decoding | Complete | Passing | Pending an ignition-on session; the 2026-08-26 run reached the adapter but the vehicle was asleep |
 | Hybrid/EV pack charge (PID `5B`) | Experimental | Passing decode test | Pending hybrid/EV; PID semantics unconfirmed |
 | Read-only CAN capture/replay | Complete | Passing | Pending OBDLink/vehicle |
 | C-Zero battery SOC (`0x374`) | Experimental | Passing synthetic fixture | Pending real CAN comparison |
@@ -34,10 +34,11 @@ date here. Never replace “pending” with “verified” from simulation alone
   answer. Contained rather than solved: the stored answer means a restart does not
   pay it again.
 - **2026-08-26, SIM7600G-H on Pi Zero W.** The agent reported `GNSS enable failed`
-  while ten good fixes were arriving. It was opening the control port to switch on a
-  receiver that was demonstrably already on, on the interface that answers only
-  intermittently. A GPS path that publishes sentences is now taken as proof enough
-  and the control port is left shut.
+  while ten good fixes were arriving. The module was right to refuse: the receiver
+  was already on, and an enable command answers `ERROR` in that case. The defect was
+  the agent asking at all, having failed to establish the receiver's state through an
+  interface that answers only intermittently. A GPS path publishing sentences is now
+  taken as proof enough and the control port is left shut.
 
 - **2026-08-26, SIM7600G-H on Pi Zero W.** One of the module's interfaces never
   returned from being opened, and the sweep waited on it forever, so every command
