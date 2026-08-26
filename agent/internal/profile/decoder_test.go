@@ -25,4 +25,13 @@ func TestBuiltInProfileDecode(t *testing.T) {
 	if math.Abs(values["battery.current"]+1) > .001 || math.Abs(values["battery.pack_voltage"]-330) > .001 {
 		t.Fatalf("values=%#v", values)
 	}
+	// 330 V times -1 A is -330 W, which the profile scale publishes as -0.33 kW.
+	if math.Abs(values["battery.power"]+0.33) > .001 {
+		t.Fatalf("battery.power=%v, want -0.33 kW", values["battery.power"])
+	}
+	for _, signal := range decoded {
+		if signal.Name == "battery.power" && signal.Unit != "kW" {
+			t.Fatalf("battery.power unit=%q, want kW", signal.Unit)
+		}
+	}
 }

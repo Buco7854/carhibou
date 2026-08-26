@@ -22,15 +22,19 @@ and it never invents one.
 Live state shows the latest position, canonical metrics and device health. Online state
 uses reporting freshness rather than assuming every parked vehicle reports rapidly.
 
-The vehicle catalog is arranged as a photographic garage: each fixed-ratio media area
-leads with the vehicle image, followed by live energy/speed/contact readings and direct
-history/tracker actions. It never labels a vehicle electric, combustion or hybrid.
-Instead, `battery.soc` is shown when reported, then `fuel.level` when that is reported;
-other cards likewise use metrics that actually exist. VehiNode never turns a missing
-reading into `0%`. The compact overview above it shows
-fleet totals, connected vehicles and average reported energy. Search is local and
-immediate; the All, Online and Parked filters only change the visible catalog and do
-not alter reporting configuration.
+Each card pairs the vehicle image with live readings and direct history/tracker actions.
+It never labels a vehicle electric, combustion or hybrid.
+
+A card leads with an energy level, `battery.soc` or then `fuel.level`, when one is
+reported. Neither is guaranteed: no OBD-II PID exposes traction-battery charge, and the
+standard fuel-level PID is frequently unimplemented. So when no energy level exists the
+card promotes the most conventional reading the vehicle does send, and a vehicle that has
+reported nothing says so. VehiNode never turns a missing reading into `0%`, and no surface
+offers a reading the vehicle has not reported.
+
+Charging appears once it is known, with its rate when available, and the level bar turns
+green while the pack is taking charge. Search is local and immediate; the All, Online and
+Parked filters only change the visible catalog and do not alter reporting configuration.
 
 ## Vehicle photos
 

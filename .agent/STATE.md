@@ -21,6 +21,7 @@ Updated: 2026-08-25
   palette checked against both surfaces, extensible English/French catalogs,
   browser-language detection, app-owned accessible dropdowns, modal creation flows and
   persistent Light, Dark and Auto themes work across the application.
+  Primary actions carry the accent blue rather than near-black ink, in both themes.
   Surfaces carry no decorative section kickers, self-describing subtitles, duplicated
   KPI strips or status theater; page copy states what a control does and stops.
   Login is a single centred card and its copy is operational rather than promotional.
@@ -31,6 +32,31 @@ Updated: 2026-08-25
   dashboards, history and widgets choose their presentation only from metric keys that
   are actually present; battery and fuel readings may coexist, and missing readings
   remain neutral rather than 0%.
+- A garage card follows the arrangement vehicle-status cards converge on: photo across
+  the top at a fixed ratio, then identity, then one labelled reading with its bar, then a
+  short fact line and a relative contact time, with profile assignment and actions in a
+  footer bar. A side thumbnail was tried and abandoned; that shape belongs to a list row.
+  The fixed ratio keeps a card the same height before and after a photo is added. A
+  vehicle reporting nothing lists nothing: an earlier card showed "current speed —",
+  dressing an absence up as a reading.
+- Presentation ranks metric keys by how universally they are reported: GNSS speed from
+  the tracker, then standard OBD-II Mode 01 signals, then the optional fuel-level PID,
+  then profile-only battery signals. A garage card leads with an energy level only when
+  one is reported and otherwise promotes the most conventional reading the vehicle
+  actually sends, so a standard OBD-II car no longer shows a permanently empty gauge.
+  No surface offers a reading the vehicle has not reported.
+- Charging is derived rather than assumed: an explicit `charging.active` from a profile
+  wins, otherwise it follows `battery.power`, which the application treats as positive
+  while the pack delivers energy and negative while it absorbs it. Standard OBD PID `5B`
+  is sampled as a last-resort hybrid/EV pack charge, recorded in the validation ledger as
+  unverified with unconfirmed semantics.
+- Profile computed metrics accept a `scale`, so the bundled C-Zero definition publishes
+  `battery.power` in kilowatts. Agent, simulator and SPA now agree on that unit; they
+  previously disagreed by a factor of a thousand.
+- Widgets that can answer from current state offer an off-by-default hide-when-empty
+  setting. Hidden widgets are dropped only in view mode and the canvas compacts to close
+  the gap, so the premade Overview suits an EV, a fuel vehicle and a standard OBD-II car
+  without editing. Editing always reveals every widget.
 - Dashboards render as normal live pages; one overflow menu opens edit/create actions and
   edit mode adds controls directly to the same canvas. The versioned Overview is composed
   from ordinary selector, map, media, energy, telemetry, chart and tracker widgets and is
@@ -63,9 +89,23 @@ Updated: 2026-08-25
   It implements enrollment, a compiled-in offline SQLite outbox, remote last-known-good
   configuration, SIM7600 NMEA parsing, OBDLink/OBD support, safe profiles, CAN
   capture/replay, diagnostics, installation and systemd integration.
-  Host-local hardware selection persists GPS and OBD as `auto`, `off`, or a verified
-  stable `/dev/serial/by-id` path; diagnostics expose candidates without claiming that a
-  name alone proves the protocol. Installation grants serial access and the executable
+  Host-local hardware selection persists GPS, OBD and the cellular control port as
+  `auto`, `off`, or a stable `/dev/serial/by-id` path. `auto` now probes: each candidate
+  is opened and classified by what it answers (NMEA stream, ELM identity, AT modem),
+  listening before writing so an unknown port is never sent a command. Name ranking was
+  removed because one SIM7600 publishes five identically named interfaces and the old
+  ordering chose a silent one. The agent enables GNSS over AT before reading, and falls
+  back to polling `AT+CGPSINFO` when a module exposes no separate NMEA stream.
+  `doctor --probe` reports each port's role and `monitor` prints live position and
+  metrics together. The service records its resolved roles to `detection.json`, so
+  `devices` and `doctor` report what it chose without competing for ports it already
+  holds; probing again requires stopping the service first.
+- Both position sources report how long they have been repeating a reading, published
+  as `gps_fix_age_seconds` in device health. A streamed fix ages when the receiver goes
+  quiet, and a polled one ages when the module replays its last known position with a
+  frozen clock, which SIMCom firmware does once the receiver loses the sky. A reading
+  older than the freshness window is dropped rather than recorded as the current
+  position, and that window scales with the sampling interval. Installation grants serial access and the executable
   retries and resumes interrupted downloads before checksum verification. The executable
   provides checksum-verified self-updates plus confirmation-gated complete removal of the
   service, executable, credentials and queued telemetry.
@@ -107,6 +147,10 @@ Updated: 2026-08-25
 - The history entries endpoint guards its JSON sort/filter per dialect. The SQLite path is
   covered by tests; the PostgreSQL path is compile-verified only, since no PostgreSQL server
   was available in this environment.
+- The NMEA provider drains every buffered sentence per sample and keeps the newest fix,
+  discarding one older than a freshness window. It previously consumed one line per
+  sample against a receiver emitting about ten per second, so the reported position fell
+  progressively further behind the vehicle.
 - The Go agent passes format, vet, unit tests and CGO-free cross-builds for all four
   release targets. Every packaged artifact has a matching verified SHA-256 checksum and
   the Linux AMD64 executable runs from the production image.

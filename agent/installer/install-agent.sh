@@ -120,6 +120,10 @@ if [ "$ALLOW_INSECURE_HTTP" = "true" ]; then
 fi
 /usr/local/bin/vehinode-agent "$@"
 
+# The service is running by now and holds the serial ports, so report what it
+# detected rather than probing them a second time.
+sleep 2
 /usr/local/bin/vehinode-agent doctor || true
-echo "Review hardware: sudo vehinode-agent devices"
-echo "Full removal: sudo vehinode-agent uninstall"
+echo "Detected hardware:  sudo vehinode-agent devices"
+echo "Live data:          sudo systemctl stop vehinode-agent && sudo vehinode-agent monitor"
+echo "Full removal:       sudo vehinode-agent uninstall"

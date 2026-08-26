@@ -7,7 +7,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 import VehicleMedia from '../components/VehicleMedia.vue'
-import { energySummary, metricLabel, metricNumber } from '../vehicleDisplay'
+import { chargingState, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber } from '../vehicleDisplay'
 
 type VehicleFilter = 'all' | 'online' | 'parked'
 
@@ -17,7 +17,7 @@ interface VehicleForm {
 
 const vehicles = ref<Vehicle[]>([])
 const profiles = ref<VehicleProfile[]>([])
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const showForm = ref(false)
 const deleteTarget = ref<Vehicle | null>(null)
 const deleteBusy = ref(false)
@@ -42,10 +42,46 @@ const filteredVehicles = computed(() => {
   })
 })
 
-function vehicleEnergy(vehicle: Vehicle) { return energySummary(vehicle) }
+function headline(vehicle: Vehicle) { return headlineReading(vehicle) }
+function charging(vehicle: Vehicle) { return chargingState(vehicle) }
+function headlineValue(vehicle: Vehicle): string {
+  const reading = headlineReading(vehicle)
+  if (!reading || reading.value === null) return ''
+  if (typeof reading.value === 'boolean') return t(reading.value ? 'metrics.active' : 'metrics.inactive')
+  return formatMetricNumber(reading.value, reading)
+}
+function headlineProgress(vehicle: Vehicle): number | null {
+  const reading = headlineReading(vehicle)
+  if (!reading || !isPercentage(reading)) return null
+  return Math.min(100, Math.max(0, Number(reading.value)))
+}
 function vehicleSpeed(vehicle: Vehicle): number | null { return metricNumber(vehicle, 'vehicle.speed') }
+/** Relative time reads faster than a timestamp when the only question is "recently?". */
 function lastContact(vehicle: Vehicle): string {
-  return vehicle.state ? new Date(vehicle.state.updated_at).toLocaleString() : t('common.never')
+  if (!vehicle.state) return t('common.never')
+  const elapsed = (Date.now() - new Date(vehicle.state.updated_at).getTime()) / 1000
+  const format = new Intl.RelativeTimeFormat(locale.value, { numeric: 'auto' })
+  const [amount, unit]: [number, Intl.RelativeTimeFormatUnit] =
+    elapsed < 60 ? [elapsed, 'second']
+    : elapsed < 3600 ? [elapsed / 60, 'minute']
+    : elapsed < 86_400 ? [elapsed / 3600, 'hour']
+    : [elapsed / 86_400, 'day']
+  return format.format(-Math.round(amount), unit)
+}
+
+/**
+ * The short facts worth reading at a glance, and only the ones this vehicle
+ * reports. Units carry the meaning, so the labels that made every card read like
+ * a specification table are gone.
+ */
+function vehicleFacts(vehicle: Vehicle): string[] {
+  const facts: string[] = []
+  const speed = vehicleSpeed(vehicle)
+  if (speed !== null) facts.push(`${Math.round(speed)} km/h`)
+  const state = chargingState(vehicle)
+  if (state.active) facts.push(state.power === null ? t('vehicles.charging') : `${t('vehicles.charging')} ${state.power.toFixed(1)} kW`)
+  else if (state.active === false) facts.push(t('vehicles.notCharging'))
+  return facts
 }
 
 async function load(): Promise<void> {
@@ -187,28 +223,28 @@ onMounted(load)
           </header>
 
           <section class="charge-reading">
-            <div>
-              <span>{{ metricLabel(vehicleEnergy(vehicle), t) }}</span>
-              <strong :class="{ 'is-empty': vehicleEnergy(vehicle).value === null }">{{ vehicleEnergy(vehicle).value === null ? '—' : Math.round(vehicleEnergy(vehicle).value!) }}<em v-if="vehicleEnergy(vehicle).value !== null">{{ vehicleEnergy(vehicle).unit }}</em></strong>
-            </div>
-            <i><b :style="{ width: `${vehicleEnergy(vehicle).progress}%` }" /></i>
+            <template v-if="headline(vehicle)">
+              <div class="reading-row">
+                <span>{{ metricLabel(headline(vehicle)!, t) }}</span>
+                <strong>{{ headlineValue(vehicle) }}<em v-if="headline(vehicle)!.unit">{{ headline(vehicle)!.unit }}</em></strong>
+              </div>
+              <i v-if="headlineProgress(vehicle) !== null"><b :class="{ 'is-charging':charging(vehicle).active }" :style="{ width: `${headlineProgress(vehicle)}%` }" /></i>
+            </template>
+            <p v-else class="awaiting">{{ t('vehicles.awaitingTelemetry') }}</p>
           </section>
 
-          <dl class="vehicle-meta">
-            <div><dt>{{ t('vehicles.currentSpeed') }}</dt><dd :class="{ 'is-empty': vehicleSpeed(vehicle) === null }">{{ vehicleSpeed(vehicle) === null ? '—' : `${Math.round(vehicleSpeed(vehicle)!)} km/h` }}</dd></div>
-            <div><dt>{{ t('vehicles.lastContact') }}</dt><dd>{{ lastContact(vehicle) }}</dd></div>
-            <div class="profile-row">
-              <dt>{{ t('vehicles.profile') }}</dt>
-              <dd><AppSelect class="card-profile-select" compact :model-value="vehicle.vehicle_profile" :aria-label="t('vehicles.profile')" @update:model-value="assignVehicleProfile(vehicle,$event)"><option :value="null">{{ t('vehicles.noProfile') }}</option><option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profileNames[profile.id] }}</option></AppSelect></dd>
-            </div>
-          </dl>
-
-          <footer>
-            <RouterLink class="link-button" :to="`/vehicles/${vehicle.id}/history`">{{ t('vehicles.history') }}</RouterLink>
-            <RouterLink class="link-button" to="/devices">{{ t('vehicles.tracker') }}</RouterLink>
-            <button class="link-button danger" type="button" @click="deleteTarget=vehicle">{{ t('common.delete') }}</button>
-          </footer>
+          <p class="vehicle-facts">
+            <span v-for="(fact, index) in vehicleFacts(vehicle)" :key="fact" :class="{ 'is-charging':index === 1 && charging(vehicle).active }">{{ fact }}</span>
+            <small>{{ lastContact(vehicle) }}</small>
+          </p>
         </div>
+
+        <footer>
+          <AppSelect class="card-profile-select" compact :model-value="vehicle.vehicle_profile" :aria-label="t('vehicles.profile')" @update:model-value="assignVehicleProfile(vehicle,$event)"><option :value="null">{{ t('vehicles.noProfile') }}</option><option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profileNames[profile.id] }}</option></AppSelect>
+          <RouterLink class="link-button" :to="`/vehicles/${vehicle.id}/history`">{{ t('vehicles.history') }}</RouterLink>
+          <RouterLink class="link-button" to="/devices">{{ t('vehicles.tracker') }}</RouterLink>
+          <button class="link-button danger" type="button" @click="deleteTarget=vehicle">{{ t('common.delete') }}</button>
+        </footer>
       </article>
 
       <div v-if="!filteredVehicles.length" class="empty panel">
@@ -238,38 +274,41 @@ onMounted(load)
 .roster-notice.success{color:var(--success);background:var(--success-soft)}
 .roster-notice.error{color:var(--danger);background:var(--danger-soft)}
 
-.vehicle-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(430px,1fr));gap:12px;align-items:start}
-.vehicle-card{display:grid;grid-template-columns:150px minmax(0,1fr);overflow:hidden}
-.vehicle-visual{min-width:0;overflow:hidden;background:var(--panel-2);border-right:1px solid var(--line);contain:size layout paint}
+/* Vehicle-status cards lead with the vehicle: image on top, then identity, then the
+   one reading that matters, the way Tesla's app and the Home Assistant vehicle cards
+   arrange it. A side thumbnail belongs to a list row, not a card. */
+.vehicle-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.vehicle-card{display:flex;flex-direction:column;overflow:hidden}
+
+/* A fixed ratio keeps the card the same height before and after a photo is added. */
+.vehicle-visual{aspect-ratio:16/9;min-width:0;flex:none;overflow:hidden;background:var(--panel-2);border-bottom:1px solid var(--line);contain:size layout paint}
 .vehicle-visual :deep(.vehicle-media){width:100%;height:100%;min-height:0;border:0;border-radius:0}
 .vehicle-visual :deep(.vehicle-media>img),.vehicle-visual :deep(.vehicle-photo-placeholder){width:100%;height:100%}
 
-.vehicle-card-body{min-width:0;display:flex;flex-direction:column;padding:14px 15px 10px}
+.vehicle-card-body{min-width:0;flex:1;padding:14px 16px 16px}
 .vehicle-identity{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px}
 .vehicle-identity h2{margin:0;overflow:hidden;font-size:16px;font-weight:600;letter-spacing:-.01em;text-overflow:ellipsis;white-space:nowrap}
 .vehicle-identity p{margin:2px 0 0;overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 
-.charge-reading{margin-top:14px}
-.charge-reading>div{position:relative;display:flex;align-items:baseline;justify-content:space-between;gap:10px}
-.charge-reading span{color:var(--muted);font-size:12px}
-.charge-reading strong{font-size:20px;font-weight:500;letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums}
-.charge-reading strong.is-empty{position:absolute;left:50%;color:var(--muted-2);transform:translateX(-50%)}
-.charge-reading em{margin-left:2px;color:var(--muted);font-size:12px;font-style:normal;font-weight:400}
-.charge-reading>i{height:3px;display:block;margin-top:10px;overflow:hidden;background:var(--panel-2);border-radius:2px}
+.charge-reading{min-height:40px;margin-top:16px}
+.reading-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.reading-row span{color:var(--muted);font-size:12px}
+.reading-row strong{font-size:22px;font-weight:500;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
+.reading-row em{margin-left:2px;color:var(--muted);font-size:12px;font-style:normal;font-weight:400}
+.charge-reading>i{height:4px;display:block;margin-top:8px;overflow:hidden;background:var(--panel-2);border-radius:2px}
 .charge-reading>i b{display:block;height:100%;background:var(--muted);border-radius:2px}
+.charge-reading>i b.is-charging{background:var(--success)}
+.awaiting{margin:0;color:var(--muted-2);font-size:13px}
 
-.vehicle-meta{display:grid;gap:5px;margin:14px 0 0}
-.vehicle-meta>div{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:22px}
-.vehicle-meta dt{color:var(--muted);font-size:12px}
-.vehicle-meta dd{margin:0;overflow:hidden;font-size:12px;text-align:right;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
-.profile-row dd{min-width:0}
-.vehicle-meta dd.is-empty{color:var(--muted-2)}
-.card-profile-select{max-width:190px;margin-left:auto}
-.card-profile-select :deep(.app-select-trigger){min-height:26px;padding-block:3px;background:transparent;border-color:transparent;font-size:12px;font-weight:400}
-.card-profile-select :deep(.app-select-trigger:hover){border-color:var(--line-strong)}
+.vehicle-facts{display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 8px;margin:12px 0 0;font-size:13px;font-variant-numeric:tabular-nums}
+.vehicle-facts span+span::before{content:"·";margin-right:8px;color:var(--muted-2)}
+.vehicle-facts .is-charging{color:var(--success)}
+.vehicle-facts small{flex-basis:100%;color:var(--muted);font-size:12px}
 
-.vehicle-card>.vehicle-card-body>footer{display:flex;align-items:center;gap:14px;margin-top:auto;padding-top:12px}
-.vehicle-card>.vehicle-card-body>footer .danger{margin-left:auto}
+.vehicle-card>footer{display:flex;align-items:center;gap:14px;padding:9px 16px;border-top:1px solid var(--line)}
+.card-profile-select{margin-right:auto;max-width:150px}
+.card-profile-select :deep(.app-select-trigger){min-height:26px;padding:3px 6px 3px 8px;background:transparent;border-color:transparent;color:var(--muted);font-size:12px}
+.card-profile-select :deep(.app-select-trigger:hover){color:var(--text);border-color:var(--line-strong)}
 
 .empty{grid-column:1/-1}
 
@@ -279,7 +318,7 @@ onMounted(load)
   .filter-tabs{flex:1}
   .filter-tabs button{flex:1}
   .vehicle-list{grid-template-columns:1fr}
-  .vehicle-card{grid-template-columns:104px minmax(0,1fr)}
-  .vehicle-card-body{padding:12px 12px 8px}
+  .vehicle-card>footer{gap:12px;padding:9px 13px}
+  .vehicle-card-body{padding:13px 14px 15px}
 }
 </style>

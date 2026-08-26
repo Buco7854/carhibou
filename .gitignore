@@ -9,6 +9,9 @@ __pycache__/
 .coverage
 htmlcov/
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 *.sqlite3
 node_modules/
 dist/
@@ -21,3 +24,4 @@ docs/.vitepress/cache/
 .DS_Store
 captures/
 data/
+media/

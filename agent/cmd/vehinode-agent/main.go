@@ -65,7 +65,7 @@ func execute(arguments []string) error {
 	case "status":
 		return commandStatus(locations)
 	case "doctor":
-		return commandDoctor(locations)
+		return commandDoctor(locations, len(arguments) > 0 && arguments[0] == "--probe")
 	case "logs":
 		return runAttached("journalctl", "-u", agentsystem.ServiceName, "-n", "200", "--no-pager")
 	case "config":
@@ -76,6 +76,8 @@ func execute(arguments []string) error {
 		return commandGPS(locations, arguments)
 	case "obd-info":
 		return commandOBD(locations, arguments)
+	case "monitor":
+		return commandMonitor(locations, arguments)
 	case "can-record":
 		return commandRecord(locations, arguments)
 	case "replay-can":
@@ -119,12 +121,13 @@ Commands:
   uninstall     Remove the service, credentials, configuration, and queue
   run           Run the telemetry service
   status        Show credentials and queued telemetry
-  doctor        Show local hardware and installation diagnostics
+  doctor        Show installation diagnostics; --probe identifies each serial port
   logs          Show recent service logs
   config        Print the accepted last-known-good configuration
   devices       Show device choices; use "devices set" to change them
-  gps-info      Read and print valid NMEA position fixes
+  gps-info      Enable the receiver and print position fixes
   obd-info      Read adapter identity, VIN, and diagnostic codes
+  monitor       Print live position and vehicle metrics together
   can-record    Record CAN frames to a portable JSONL capture
   replay-can    Replay a capture, optionally through a profile
   version       Print build version and target
@@ -239,19 +242,27 @@ func commandStatus(locations paths) error {
 	return nil
 }
 
-func commandDoctor(locations paths) error {
+func commandDoctor(locations paths, probe bool) error {
 	hardware, hardwareErr := (store.HardwareStore{Path: filepath.Join(locations.config, "hardware.json")}).Load()
-	gpsCandidates, obdCandidates := store.GPSCandidates(), store.OBDCandidates()
 	result := map[string]any{
 		"version": version, "target": buildTarget, "credentials": fileExists(filepath.Join(locations.config, "credentials.json")),
-		"queue_directory_writable": directoryWritable(locations.data), "gps_candidates": gpsCandidates, "obd_candidates": obdCandidates,
+		"queue_directory_writable": directoryWritable(locations.data), "serial_candidates": store.SerialCandidates(),
 	}
 	if hardwareErr != nil {
 		result["hardware_error"] = hardwareErr.Error()
 	} else {
 		result["hardware_selection"] = hardware
-		result["gps_device"] = nullIfEmpty(store.Resolve(hardware.GPS, gpsCandidates))
-		result["obd_device"] = nullIfEmpty(store.Resolve(hardware.OBD, obdCandidates))
+		if probe {
+			// Opening every port is the only way to tell identical USB names apart.
+			// The service must be stopped first, or it still holds them.
+			devices := resolveDevices(hardware)
+			result["ports"] = devices.reports
+			result["gps_device"] = nullIfEmpty(devices.gps)
+			result["obd_device"] = nullIfEmpty(devices.obd)
+			result["modem_device"] = nullIfEmpty(devices.modem)
+		} else if detection, found := (store.DetectionStore{Path: filepath.Join(locations.data, "detection.json")}).Load(); found {
+			result["detected_by_service"] = detection
+		}
 	}
 	printJSON(result)
 	if hardwareErr != nil || result["credentials"] != true || result["queue_directory_writable"] != true {
@@ -270,11 +281,12 @@ func commandDevices(locations paths, arguments []string) error {
 		flags := flag.NewFlagSet("devices set", flag.ContinueOnError)
 		gps := flags.String("gps", "", "auto, off, or /dev path")
 		obd := flags.String("obd", "", "auto, off, or /dev path")
+		modem := flags.String("modem", "", "off or /dev path of the cellular control port")
 		if err := flags.Parse(arguments[1:]); err != nil {
 			return err
 		}
-		if *gps == "" && *obd == "" {
-			return fmt.Errorf("choose --gps and/or --obd")
+		if *gps == "" && *obd == "" && *modem == "" {
+			return fmt.Errorf("choose --gps, --obd and/or --modem")
 		}
 		if *gps != "" {
 			hardware.GPS = *gps
@@ -282,11 +294,14 @@ func commandDevices(locations paths, arguments []string) error {
 		if *obd != "" {
 			hardware.OBD = *obd
 		}
+		if *modem != "" {
+			hardware.Modem = *modem
+		}
 		if err := hardware.Validate(); err != nil {
 			return err
 		}
-		for source, value := range map[string]string{"GPS": hardware.GPS, "OBD": hardware.OBD} {
-			if value != store.Auto && value != store.Off && !fileExists(value) {
+		for source, value := range map[string]string{"GPS": hardware.GPS, "OBD": hardware.OBD, "Modem": hardware.Modem} {
+			if value != "" && value != store.Auto && value != store.Off && !fileExists(value) {
 				return fmt.Errorf("%s device does not exist: %s", source, value)
 			}
 		}
@@ -300,8 +315,13 @@ func commandDevices(locations paths, arguments []string) error {
 	if len(arguments) > 0 {
 		return fmt.Errorf("unknown devices action %q", arguments[0])
 	}
-	gps, obd := store.GPSCandidates(), store.OBDCandidates()
-	printJSON(map[string]any{"selection": hardware, "resolved": map[string]any{"gps": nullIfEmpty(store.Resolve(hardware.GPS, gps)), "obd": nullIfEmpty(store.Resolve(hardware.OBD, obd))}, "candidates": map[string]any{"gps": gps, "obd": obd}})
+	// Listing alone stays cheap and does not open hardware, so it is safe while the
+	// service is running. "doctor --probe" identifies ports, once the service is stopped.
+	listing := map[string]any{"selection": hardware, "serial_candidates": store.SerialCandidates()}
+	if detection, found := (store.DetectionStore{Path: filepath.Join(locations.data, "detection.json")}).Load(); found {
+		listing["detected_by_service"] = detection
+	}
+	printJSON(listing)
 	return nil
 }
 
@@ -315,27 +335,40 @@ func commandGPS(locations paths, arguments []string) error {
 	if *seconds <= 0 {
 		return fmt.Errorf("--seconds must be greater than zero")
 	}
-	if *device == "" {
-		hardware, err := loadHardware(locations)
-		if err != nil {
-			return err
+	hardware, err := loadHardware(locations)
+	if err != nil {
+		return err
+	}
+	devices := resolveDevices(hardware)
+	if *device != "" {
+		devices = resolvedDevices{gps: *device}
+		if report := providers.ProbeDevice(*device); report.Role == providers.RoleModem {
+			devices.modem = *device
 		}
-		*device = store.Resolve(hardware.GPS, store.GPSCandidates())
 	}
-	if *device == "" {
-		return fmt.Errorf("no NMEA serial device selected")
+	if devices.gps == "" {
+		return fmt.Errorf("no GPS serial device found; run 'vehinode-agent doctor --probe'")
 	}
-	provider := providers.NewNMEAProvider(*device)
-	defer provider.Close()
+	position, closePosition, err := startPosition(devices, 1)
+	if err != nil {
+		return err
+	}
+	defer closePosition()
+	fmt.Fprintf(os.Stderr, "Reading %s for %ds\n", devices.gps, *seconds)
 	deadline := time.Now().Add(time.Duration(*seconds) * time.Second)
+	seen := false
 	for time.Now().Before(deadline) {
-		fix, err := provider.Read()
-		if err != nil {
-			continue
-		}
-		if fix != nil {
+		fix, err := position.Read()
+		if err == nil && fix != nil {
+			seen = true
 			printJSON(fix)
 		}
+		time.Sleep(time.Second)
+	}
+	if !seen {
+		// An enabled receiver with no fix is normal indoors; say so rather than
+		// leaving the operator to guess whether the port was wrong.
+		return fmt.Errorf("no fix from %s: the receiver answered but reported no position, which usually means the antenna needs a clear view of the sky", devices.gps)
 	}
 	return nil
 }
@@ -351,10 +384,10 @@ func commandOBD(locations paths, arguments []string) error {
 		if err != nil {
 			return err
 		}
-		*device = store.Resolve(hardware.OBD, store.OBDCandidates())
+		*device = resolveDevices(hardware).obd
 	}
 	if *device == "" {
-		return fmt.Errorf("no OBD serial device selected")
+		return fmt.Errorf("no OBD adapter found; run 'vehinode-agent doctor --probe'")
 	}
 	adapter := providers.NewOBDAdapter(*device)
 	if err := adapter.Connect(); err != nil {
@@ -378,6 +411,75 @@ func commandOBD(locations paths, arguments []string) error {
 	return nil
 }
 
+// commandMonitor prints what the tracker would sample, once per interval, so a
+// wiring or antenna problem is visible without waiting for a dashboard round trip.
+func commandMonitor(locations paths, arguments []string) error {
+	flags := flag.NewFlagSet("monitor", flag.ContinueOnError)
+	seconds := flags.Int("interval", 2, "seconds between reads")
+	count := flags.Int("count", 0, "number of reads, or zero to run until interrupted")
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	if *seconds <= 0 {
+		return fmt.Errorf("--interval must be greater than zero")
+	}
+	hardware, err := loadHardware(locations)
+	if err != nil {
+		return err
+	}
+	devices := resolveDevices(hardware)
+	fmt.Fprintf(os.Stderr, "GPS %s | OBD %s\n", orNone(devices.gps), orNone(devices.obd))
+	configuration, err := (store.ConfigurationStore{Path: filepath.Join(locations.config, "config.json")}).Load()
+	if err != nil {
+		return err
+	}
+	position, closePosition, err := startPosition(devices, configuration.Sampling.DefaultSeconds)
+	if err != nil {
+		return err
+	}
+	defer closePosition()
+	vehicle, err := vehicleProvider(devices.obd, configuration)
+	if err != nil {
+		return err
+	}
+	defer vehicle.Close()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	for reads := 0; *count == 0 || reads < *count; reads++ {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+		row := map[string]any{"at": time.Now().UTC().Format(time.RFC3339)}
+		fix, fixErr := position.Read()
+		switch {
+		case fixErr != nil:
+			row["gps_error"] = fixErr.Error()
+		case fix == nil:
+			row["gps"] = "no fix"
+		default:
+			row["gps"] = fix
+		}
+		metrics, metricsErr := vehicle.ReadMetrics()
+		if metricsErr != nil {
+			row["obd_error"] = metricsErr.Error()
+		} else {
+			row["metrics"] = metrics
+		}
+		printJSON(row)
+		time.Sleep(time.Duration(*seconds) * time.Second)
+	}
+	return nil
+}
+
+func orNone(value string) string {
+	if value == "" {
+		return "none"
+	}
+	return value
+}
+
 func commandRecord(locations paths, arguments []string) error {
 	flags := flag.NewFlagSet("can-record", flag.ContinueOnError)
 	device := flags.String("device", "", "serial device")
@@ -397,10 +499,10 @@ func commandRecord(locations paths, arguments []string) error {
 		if err != nil {
 			return err
 		}
-		*device = store.Resolve(hardware.OBD, store.OBDCandidates())
+		*device = resolveDevices(hardware).obd
 	}
 	if *device == "" {
-		return fmt.Errorf("no OBD serial device selected")
+		return fmt.Errorf("no OBD adapter found; run 'vehinode-agent doctor --probe'")
 	}
 	adapter := providers.NewOBDAdapter(*device)
 	if err := adapter.Connect(); err != nil {
@@ -466,6 +568,86 @@ func commandReplay(arguments []string) error {
 	return nil
 }
 
+// resolvedDevices is which serial path ended up serving which role.
+type resolvedDevices struct {
+	gps     string
+	obd     string
+	modem   string
+	reports []providers.PortReport
+}
+
+// resolveDevices decides the role of each serial path.
+//
+// An explicit selection is honoured without opening anything. Only "auto" probes,
+// because the USB product name cannot distinguish the five identical interfaces a
+// cellular module publishes, and picking the wrong one leaves the tracker silently
+// without a position.
+func resolveDevices(hardware store.Hardware) resolvedDevices {
+	result := resolvedDevices{gps: hardware.GPS, obd: hardware.OBD, modem: hardware.Modem}
+	if hardware.GPS == store.Auto || hardware.OBD == store.Auto {
+		result.reports = providers.ProbeAll(store.SerialCandidates())
+		probedGPS, probedOBD, probedModem := providers.SelectRoles(result.reports)
+		if result.modem == "" {
+			result.modem = probedModem
+		}
+		if hardware.GPS == store.Auto {
+			result.gps = probedGPS
+		}
+		if hardware.OBD == store.Auto {
+			result.obd = probedOBD
+		}
+	}
+	if result.gps == store.Off || result.gps == store.Auto {
+		result.gps = ""
+	}
+	if result.obd == store.Off || result.obd == store.Auto {
+		result.obd = ""
+	}
+	if result.modem == store.Off {
+		result.modem = ""
+	}
+	if result.gps != "" && result.modem == "" {
+		if report := providers.ProbeDevice(result.gps); report.Role == providers.RoleModem {
+			result.modem = result.gps
+		}
+	}
+	return result
+}
+
+// startPosition prepares the GPS source, switching the receiver on first.
+//
+// A module that boots with GNSS powered down publishes nothing at all, so without
+// the enable step the agent would wait forever for a fix the hardware was never
+// asked to produce. When the position source is the modem control port itself, the
+// same handle then answers position over AT.
+func startPosition(devices resolvedDevices, samplingSeconds int) (agentruntime.PositionProvider, func(), error) {
+	if devices.gps == "" {
+		return agentruntime.EmptyPosition{}, func() {}, nil
+	}
+	if devices.modem != "" {
+		modem := providers.NewModemPort(devices.modem)
+		enabled, err := modem.GNSSEnabled()
+		if err == nil && !enabled {
+			if _, enableErr := modem.EnableGNSS(); enableErr != nil {
+				fmt.Fprintln(os.Stderr, "GNSS enable failed:", enableErr)
+			}
+		}
+		if devices.modem == devices.gps {
+			return modem, modem.Close, nil
+		}
+		modem.Close()
+	}
+	provider := providers.NewNMEAProvider(devices.gps)
+	// Tolerate a couple of missed receiver updates, no more. Holding a fix for
+	// much longer than the sampling interval reports where the vehicle was, not
+	// where it is: ten stale seconds is nearly three hundred metres at motorway
+	// speed.
+	if window := time.Duration(2*samplingSeconds) * time.Second; window > provider.MaxAge {
+		provider.MaxAge = window
+	}
+	return provider, provider.Close, nil
+}
+
 func commandRun(locations paths, arguments []string) error {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	gpsOverride := flags.String("gps-device", "", "override GPS path")
@@ -490,13 +672,21 @@ func commandRun(locations paths, arguments []string) error {
 	if err != nil {
 		return err
 	}
-	gpsDevice, obdDevice := *gpsOverride, *obdOverride
-	if gpsDevice == "" {
-		gpsDevice = store.Resolve(hardware.GPS, store.GPSCandidates())
+	devices := resolveDevices(hardware)
+	detection := store.Detection{At: time.Now().UTC().Format(time.RFC3339), GPS: devices.gps, OBD: devices.obd, Modem: devices.modem}
+	if len(devices.reports) > 0 {
+		detection.Ports = devices.reports
 	}
-	if obdDevice == "" {
-		obdDevice = store.Resolve(hardware.OBD, store.OBDCandidates())
+	if err := (store.DetectionStore{Path: filepath.Join(locations.data, "detection.json")}).Save(detection); err != nil {
+		fmt.Fprintln(os.Stderr, "Could not record hardware detection:", err)
 	}
+	if *gpsOverride != "" {
+		devices.gps = *gpsOverride
+	}
+	if *obdOverride != "" {
+		devices.obd = *obdOverride
+	}
+	gpsDevice, obdDevice := devices.gps, devices.obd
 	if err := agentruntime.ValidateDistinctDevices(gpsDevice, obdDevice); err != nil {
 		return err
 	}
@@ -509,12 +699,11 @@ func commandRun(locations paths, arguments []string) error {
 		return err
 	}
 	defer queue.Close()
-	position := agentruntime.PositionProvider(agentruntime.EmptyPosition{})
-	if gpsDevice != "" {
-		provider := providers.NewNMEAProvider(gpsDevice)
-		defer provider.Close()
-		position = provider
+	position, closePosition, err := startPosition(devices, configuration.Sampling.DefaultSeconds)
+	if err != nil {
+		return err
 	}
+	defer closePosition()
 	vehicle, err := vehicleProvider(obdDevice, configuration)
 	if err != nil {
 		return err

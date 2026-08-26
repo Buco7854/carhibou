@@ -13,6 +13,16 @@ Standard sampling supports engine load, coolant and intake temperature, RPM, veh
 speed, MAF, throttle, fuel level and control-module voltage. An enabled raw-CAN vehicle
 profile selects read-only CAN monitoring instead.
 
+Mode 01 PID `5B` is also sampled and published as `battery.soc`. It is the only standard
+route to hybrid/EV pack charge, but few vehicles answer it, SAE J1979 names it "hybrid
+battery pack remaining life" rather than state of charge, and it is unverified against a
+car. Treat a vehicle profile as the accurate source when one exists. A car that does not
+support the PID returns no data and nothing is published, so sampling it costs nothing.
+
+No standard PID reports whether a vehicle is charging. VehiNode derives that from battery
+power, which it treats as positive while the pack delivers energy and negative while it
+absorbs it; a profile can report `charging.active` and `charging.power` directly instead.
+
 There is no separate CAN device selection in the current agent. Standard OBD queries and
 raw CAN monitoring both use the one OBDLink adapter saved as the `obd` device. A future
 native SocketCAN provider would expose a distinct network interface selection instead of

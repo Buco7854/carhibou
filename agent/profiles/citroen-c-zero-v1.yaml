@@ -1,7 +1,7 @@
 id: citroen-c-zero-v1
 name: Citroën C-Zero / Mitsubishi i-MiEV / Peugeot iOn
 family: imiev
-version: 1
+version: 2
 description: >-
   Community-documented CAN mappings for compatible vehicles and capture hardware.
 signals:
@@ -62,8 +62,10 @@ signals:
     references:
       - https://github.com/plaes/i-miev-obd2/blob/master/README.rst
 computed_metrics:
+  # Volts times amps gives watts; scale to the kilowatts every VehiNode surface expects.
   - name: battery.power
     operation: multiply
     inputs: [battery.pack_voltage, battery.current]
-    unit: W
+    scale: 0.001
+    unit: kW
     status: experimental

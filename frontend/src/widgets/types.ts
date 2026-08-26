@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import type { DashboardWidget } from '../api/types'
+import type { DashboardWidget, Vehicle } from '../api/types'
 
 export interface WidgetSize { w:number; h:number }
 export interface DashboardWidgetDefinition {
@@ -10,6 +10,14 @@ export interface DashboardWidgetDefinition {
   needsMetric: boolean
   needsMetrics?: boolean
   configSchema: { fields: string[] }
+  /**
+   * True when the widget has nothing to show for this vehicle.
+   *
+   * Only widgets that can answer this from current state define it; widgets that
+   * must fetch history first cannot be hidden before they load, so they do not
+   * offer the option.
+   */
+  isEmpty?: (widget: DashboardWidget, vehicle: Vehicle | null | undefined) => boolean
 }
 
 export interface WidgetProps { widget:DashboardWidget }

@@ -50,3 +50,8 @@ recognizable USB identities and otherwise presents conventional `ttyUSB`/`ttyACM
 candidates. Always prefer `/dev/serial/by-id/...` over changing `/dev/ttyUSB0` numbers.
 The low-level `run --gps-device` and `run --obd-device` options remain temporary runtime
 overrides; normal installations should persist choices through `devices set`.
+
+
+Serial roles default to `auto`, which probes each candidate port at startup and keeps the
+one that answers as expected. Set an explicit path to skip probing, including `--modem`
+when the GPS path is pinned, since the control port is what enables the GNSS receiver.

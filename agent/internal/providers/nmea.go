@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"bufio"
 	"fmt"
 	"math"
 	"strconv"
@@ -159,38 +158,120 @@ func (parser *NMEAAccumulator) Consume(sentence string) (*model.PositionFix, err
 	return fix, nil
 }
 
+// DefaultFixMaxAge stops a stale fix from being reported as current. A receiver
+// publishes position sentences about once a second, so several missed seconds
+// means the antenna lost the sky rather than that the vehicle stopped moving.
+const DefaultFixMaxAge = 10 * time.Second
+
+// maxPending bounds the reassembly buffer so a port emitting noise without any
+// newline cannot grow it without limit on a 512 MB tracker.
+const maxPending = 4096
+
 type NMEAProvider struct {
 	device string
 	port   serial.Port
-	reader *bufio.Reader
 	parser NMEAAccumulator
+	// MaxAge discards a fix the receiver stopped refreshing. Zero keeps the last
+	// fix indefinitely, which is only useful for replay and tests.
+	MaxAge  time.Duration
+	buffer  []byte
+	pending string
+	lastFix time.Time
 }
 
-func NewNMEAProvider(device string) *NMEAProvider { return &NMEAProvider{device: device} }
+func NewNMEAProvider(device string) *NMEAProvider {
+	return &NMEAProvider{device: device, MaxAge: DefaultFixMaxAge, buffer: make([]byte, 512)}
+}
 
-func (provider *NMEAProvider) Read() (*model.PositionFix, error) {
-	if provider.port == nil {
-		port, err := serial.Open(provider.device, &serial.Mode{BaudRate: 115200})
-		if err != nil {
-			return nil, err
-		}
-		if err := port.SetReadTimeout(2 * time.Second); err != nil {
-			port.Close()
-			return nil, err
-		}
-		provider.port = port
-		provider.reader = bufio.NewReader(port)
+func (provider *NMEAProvider) open() error {
+	if provider.port != nil {
+		return nil
 	}
-	line, err := provider.reader.ReadString('\n')
+	port, err := serial.Open(provider.device, &serial.Mode{BaudRate: 115200})
 	if err != nil {
+		return err
+	}
+	// A short timeout lets a drain finish as soon as the port goes quiet.
+	if err := port.SetReadTimeout(150 * time.Millisecond); err != nil {
+		port.Close()
+		return err
+	}
+	provider.port = port
+	return nil
+}
+
+// Read returns the newest fix the receiver published since the previous call.
+//
+// A receiver emits roughly ten sentences per second across several types while the
+// agent samples far less often. Consuming one line per sample would read an
+// ever-growing backlog and report a position minutes behind the vehicle, so every
+// buffered byte is consumed and only the newest fix survives.
+func (provider *NMEAProvider) Read() (*model.PositionFix, error) {
+	if err := provider.open(); err != nil {
+		return nil, err
+	}
+	if err := provider.drain(); err != nil {
 		provider.Close()
 		return nil, err
 	}
-	fix, err := provider.parser.Consume(line)
-	if err != nil {
-		return nil, err
+	return provider.Fix(), nil
+}
+
+// Fix reports the last decoded position while it is still fresh enough to describe
+// where the vehicle is now.
+func (provider *NMEAProvider) Fix() *model.PositionFix {
+	if provider.parser.LastFix == nil {
+		return nil
 	}
-	return fix, nil
+	if provider.MaxAge > 0 && !provider.lastFix.IsZero() && time.Since(provider.lastFix) > provider.MaxAge {
+		return nil
+	}
+	return provider.parser.LastFix
+}
+
+// Age reports how long ago the receiver last produced a decodable fix.
+func (provider *NMEAProvider) Age() time.Duration {
+	if provider.lastFix.IsZero() {
+		return 0
+	}
+	return time.Since(provider.lastFix)
+}
+
+func (provider *NMEAProvider) drain() error {
+	for {
+		count, err := provider.port.Read(provider.buffer)
+		if count > 0 {
+			provider.consume(string(provider.buffer[:count]))
+		}
+		if err != nil {
+			return err
+		}
+		// A zero-length read is the timeout firing, meaning the port is idle.
+		if count < len(provider.buffer) {
+			return nil
+		}
+	}
+}
+
+func (provider *NMEAProvider) consume(chunk string) {
+	provider.pending += chunk
+	for {
+		index := strings.IndexAny(provider.pending, "\r\n")
+		if index < 0 {
+			break
+		}
+		line := provider.pending[:index]
+		provider.pending = provider.pending[index+1:]
+		if line == "" {
+			continue
+		}
+		if fix, err := provider.parser.Consume(line); err == nil && fix != nil {
+			provider.lastFix = time.Now()
+		}
+	}
+	if len(provider.pending) > maxPending {
+		provider.pending = ""
+	}
 }
 
 func (provider *NMEAProvider) Close() {
@@ -198,7 +279,7 @@ func (provider *NMEAProvider) Close() {
 		provider.port.Close()
 	}
 	provider.port = nil
-	provider.reader = nil
+	provider.pending = ""
 }
 
 func validChecksum(sentence string) bool {

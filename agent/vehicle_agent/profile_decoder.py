@@ -129,7 +129,7 @@ class VehicleProfileDecoder:
                 left, right = current[inputs[0]], current[inputs[1]]
                 if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
                     continue
-                value = float(left) * float(right)
+                value = float(left) * float(right) * float(computed.get("scale", 1))
                 current[computed["name"]] = value
                 decoded.append(
                     DecodedSignal(

@@ -139,8 +139,14 @@ describe('vehicle and dashboard management', () => {
     expect(wrapper.get('.vehicle-photo-placeholder').attributes('aria-label')).toBe('No photo for Éclair')
     expect(wrapper.find('.vehicle-photo-placeholder .app-icon').exists()).toBe(true)
     expect(wrapper.find('.vehicle-color').exists()).toBe(false)
-    expect(wrapper.get('.charge-reading strong').text()).toBe('—')
-    expect(wrapper.get('.vehicle-meta dd.is-empty').text()).toBe('—')
+    // Nothing reported yet: say so rather than draw an empty percentage gauge.
+    expect(wrapper.get('.charge-reading').text()).toBe('No telemetry reported yet')
+    expect(wrapper.find('.charge-reading i').exists()).toBe(false)
+    // Nothing reported means nothing is listed: a dash beside "current speed" only
+    // dressed up the absence of data as a reading.
+    // The contact time still shows; what must not appear is a reading it never sent.
+    expect(wrapper.findAll('.vehicle-facts span')).toHaveLength(0)
+    expect(wrapper.get('.vehicle-facts').text()).not.toContain('km/h')
     const image = new File(['image-content'], 'eclair.webp', { type: 'image/webp' })
     const input = wrapper.get('input[type="file"]')
     Object.defineProperty(input.element, 'files', { configurable: true, value: [image] })
@@ -259,17 +265,20 @@ describe('vehicle and dashboard management', () => {
     const body = JSON.parse(createCall?.[1]?.body as string)
     expect(body.name).toBe('Overview')
     expect(body.is_default).toBe(true)
-    expect(body.layout.preset).toBe('overview-v3')
+    expect(body.layout.preset).toBe('overview-v4')
     expect(body.layout.widgets.map((row: {type:string}) => row.type)).toEqual([
-      'vehicle-selector', 'position-map', 'vehicle-media', 'battery-gauge',
-      'telemetry-list', 'time-series', 'device-health', 'online-status',
+      'vehicle-selector', 'position-map', 'battery-gauge', 'charging',
+      'telemetry-list', 'time-series', 'device-health', 'online-status', 'vehicle-media',
     ])
+    // Energy, charging and the photo opt out for vehicles that cannot report them.
+    const conditional = body.layout.widgets.filter((row: {settings?:{hide_when_empty?:boolean}}) => row.settings?.hide_when_empty)
+    expect(conditional.map((row: {type:string}) => row.type)).toEqual(['battery-gauge', 'charging', 'vehicle-media'])
     expect(wrapper.get('.dashboard-tabs').text()).toContain('Overview')
   })
 
   it('updates dynamic widgets from the vehicle selector and persists card deletion', async () => {
     const secondVehicle = { ...vehicle, id:'vehicle-2', name:'Nimbus', state:{...vehicle.state,metrics:{'fuel.level':25}} }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v3',widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v4',widgets:[
       {id:'selector',type:'vehicle-selector',x:0,y:0,w:12,h:1},
       {id:'fuel',type:'metric-card',metric:'fuel.level',x:0,y:1,w:3,h:2},
     ]}, created_at:'', updated_at:'' }
@@ -357,5 +366,40 @@ describe('vehicle and dashboard management', () => {
     await wrapper.get('.page-header .button').trigger('click')
     expect(wrapper.get('[role="dialog"]').attributes('aria-label')).toBe('Create profile')
     expect(wrapper.get('.profile-editor').isVisible()).toBe(true)
+  })
+
+  it('hides opted-in widgets for a vehicle that cannot report them, and keeps the rest', async () => {
+    // A standard OBD-II diesel: no traction battery, and no fuel-level PID support.
+    const diesel = { ...vehicle, id:'vehicle-2', name:'Golf', photo_url:null, state:{ ...vehicle.state, metrics:{ 'engine.rpm':1800 } } }
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v4', widgets:[
+      { id:'selector', type:'vehicle-selector', x:0, y:0, w:12, h:1 },
+      { id:'energy', type:'battery-gauge', x:0, y:1, w:4, h:2, settings:{ hide_when_empty:true } },
+      { id:'charge', type:'charging', x:4, y:1, w:4, h:2, settings:{ hide_when_empty:true } },
+      { id:'live', type:'telemetry-list', x:8, y:1, w:4, h:3 },
+    ] }, created_at:'', updated_at:'' }
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
+      if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle, diesel]))
+      return Promise.resolve(jsonResponse({}))
+    }))
+    const wrapper = mount(DashboardsView, { global:{plugins:[i18n],stubs:{Teleport:true,TimeSeriesChart:{template:'<div />'},VehicleMap:{template:'<div />'}}} })
+    await flushPromises()
+
+    // The EV reports both, so both are on the canvas.
+    expect(wrapper.find('[data-widget-type="battery-gauge"]').exists()).toBe(true)
+    expect(wrapper.find('[data-widget-type="charging"]').exists()).toBe(true)
+
+    wrapper.getComponent(AppSelect).vm.$emit('update:modelValue', diesel.id)
+    await flushPromises()
+    expect(wrapper.find('[data-widget-type="battery-gauge"]').exists()).toBe(false)
+    expect(wrapper.find('[data-widget-type="charging"]').exists()).toBe(false)
+    // A widget that did not opt in stays, because it still has something to show.
+    expect(wrapper.find('[data-widget-type="telemetry-list"]').exists()).toBe(true)
+
+    // Editing must reveal them again or they could never be removed.
+    await wrapper.get('.dashboard-menu-button').trigger('click')
+    await wrapper.findAll('[role="menuitem"]').find((button) => button.text().includes('Edit dashboard'))!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-widget-type="battery-gauge"]').exists()).toBe(true)
   })
 })

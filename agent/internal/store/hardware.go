@@ -16,6 +16,9 @@ const (
 type Hardware struct {
 	GPS string `json:"gps"`
 	OBD string `json:"obd"`
+	// Modem is the cellular control port used to switch the GNSS receiver on.
+	// Empty means "discover it", which only happens while another role is auto.
+	Modem string `json:"modem,omitempty"`
 }
 
 func DefaultHardware() Hardware { return Hardware{GPS: Auto, OBD: Auto} }
@@ -25,6 +28,9 @@ func (hardware Hardware) Validate() error {
 		if value == "" || value != Auto && value != Off && !strings.HasPrefix(value, "/dev/") {
 			return fmt.Errorf("%s selection must be auto, off, or an absolute /dev path", source)
 		}
+	}
+	if hardware.Modem != "" && hardware.Modem != Off && !strings.HasPrefix(hardware.Modem, "/dev/") {
+		return fmt.Errorf("modem selection must be off or an absolute /dev path")
 	}
 	return nil
 }
@@ -69,52 +75,29 @@ func SerialCandidates() []string {
 	return values
 }
 
-func GPSCandidates() []string {
-	all := SerialCandidates()
-	return prioritize(all,
-		func(path string) bool { return strings.Contains(strings.ToLower(path), "simtech") },
-		func(path string) bool { return path == "/dev/ttyUSB1" },
-		func(path string) bool {
-			lower := strings.ToLower(path)
-			return !strings.Contains(lower, "obdlink") && !strings.Contains(lower, "ftdi")
-		},
-	)
+// Detection is what the running service resolved at startup.
+//
+// The service holds the serial ports while it runs, so a diagnostic command cannot
+// probe them itself without stopping it first. Publishing the result lets an
+// operator see what was chosen without interrupting telemetry.
+type Detection struct {
+	At    string `json:"at"`
+	GPS   string `json:"gps,omitempty"`
+	OBD   string `json:"obd,omitempty"`
+	Modem string `json:"modem,omitempty"`
+	Ports any    `json:"ports,omitempty"`
 }
 
-func OBDCandidates() []string {
-	all := SerialCandidates()
-	return prioritize(all,
-		func(path string) bool {
-			lower := strings.ToLower(path)
-			return strings.Contains(lower, "obdlink") || strings.Contains(lower, "ftdi")
-		},
-		func(path string) bool { return !strings.Contains(strings.ToLower(path), "simtech") },
-	)
+type DetectionStore struct{ Path string }
+
+func (store DetectionStore) Load() (Detection, bool) {
+	var detection Detection
+	if err := ReadJSON(store.Path, &detection); err != nil {
+		return Detection{}, false
+	}
+	return detection, true
 }
 
-func prioritize(all []string, groups ...func(string) bool) []string {
-	used := map[string]bool{}
-	result := []string{}
-	for _, group := range groups {
-		for _, value := range all {
-			if !used[value] && group(value) {
-				used[value] = true
-				result = append(result, value)
-			}
-		}
-	}
-	return result
-}
-
-func Resolve(selection string, candidates []string) string {
-	if selection == Off {
-		return ""
-	}
-	if selection == Auto {
-		if len(candidates) == 0 {
-			return ""
-		}
-		return candidates[0]
-	}
-	return selection
+func (store DetectionStore) Save(detection Detection) error {
+	return WriteJSONAtomic(store.Path, detection, 0o644)
 }

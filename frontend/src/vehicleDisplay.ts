@@ -34,6 +34,9 @@ const metricDefinitions: Record<string, MetricDefinition> = {
   'charging.active': {
     key: 'charging.active', labelKey: 'metrics.charging', unit: '', icon: 'charging', decimals: 0, kind: 'boolean',
   },
+  'charging.power': {
+    key: 'charging.power', labelKey: 'metrics.chargingPower', unit: 'kW', icon: 'charging', decimals: 1, kind: 'number',
+  },
   'engine.rpm': {
     key: 'engine.rpm', labelKey: 'metrics.engineRpm', unit: 'rpm', icon: 'speed', decimals: 0, kind: 'number',
   },
@@ -93,13 +96,88 @@ export function energySummary(vehicle: Vehicle | null | undefined): EnergySummar
   return { ...definition, value, progress: value === null ? 0 : Math.min(100, Math.max(0, value)) }
 }
 
+/**
+ * Metric keys ordered by how universally a vehicle reports them.
+ *
+ * GNSS speed comes from the tracker itself, so it is the only reading present on
+ * every vehicle. The engine group is standard OBD-II Mode 01 (SAE J1979) and is
+ * answered by almost every car built to that standard. Fuel level is in the same
+ * standard but is frequently unimplemented. The battery group needs a vehicle
+ * profile, because no OBD-II PID exposes traction-battery state.
+ *
+ * Presentation walks this list and shows only what is actually reported, so a
+ * vehicle is never advertised as having a reading its tracker cannot produce.
+ */
+const conventionalOrder = [
+  'vehicle.speed',
+  'engine.rpm',
+  'engine.coolant_temperature',
+  'engine.load',
+  'engine.throttle',
+  'engine.intake_temperature',
+  'engine.maf',
+  'fuel.level',
+  'device.input_voltage',
+  'battery.soc',
+  'battery.pack_voltage',
+  'battery.power',
+  'charging.active',
+]
+
+function reportedReadings(vehicle: Vehicle | null | undefined, exclude: string[] = []): MetricReading[] {
+  const reported = new Set(Object.keys(vehicle?.state?.metrics ?? {}))
+  if (metricNumber(vehicle, 'vehicle.speed') !== null) reported.add('vehicle.speed')
+  const ordered = conventionalOrder.filter((key) => reported.has(key) && !exclude.includes(key))
+  const extra = [...reported].filter((key) => !conventionalOrder.includes(key) && !exclude.includes(key)).sort()
+  return [...ordered, ...extra].map((key) => metricReading(vehicle, key)).filter((row) => row.value !== null)
+}
+
 export function secondaryReadings(vehicle: Vehicle | null | undefined): MetricReading[] {
-  const candidates = ['battery.power', 'fuel.level', 'engine.rpm', 'charging.active', 'battery.pack_voltage', 'engine.coolant_temperature', 'engine.load', 'engine.throttle']
-  const primaryEnergyKey = energySummary(vehicle).key
-  const readings = candidates.filter((key) => key !== primaryEnergyKey).map((key) => metricReading(vehicle, key))
-  const available = readings.filter((row) => row.value !== null)
-  const missing = readings.filter((row) => row.value === null)
-  return [...available, ...missing].slice(0, 2)
+  return reportedReadings(vehicle, ['vehicle.speed', energySummary(vehicle).key]).slice(0, 2)
+}
+
+/**
+ * The one reading a vehicle card leads with.
+ *
+ * An energy level wins when present because a percentage bar is meaningful for it;
+ * otherwise the most conventional reading the vehicle actually reports is promoted,
+ * rather than leaving a permanently empty gauge on every car without a profile.
+ */
+export function headlineReading(vehicle: Vehicle | null | undefined): EnergySummary | MetricReading | null {
+  const energy = energySummary(vehicle)
+  if (energy.value !== null) return energy
+  return reportedReadings(vehicle, ['vehicle.speed'])[0] ?? null
+}
+
+export function isPercentage(reading: MetricReading): boolean {
+  return reading.unit === '%' && typeof reading.value === 'number'
+}
+
+export interface ChargingState {
+  /** Null when the vehicle reports nothing the state can be derived from. */
+  active: boolean | null
+  /** Charge rate in kW while charging, null when unknown. */
+  power: number | null
+}
+
+/**
+ * Whether the pack is taking charge, and how fast.
+ *
+ * No OBD-II PID reports charging directly, so an explicit `charging.active` from a
+ * vehicle profile wins when present. Otherwise it is derived from battery power under
+ * the convention this application applies everywhere: `battery.power` is positive while
+ * the pack delivers energy and negative while it absorbs it.
+ */
+export function chargingState(vehicle: Vehicle | null | undefined): ChargingState {
+  const metrics = vehicle?.state?.metrics ?? {}
+  const declared = metrics['charging.active']
+  const rate = metricNumber(vehicle, 'charging.power')
+  const power = metricNumber(vehicle, 'battery.power')
+  if (typeof declared === 'boolean') {
+    return { active: declared, power: declared ? rate ?? (power === null ? null : Math.abs(power)) : null }
+  }
+  if (power === null) return { active: null, power: rate }
+  return { active: power < 0, power: power < 0 ? rate ?? Math.abs(power) : null }
 }
 
 export function preferredHistoryMetric(vehicle: Vehicle | null | undefined, available: string[], hasSpeed: boolean): string {

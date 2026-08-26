@@ -68,12 +68,11 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await expect(page.getByRole('heading', { name: 'Éclair' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'No photo for Éclair' })).toBeVisible()
   await expect(page.locator('.vehicle-photo-placeholder .app-icon')).toBeVisible()
-  const emptyBatteryCenterOffset = await page.locator('.charge-reading').evaluate((section) => {
-    const value = section.querySelector('strong')!.getBoundingClientRect()
-    const bounds = section.getBoundingClientRect()
-    return Math.abs((value.left + value.width / 2) - (bounds.left + bounds.width / 2))
-  })
-  expect(emptyBatteryCenterOffset).toBeLessThan(1)
+  // A vehicle with no telemetry states that plainly instead of drawing an empty
+  // percentage gauge for a reading its tracker may never produce.
+  await expect(page.locator('.vehicle-card', { hasText:'Éclair' }).locator('.charge-reading'))
+    .toHaveText('No telemetry reported yet')
+  await expect(page.locator('.vehicle-card', { hasText:'Éclair' }).locator('.charge-reading i')).toHaveCount(0)
   const photoInput = page.locator('.vehicle-media input[type="file"]')
   await photoInput.focus()
   await expect(photoInput.locator('..')).toHaveCSS('outline-style', 'solid')
@@ -170,7 +169,12 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByPlaceholder('Search vehicles…').fill('Touring')
   await expect(page.getByRole('option')).toHaveCount(1)
   await page.getByRole('option', { name:'Touring', exact:true }).click()
-  await expect(page.locator('[data-widget-type="battery-gauge"] .dashboard-widget-empty')).toContainText('No data yet')
+  // Energy and charging opted into hiding, so a vehicle with no telemetry drops them
+  // instead of showing two permanently empty cards.
+  await expect(page.locator('[data-widget-type="battery-gauge"]')).toHaveCount(0)
+  await expect(page.locator('[data-widget-type="charging"]')).toHaveCount(0)
+  // A widget that did not opt in keeps its own empty state.
+  await expect(page.locator('[data-widget-type="telemetry-list"] .dashboard-widget-empty')).toContainText('No data yet')
   await expect(page.locator('[data-widget-type="position-map"] .vehicle-map')).toHaveCount(0)
   await vehicleSelector.getByRole('combobox').click()
   await page.getByPlaceholder('Search vehicles…').fill('Éclair')

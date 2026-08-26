@@ -59,6 +59,9 @@ type ComputedMetric struct {
 	Operation string   `json:"operation" yaml:"operation"`
 	Inputs    []string `json:"inputs" yaml:"inputs"`
 	Unit      string   `json:"unit,omitempty" yaml:"unit,omitempty"`
+	// Scale converts the raw product into the declared unit, so a profile can
+	// multiply volts by amps and still publish kilowatts.
+	Scale *float64 `json:"scale,omitempty" yaml:"scale,omitempty"`
 }
 
 type DecodedSignal struct {
@@ -145,6 +148,9 @@ func (engine *DecoderEngine) Decode(frame model.CANFrame, current map[string]any
 		right, rightOK := numeric(values[computed.Inputs[1]])
 		if leftOK && rightOK {
 			value := left * right
+			if computed.Scale != nil {
+				value *= *computed.Scale
+			}
 			values[computed.Name] = value
 			result = append(result, DecodedSignal{Name: computed.Name, Value: value, Unit: computed.Unit})
 		}

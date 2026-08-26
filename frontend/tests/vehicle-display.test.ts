@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Vehicle } from '../src/api/types'
-import { defaultDashboardMetrics, energySummary, preferredHistoryMetric, secondaryReadings } from '../src/vehicleDisplay'
+import { chargingState, defaultDashboardMetrics, energySummary, headlineReading, preferredHistoryMetric, secondaryReadings } from '../src/vehicleDisplay'
 import { vehicle } from './helpers'
 
 function withMetrics(metrics: Record<string, unknown>): Vehicle {
@@ -33,5 +33,43 @@ describe('telemetry-driven vehicle display', () => {
     expect(energySummary(current)).toMatchObject({ key: '', value: null, labelKey: 'metrics.energyLevel' })
     expect(preferredHistoryMetric(current, ['custom.metric'], false)).toBe('custom.metric')
     expect(defaultDashboardMetrics(current)).toEqual(['vehicle.speed'])
+  })
+
+  it('leads with an energy level only when the vehicle reports one', () => {
+    expect(headlineReading(withMetrics({ 'battery.soc': 72 }))).toMatchObject({ key: 'battery.soc', value: 72 })
+    expect(headlineReading(withMetrics({ 'fuel.level': 58 }))).toMatchObject({ key: 'fuel.level', value: 58 })
+  })
+
+  it('promotes the most conventional reading when no energy metric exists', () => {
+    // A standard OBD-II car with no profile: no traction-battery SOC, and many
+    // never implement the optional fuel-level PID.
+    const diesel = withMetrics({
+      'engine.throttle': 24, 'engine.coolant_temperature': 88, 'engine.rpm': 2100, 'engine.load': 41,
+    })
+    expect(headlineReading(diesel)).toMatchObject({ key: 'engine.rpm', value: 2100 })
+    expect(secondaryReadings(diesel).map((row) => row.key)).toEqual(['engine.rpm', 'engine.coolant_temperature'])
+  })
+
+  it('never offers a reading the vehicle has not reported', () => {
+    const sparse = withMetrics({ 'engine.rpm': 900 })
+    expect(secondaryReadings(sparse).map((row) => row.key)).toEqual(['engine.rpm'])
+    expect(headlineReading(withMetrics({}))).toBeNull()
+  })
+
+  it('derives charging from battery power when the vehicle does not report it', () => {
+    // Convention: battery power is negative while the pack absorbs energy.
+    expect(chargingState(withMetrics({ 'battery.power': -11.2 }))).toEqual({ active: true, power: 11.2 })
+    expect(chargingState(withMetrics({ 'battery.power': 8.4 }))).toEqual({ active: false, power: null })
+  })
+
+  it('prefers an explicitly reported charging flag and rate', () => {
+    expect(chargingState(withMetrics({ 'charging.active': true, 'charging.power': 6.6, 'battery.power': 2 })))
+      .toEqual({ active: true, power: 6.6 })
+    expect(chargingState(withMetrics({ 'charging.active': false, 'battery.power': -3 })))
+      .toEqual({ active: false, power: null })
+  })
+
+  it('reports unknown charging rather than guessing for a vehicle without battery data', () => {
+    expect(chargingState(withMetrics({ 'engine.rpm': 1500 }))).toEqual({ active: null, power: null })
   })
 })

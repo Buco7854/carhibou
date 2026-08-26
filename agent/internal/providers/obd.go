@@ -197,6 +197,12 @@ var StandardPIDs = map[int]PIDDefinition{
 	0x11: {"engine.throttle", "%", func(data []byte) (float64, error) { value, err := byteA(data); return value * 100 / 255, err }},
 	0x2F: {"fuel.level", "%", func(data []byte) (float64, error) { value, err := byteA(data); return value * 100 / 255, err }},
 	0x42: {"device.input_voltage", "V", func(data []byte) (float64, error) { value, err := bytesAB(data); return value / 1000, err }},
+	// Mode 01 PID 5B is the only standard route to hybrid/EV pack charge. SAE J1979 names
+	// it "hybrid battery pack remaining life" and scan tools read it as pack charge, but
+	// few vehicles answer it and the reading is unverified against a car. A vehicle
+	// profile remains the accurate source when one exists; a car that does not support
+	// the PID simply returns no data and nothing is published.
+	0x5B: {"battery.soc", "%", func(data []byte) (float64, error) { value, err := byteA(data); return value * 100 / 255, err }},
 }
 
 func ParseOBDResponse(mode, pid int, lines []string) []byte {

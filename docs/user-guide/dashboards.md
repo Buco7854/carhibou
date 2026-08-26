@@ -1,11 +1,13 @@
 # Dashboards
 
-VehiNode always provides one premade **Overview** composed from normal dashboard widgets:
-a vehicle selector, large position/route map, vehicle media, energy state, current
-telemetry, tracker health, connection status and a recent metric chart. Existing accounts
-that predate the preset receive it without losing their other dashboards. Create
-additional dashboards for another vehicle or purpose and choose which one opens by
-default.
+VehiNode always provides one premade **Overview** built from normal widgets, answering in
+reading order: where the vehicle is, how much energy is left, whether it is charging and
+how fast, what it reports right now, how it has moved, and whether the tracker is healthy.
+Energy, charging and the photo hide themselves on a vehicle that cannot report them, so
+the same preset suits an EV, a fuel vehicle and a car whose tracker only sees standard
+OBD-II. Existing accounts that predate the preset receive it without losing their other
+dashboards. Create additional dashboards for another vehicle or purpose and choose which
+one opens by default.
 
 The selected dashboard is the page itself. Tabs sit above the content and a single actions
 menu contains **Edit dashboard** and **New dashboard**. Editing enables dragging, resizing
@@ -33,11 +35,18 @@ the required metric, position, history or tracker health. Empty maps and charts 
 mounted, and telemetry lists omit unavailable readings instead of filling the card with
 dashes.
 
+Widgets that can answer from current state also offer **Hide this widget when the vehicle
+reports no data for it**, off by default. A hidden widget leaves no gap: the remaining
+widgets close up for that vehicle only, and the saved layout is untouched. Editing always
+shows every widget, including hidden ones, so they stay reachable.
+
 The registry maps widget type to component, default size and configuration fields, so
 new types remain localized. Dashboards use canonical names such as `battery.soc`, never
 CAN identifiers. Suggested metrics come directly from the selected vehicle's reported
 keys. The energy gauge shows `battery.soc` when available, otherwise `fuel.level`, without
-classifying the vehicle. An explicitly configured metric card or chart always keeps the
+classifying the vehicle. The charging widget prefers an explicit `charging.active` from a
+profile and otherwise derives the state from `battery.power`, which VehiNode treats as
+positive while the pack delivers energy and negative while it absorbs it. An explicitly configured metric card or chart always keeps the
 metric you selected.
 
 The SPA supports English and French through locale catalogs designed for more languages.

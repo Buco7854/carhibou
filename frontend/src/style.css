@@ -19,8 +19,8 @@
   --muted: #61645d;
   --muted-2: #6b6e65;
 
-  --primary: #23261f;
-  --primary-hover: #383c31;
+  --primary: #2a53b8;
+  --primary-hover: #1f4093;
   --primary-contrast: #ffffff;
 
   --accent: #2a53b8;
@@ -59,9 +59,9 @@
   --muted: #9aa096;
   --muted-2: #888f83;
 
-  --primary: #eef0ea;
-  --primary-hover: #ffffff;
-  --primary-contrast: #161814;
+  --primary: #8fb0ff;
+  --primary-hover: #adc4ff;
+  --primary-contrast: #14181f;
 
   --accent: #8fb0ff;
   --accent-hover: #adc4ff;
@@ -104,7 +104,13 @@ a { color: inherit; }
 
 /* ---------- shell ---------- */
 
-.app-shell { width: 100%; min-height: 100vh; display: grid; grid-template-columns: 212px minmax(0, 1fr); background: var(--workspace); }
+/* The rail is one viewport tall and sticky, so a taller page would expose the
+   workspace colour beneath it. Painting the column itself keeps the sidebar
+   reaching the bottom however far the content scrolls. */
+.app-shell {
+  width: 100%; min-height: 100vh; display: grid; grid-template-columns: 212px minmax(0, 1fr);
+  background: linear-gradient(to right, var(--sidebar) 0 212px, var(--workspace) 212px);
+}
 
 .sidebar {
   position: sticky; top: 0; z-index: 60; height: 100vh; min-height: 520px;
@@ -241,7 +247,10 @@ a { color: inherit; }
 /* ---------- responsive ---------- */
 
 @media (max-width: 1080px) and (min-width: 781px) {
-  .app-shell { grid-template-columns: 56px minmax(0, 1fr); }
+  .app-shell {
+    grid-template-columns: 56px minmax(0, 1fr);
+    background: linear-gradient(to right, var(--sidebar) 0 56px, var(--workspace) 56px);
+  }
   .sidebar { padding-inline: 8px; }
   .brand { justify-content: center; margin-inline: 0; }
   .sidebar .brand strong, .sidebar .nav-label, .sidebar .account-id, .sidebar .sidebar-tools .app-select { display: none; }
@@ -252,7 +261,7 @@ a { color: inherit; }
 }
 
 @media (max-width: 780px) {
-  .app-shell { display: block; padding-bottom: 60px; }
+  .app-shell { display: block; padding-bottom: 60px; background: var(--workspace); }
   .workspace { min-height: calc(100vh - 60px); }
   .sidebar {
     position: fixed; top: auto; bottom: 0; z-index: 60; width: 100%; height: 60px; min-height: 0;

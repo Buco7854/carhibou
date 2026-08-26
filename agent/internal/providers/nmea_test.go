@@ -3,7 +3,9 @@ package providers
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestNMEAPositionAndAccuracy(t *testing.T) {
@@ -40,6 +42,70 @@ func TestNMEARejectsInvalidFix(t *testing.T) {
 }
 
 func withChecksum(body string) string {
+	var checksum byte
+	for index := range len(body) {
+		checksum ^= body[index]
+	}
+	return fmt.Sprintf("$%s*%02X", body, checksum)
+}
+
+// A receiver publishes many sentences between agent samples. The provider must
+// report where the vehicle is now, not replay a backlog one line at a time.
+func TestNMEADrainKeepsNewestFixFromABurst(t *testing.T) {
+	provider := NewNMEAProvider("")
+	burst := ""
+	for _, minute := range []string{"4851.0000", "4852.0000", "4853.0000"} {
+		burst += nmeaSentence("GPRMC,120000.00,A,"+minute+",N,00220.0000,E,0.0,0.0,250826,,,A") + "\r\n"
+		burst += nmeaSentence("GPGSV,3,1,09,01,05,040,20") + "\r\n"
+	}
+	provider.consume(burst)
+
+	fix := provider.Fix()
+	if fix == nil {
+		t.Fatal("expected a fix from the burst")
+	}
+	if math.Abs(fix.Latitude-48.8833333) > .0001 {
+		t.Fatalf("latitude=%v, want the newest sentence in the burst", fix.Latitude)
+	}
+}
+
+func TestNMEAReassemblesSentencesSplitAcrossReads(t *testing.T) {
+	provider := NewNMEAProvider("")
+	sentence := nmeaSentence("GPRMC,120000.00,A,4851.0000,N,00220.0000,E,0.0,0.0,250826,,,A")
+	provider.consume(sentence[:12])
+	if provider.Fix() != nil {
+		t.Fatal("a half-received sentence must not produce a fix")
+	}
+	provider.consume(sentence[12:] + "\r\n")
+	if provider.Fix() == nil {
+		t.Fatal("expected the reassembled sentence to decode")
+	}
+}
+
+func TestNMEAStopsReportingAFixTheReceiverAbandoned(t *testing.T) {
+	provider := NewNMEAProvider("")
+	provider.consume(nmeaSentence("GPRMC,120000.00,A,4851.0000,N,00220.0000,E,0.0,0.0,250826,,,A") + "\r\n")
+	if provider.Fix() == nil {
+		t.Fatal("expected a fresh fix")
+	}
+	provider.lastFix = time.Now().Add(-2 * DefaultFixMaxAge)
+	if provider.Fix() != nil {
+		t.Fatal("a fix older than MaxAge must not be reported as the current position")
+	}
+	if provider.Age() < DefaultFixMaxAge {
+		t.Fatalf("Age()=%v, want the real elapsed time since the last fix", provider.Age())
+	}
+}
+
+func TestNMEADiscardsUnboundedNoise(t *testing.T) {
+	provider := NewNMEAProvider("")
+	provider.consume(strings.Repeat("x", maxPending+10))
+	if len(provider.pending) != 0 {
+		t.Fatalf("pending=%d bytes, want the reassembly buffer to be bounded", len(provider.pending))
+	}
+}
+
+func nmeaSentence(body string) string {
 	var checksum byte
 	for index := range len(body) {
 		checksum ^= body[index]

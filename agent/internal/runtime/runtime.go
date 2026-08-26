@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Buco7854/vehinode/agent/internal/client"
 	"github.com/Buco7854/vehinode/agent/internal/model"
@@ -15,6 +16,13 @@ import (
 
 type PositionProvider interface {
 	Read() (*model.PositionFix, error)
+}
+
+// AgedPosition is implemented by a source that can republish an unchanged fix.
+// Both supported sources can: a stream goes quiet, and a cellular module keeps
+// answering from its last known position after the receiver stops tracking.
+type AgedPosition interface {
+	Age() time.Duration
 }
 type VehicleProvider interface {
 	ReadMetrics() (map[string]any, error)
@@ -43,7 +51,14 @@ func (agent *Agent) Collect() (model.Sample, error) {
 	position, _ := agent.Position.Read()
 	metrics, _ := agent.Vehicle.ReadMetrics()
 	depth, _ := agent.Queue.Depth()
-	sample := model.NewSample(agent.Sequence+1, position, metrics, SystemHealth(depth))
+	health := SystemHealth(depth)
+	// A sample is stamped when it is taken, but a streaming receiver may have
+	// published its fix slightly earlier. Reporting that gap keeps a repeated
+	// position distinguishable from a freshly measured one.
+	if aged, ok := agent.Position.(AgedPosition); ok && position != nil {
+		health["gps_fix_age_seconds"] = float64(aged.Age()/time.Millisecond) / 1000
+	}
+	sample := model.NewSample(agent.Sequence+1, position, metrics, health)
 	agent.Sequence++
 	return sample, agent.Queue.Enqueue(sample)
 }

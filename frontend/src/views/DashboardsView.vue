@@ -28,19 +28,42 @@ const newDashboardName = ref('')
 const narrowCanvas = ref(false)
 const selectedVehicleId = ref('')
 const liveStatus = ref<LiveConnectionStatus>('connecting')
-const form = ref({ type:'metric-card', vehicle_id:'', metric:'vehicle.speed', metrics:'vehicle.speed', title:'', unit:'km/h', time_range_days:1 })
+const form = ref({ type:'metric-card', vehicle_id:'', metric:'vehicle.speed', metrics:'vehicle.speed', title:'', unit:'km/h', time_range_days:1, hide_when_empty:false })
 let grid: GridStack | undefined
 let resizeObserver: ResizeObserver | undefined
 let eventSource: EventSource | undefined
 let canvasColumns = 12
 let editSnapshot: Dashboard[] | null = null
-const OVERVIEW_PRESET = 'overview-v3'
+const OVERVIEW_PRESET = 'overview-v4'
 
 function cloneDashboards(value: Dashboard[]): Dashboard[] {
   return JSON.parse(JSON.stringify(value)) as Dashboard[]
 }
 
 const active = computed(() => dashboards.value.find((dashboard) => dashboard.id === activeId.value) ?? null)
+
+function widgetVehicle(currentWidget: DashboardWidget): Vehicle | undefined {
+  const id = currentWidget.vehicle_id || selectedVehicleId.value
+  return vehicles.value.find((row) => row.id === id)
+}
+
+/**
+ * Widgets rendered on the canvas.
+ *
+ * Editing always shows every widget, otherwise a hidden one could never be removed
+ * or reconfigured. Viewing drops the widgets that opted into hiding and have nothing
+ * to show for the selected vehicle, so an EV card does not sit empty on a petrol car.
+ */
+const visibleWidgets = computed<DashboardWidget[]>(() => {
+  const widgets = active.value?.layout.widgets ?? []
+  if (editing.value) return widgets
+  return widgets.filter((currentWidget) => {
+    if (!currentWidget.settings?.hide_when_empty) return true
+    const definition = widgetRegistry[currentWidget.type]
+    return !definition?.isEmpty?.(currentWidget, widgetVehicle(currentWidget))
+  })
+})
+const supportsHiding = computed(() => Boolean(widgetRegistry[form.value.type]?.isEmpty))
 const activeIsPremade = computed(() => active.value?.layout.preset?.startsWith('overview-') ?? false)
 const definitions = computed(() => Object.values(widgetRegistry))
 const selectedVehicle = computed(() => vehicles.value.find((row) => row.id === selectedVehicleId.value))
@@ -60,17 +83,29 @@ function widget(id: string, type: string, vehicleId: string | undefined, x: numb
   return { id, type, x, y, w, h, ...(vehicleId ? { vehicle_id: vehicleId } : {}), ...extra }
 }
 
+const hideWhenEmpty = { settings:{ hide_when_empty:true } }
+
+/**
+ * The premade Overview answers, in reading order: where is the vehicle, how much
+ * energy is left, is it charging and how fast, what is it reporting right now, how
+ * has it moved, and is the tracker healthy.
+ *
+ * Energy, charging and the photo hide themselves when a vehicle cannot report them,
+ * so the same preset suits an EV, a fuel vehicle and a car whose tracker only sees
+ * standard OBD-II.
+ */
 function premadeLayout(vehicleId?: string): Dashboard['layout'] {
   void vehicleId
   return { preset:OVERVIEW_PRESET, widgets: [
     widget(clientId('widget'), 'vehicle-selector', undefined, 0, 0, 12, 1),
     widget(clientId('widget'), 'position-map', undefined, 0, 1, 8, 7),
-    widget(clientId('widget'), 'vehicle-media', undefined, 8, 1, 4, 2),
-    widget(clientId('widget'), 'battery-gauge', undefined, 8, 3, 4, 2),
+    widget(clientId('widget'), 'battery-gauge', undefined, 8, 1, 4, 2, hideWhenEmpty),
+    widget(clientId('widget'), 'charging', undefined, 8, 3, 4, 2, hideWhenEmpty),
     widget(clientId('widget'), 'telemetry-list', undefined, 8, 5, 4, 3),
     widget(clientId('widget'), 'time-series', undefined, 0, 8, 8, 4, { time_range_days:1 }),
     widget(clientId('widget'), 'device-health', undefined, 8, 8, 4, 2),
     widget(clientId('widget'), 'online-status', undefined, 8, 10, 4, 2),
+    widget(clientId('widget'), 'vehicle-media', undefined, 0, 12, 4, 3, hideWhenEmpty),
   ] }
 }
 
@@ -113,6 +148,8 @@ function initializeGrid(): void {
   })
   resizeObserver.observe(gridElement.value)
   applyResponsiveGrid(gridElement.value.clientWidth)
+  const total = active.value?.layout.widgets.length ?? 0
+  if (!editing.value && visibleWidgets.value.length < total) grid?.compact?.()
 }
 
 function destroyGrid(): void {
@@ -226,6 +263,7 @@ async function addWidget(): Promise<void> {
     ...(definition.needsMetric ? { metric:form.value.metric, unit:form.value.unit } : {}),
     ...(definition.needsMetrics ? { metrics:[...new Set(form.value.metrics.split(',').map((value) => value.trim()).filter(Boolean))] } : {}),
     ...(['time-series', 'multi-series'].includes(definition.type) ? { time_range_days:form.value.time_range_days } : {}),
+    ...(definition.isEmpty && form.value.hide_when_empty ? { settings:{ hide_when_empty:true } } : {}),
   }
   active.value.layout.widgets.push(newWidget)
   configuring.value = false
@@ -288,6 +326,12 @@ async function deleteActive(): Promise<void> {
   await selectDashboard(next.id)
 }
 
+watch(() => visibleWidgets.value.map((row) => row.id).join(','), async (next, previous) => {
+  if (!grid || next === previous) return
+  destroyGrid()
+  await nextTick()
+  initializeGrid()
+})
 watch([() => form.value.vehicle_id, selectedVehicleId], applyVehicleDefaults)
 watch(() => form.value.metric, (metric) => { form.value.unit = metricDefinition(metric).unit })
 onMounted(async () => { await load(); connectLiveEvents() })
@@ -328,7 +372,7 @@ onBeforeUnmount(() => { destroyGrid(); eventSource?.close() })
 
     <section v-if="active && (editing || active.layout.widgets.length)" :class="['dashboard-canvas', { 'is-editing':editing }]">
       <div ref="gridElement" class="grid-stack min-h-80" :class="{ 'is-narrow':narrowCanvas }">
-        <div v-for="currentWidget in active.layout.widgets" :key="currentWidget.id" class="grid-stack-item" :data-widget-id="currentWidget.id" :data-widget-type="currentWidget.type" :gs-x="currentWidget.x" :gs-y="currentWidget.y" :gs-w="currentWidget.w" :gs-h="currentWidget.h">
+        <div v-for="currentWidget in visibleWidgets" :key="currentWidget.id" class="grid-stack-item" :data-widget-id="currentWidget.id" :data-widget-type="currentWidget.type" :gs-x="currentWidget.x" :gs-y="currentWidget.y" :gs-w="currentWidget.w" :gs-h="currentWidget.h">
           <div class="grid-stack-item-content panel">
             <button v-if="editing" class="widget-remove" :aria-label="t('common.delete')" @click="removeWidget(currentWidget.id)"><AppIcon name="close" :size="13" /></button>
             <component :is="widgetRegistry[currentWidget.type]?.component" :widget="currentWidget" />
@@ -346,6 +390,7 @@ onBeforeUnmount(() => { destroyGrid(); eventSource?.close() })
         <label v-if="widgetRegistry[form.type]?.needsMetrics" class="field"><span>{{ t('dashboards.metrics') }}</span><input v-model="form.metrics" class="input mono" :placeholder="metricSuggestion" /></label>
         <label v-if="['time-series','multi-series'].includes(form.type)" class="field"><span>{{ t('dashboards.timeRange') }}</span><AppSelect v-model="form.time_range_days"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></AppSelect></label>
         <label class="field"><span>{{ t('common.title') }}</span><input v-model="form.title" class="input" /></label>
+        <label v-if="supportsHiding" class="widget-toggle"><input v-model="form.hide_when_empty" type="checkbox" /><span>{{ t('dashboards.hideWhenEmpty') }}</span></label>
         <div class="form-actions"><button class="button">{{ t('dashboards.addWidget') }}</button><button class="button ghost" type="button" @click="configuring=false">{{ t('common.cancel') }}</button></div>
       </form>
     </AppModal>
@@ -399,6 +444,8 @@ onBeforeUnmount(() => { destroyGrid(); eventSource?.close() })
 .widget-remove:hover{color:#fff;background:var(--danger);border-color:var(--danger)}
 
 .dashboard-modal-form{display:grid;gap:15px}
+.widget-toggle{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.45;cursor:pointer}
+.widget-toggle input{width:14px;height:14px;margin-top:2px;flex:none;accent-color:var(--accent)}
 .dashboard-modal-form .form-actions{justify-content:flex-end;margin-top:2px}
 
 @media(max-width:980px){.dashboard-editor-bar{grid-template-columns:1fr}.canvas-controls{justify-content:flex-start}}

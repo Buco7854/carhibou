@@ -24,3 +24,9 @@ Editing or deleting an assigned custom profile increments each affected device's
 version. Deletion also clears the vehicle assignment. Built-in definitions are read-only,
 and another owner can neither list nor assign a custom definition. The frontend consumes
 canonical metric names after decoding; dashboards never persist raw CAN identifiers.
+
+A computed metric multiplies two decoded signals and may declare a `scale` that converts
+the product into its stated unit. The bundled C-Zero definition multiplies pack voltage by
+pack current and scales by `0.001`, so it publishes kilowatts rather than watts: every
+VehiNode surface expects `battery.power` in kW, positive while the pack delivers energy and
+negative while it absorbs it.

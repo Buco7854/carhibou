@@ -54,6 +54,8 @@ class ComputedMetric(BaseModel):
     name: str = Field(min_length=1, max_length=120, pattern=r"^[a-z][a-z0-9_.-]*$")
     operation: Literal["multiply"]
     inputs: Annotated[list[str], Field(min_length=2, max_length=2)]
+    # Converts the raw product into the declared unit, e.g. volts times amps to kilowatts.
+    scale: float = Field(default=1, gt=-1e6, lt=1e6)
     unit: str | None = Field(default=None, max_length=40)
     status: Literal["verified", "experimental", "unknown", "deprecated"] = "experimental"
 

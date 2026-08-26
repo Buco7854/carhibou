@@ -30,10 +30,13 @@
 - [x] Responsive dashboard grid with stable single-column phone layout
 - [x] Normal live dashboard pages with in-place editing and a composed premade Overview
 - [x] Shared dashboard vehicle selector with dynamic and explicitly pinned widgets
+- [x] Conditional widgets and an Overview preset that fits EV, fuel and standard OBD-II cars
 - [x] Responsive history identity, filter and summary sections with unclipped dropdowns
 - [x] Paginated raw-entry table with per-column sort, numeric filter and saved column layout
 
 ## Phase 3 — Pi agent
+
+- [x] Protocol-probed serial roles, GNSS power-on and drained NMEA reads
 
 - [x] Installer and systemd unit
 - [x] SQLite queue, retry/catch-up and HTTP batch transport
