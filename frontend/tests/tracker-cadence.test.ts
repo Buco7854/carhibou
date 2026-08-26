@@ -18,7 +18,8 @@ describe('tracker cadence', () => {
     expect(priced('live')).toBeGreaterThan(100)
     expect(priced('standard')).toBeLessThan(50)
     expect(priced('saver')).toBeLessThan(20)
-    expect(priced('minimal')).toBeLessThan(5)
+    expect(priced('frugal')).toBeLessThan(10)
+    expect(priced('minimal')).toBeLessThan(3)
     expect(CADENCE_PRESETS.map((item) => priced(item.key))).toEqual(
       [...CADENCE_PRESETS.map((item) => priced(item.key))].sort((left, right) => right - left),
     )
@@ -53,7 +54,7 @@ describe('tracker cadence', () => {
   })
 
   it('saves data by lowering resolution, which is the compromise on offer', () => {
-    for (const [faster, slower] of ['live standard', 'standard saver', 'saver minimal'].map(
+    for (const [faster, slower] of ['live standard', 'standard saver', 'saver frugal', 'frugal minimal'].map(
       (pair) => pair.split(' ').map(preset),
     )) {
       expect(slower!.sampling_seconds).toBeGreaterThan(faster!.sampling_seconds)

@@ -44,7 +44,8 @@ export const CADENCE_PRESETS: CadencePreset[] = [
   { key: 'live', sampling_seconds: 1, upload_seconds: 1, parked_sampling_seconds: 30, parked_upload_seconds: 30 },
   { key: 'standard', sampling_seconds: 5, upload_seconds: 5, parked_sampling_seconds: 300, parked_upload_seconds: 300 },
   { key: 'saver', sampling_seconds: 15, upload_seconds: 15, parked_sampling_seconds: 600, parked_upload_seconds: 600 },
-  { key: 'minimal', sampling_seconds: 120, upload_seconds: 120, parked_sampling_seconds: 1800, parked_upload_seconds: 1800 },
+  { key: 'frugal', sampling_seconds: 45, upload_seconds: 45, parked_sampling_seconds: 900, parked_upload_seconds: 900 },
+  { key: 'minimal', sampling_seconds: 180, upload_seconds: 180, parked_sampling_seconds: 3600, parked_upload_seconds: 3600 },
 ]
 
 /** Hours a day the vehicle is in use, which the estimate is weighted by. */

@@ -16,7 +16,8 @@ Presets are starting points; every field stays editable.
 | Live     | 1 s     | 30 s   | 256 MB / month              |
 | Standard | 5 s     | 5 min  | 40 MB / month               |
 | Saver    | 15 s    | 10 min | 15 MB / month               |
-| Minimal  | 2 min   | 30 min | 3 MB / month                |
+| Frugal   | 45 s    | 15 min | 7 MB / month                |
+| Minimal  | 3 min   | 1 h    | 2 MB / month                |
 
 Every preset uploads exactly as often as it samples, so one figure describes both. That
 is the only setting that adds no lag: a sample waiting in the queue is a reading nobody
