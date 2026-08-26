@@ -34,6 +34,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --prefix=/install -r requirements-backend.lock \
     && pip install --prefix=/install --no-deps /tmp/dist/*.whl
 
+# Extra Python distributions importable from hooks, as a space-separated pinned
+# list, for example: --build-arg VEHINODE_HOOK_PACKAGES="paho-mqtt==2.1.0".
+#
+# The runtime lock is applied as a constraint, so a package that would move a
+# pinned dependency fails the build instead of silently shipping a runtime the
+# application was never tested against. Pin what you add: an unpinned name makes
+# the image unreproducible and widens its supply chain.
+ARG VEHINODE_HOOK_PACKAGES=""
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if [ -n "$VEHINODE_HOOK_PACKAGES" ]; then \
+      pip install --prefix=/install --constraint requirements-backend.lock $VEHINODE_HOOK_PACKAGES; \
+    fi
+
 FROM python:3.13.15-slim-bookworm AS runtime
 ARG VEHINODE_VERSION
 LABEL org.opencontainers.image.title="VehiNode" \

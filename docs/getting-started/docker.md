@@ -96,3 +96,16 @@ Take and verify a [backup](../operations/backups.md) first.
 
 Building the image from a source checkout is a developer workflow, documented
 separately in [Development](./development.md). It is not required to operate VehiNode.
+
+## Extra packages for hooks
+
+Python hooks may import the standard library and the application's own dependencies. To
+make more available, build the image with them baked in rather than installing at
+runtime, which the read-only container prevents:
+
+```sh
+docker build --build-arg VEHINODE_HOOK_PACKAGES="paho-mqtt==2.1.0" -t my-vehinode .
+```
+
+Set `VEHINODE_IMAGE=my-vehinode` in `.env`. The runtime lock is applied as a constraint,
+so the build fails if an added package would move a pinned dependency.

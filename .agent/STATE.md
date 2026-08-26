@@ -75,6 +75,12 @@ Updated: 2026-08-25
   list and the account-wide secrets, and one detail panel carries a sticky
   enable/test/save bar above the settings, source and execution history, so nothing
   spans a width the rest of the page does not share. Hook creation uses a focused modal.
+- Hook source is unrestricted Python, so it may import the standard library and the
+  application's own runtime dependencies. Extra distributions are baked in at build time
+  through the `VEHINODE_HOOK_PACKAGES` argument, because the container runs read-only and
+  cannot install at runtime. The build applies the runtime lock as a constraint, so an
+  added package that would move a pinned dependency fails the build instead of shipping
+  an untested combination.
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,
   HTTP/geometry helpers, manual dry-run and execution history.

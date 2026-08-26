@@ -27,6 +27,32 @@ for row in ctx.telemetry_batch:
 Iterating is a choice, not a cost: a ten-row batch is still one process and one entry in
 the execution history.
 
+## What you can import
+
+Hook source is ordinary Python with no import restrictions, so the standard library is
+available in full. On top of it the runtime image carries the application's own
+dependencies, which a hook may import directly:
+
+`httpx` · `pydantic` · `sqlalchemy` · `cryptography` · `pyyaml` · `pyserial` ·
+`psycopg` · `alembic` · `argon2-cffi` · `email-validator` · `dnspython`
+
+There is no `requests`; use `httpx`, or `ctx.http`, which wraps it with a bounded timeout
+and redacts secrets from logs.
+
+Anything else has to be in the image before the worker starts. The container runs
+read-only, so a hook cannot install a package at runtime and should not try. Build an
+image with the extra distributions instead:
+
+```sh
+docker build --build-arg VEHINODE_HOOK_PACKAGES="paho-mqtt==2.1.0 influxdb-client==1.49.0" \
+  -t my-vehinode .
+```
+
+Then point `VEHINODE_IMAGE` at that tag. Pin every version you add: an unpinned name makes
+the image unreproducible and widens what you are trusting. The build applies the runtime
+lock as a constraint, so a package that would move one of the application's own pinned
+dependencies fails the build rather than quietly shipping an untested combination.
+
 ## Editing
 
 Pick a hook from the list to edit it. **Test with telemetry** replays the vehicle's most
