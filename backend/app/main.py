@@ -26,6 +26,7 @@ from backend.app.history.routes import router as history_router
 from backend.app.hooks.routes import router as hook_router
 from backend.app.secrets.routes import router as secret_router
 from backend.app.telemetry.routes import router as telemetry_router
+from backend.app.users.routes import router as user_router
 from backend.app.vehicle_profiles.routes import router as vehicle_profile_router
 from backend.app.vehicles.routes import router as vehicle_router
 
@@ -91,6 +92,7 @@ for api_router in (
     dashboard_router,
     hook_router,
     secret_router,
+    user_router,
 ):
     app.include_router(api_router, prefix="/api/v1")
 

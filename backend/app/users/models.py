@@ -15,5 +15,10 @@ class User(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     permissions: Mapped[JSONValue] = mapped_column(JSONType, default=dict)
 
-    identities = relationship("AuthenticationIdentity", back_populates="user")
-    vehicles = relationship("Vehicle", back_populates="owner")
+    # Both foreign keys cascade in the database. Without passive_deletes the ORM
+    # would first try to null them, which their NOT NULL columns reject, so an
+    # account could never actually be removed.
+    identities = relationship(
+        "AuthenticationIdentity", back_populates="user", passive_deletes="all"
+    )
+    vehicles = relationship("Vehicle", back_populates="owner", passive_deletes="all")

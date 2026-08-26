@@ -205,3 +205,12 @@ export interface BrowserSession {
   ip_address: string | null
   user_agent: string | null
 }
+
+export interface UserAccount {
+  id: string
+  email: string
+  display_name: string
+  is_active: boolean
+  is_admin: boolean
+  created_at: string
+}

@@ -7,6 +7,9 @@ dashboards and privileged Python hooks.
 
 > Your vehicle produces data. You decide what that data does.
 
+**[Documentation](https://buco7854.github.io/vehinode/)** — installation, agent setup,
+hooks and operations.
+
 ## Run with Docker
 
 ```bash
@@ -18,12 +21,12 @@ umask 077 && touch .env
 
 Provide the database password, application keys, public URL and optional one-time
 administrator credentials in `.env`, then run `docker compose up -d`. See the
-[installation guide](docs/getting-started/installation.md) for the complete file and
+[installation guide](https://buco7854.github.io/vehinode/getting-started/installation) for the complete file and
 production settings.
 
 The deployed directory contains only `compose.yml` and `.env`; source code and helper
 scripts are not runtime requirements. The full [`docker-compose.yml`](docker-compose.yml)
-is also embedded in the [Docker Compose guide](docs/getting-started/docker.md).
+is also embedded in the [Docker Compose guide](https://buco7854.github.io/vehinode/getting-started/docker).
 
 ## Develop VehiNode
 
@@ -36,7 +39,7 @@ cp .env.example .env
 ```
 
 Run `npm ci && npm run dev` from `frontend/` in another terminal. Maintainer details
-live in the [contributor guide](AGENTS.md) and [developer documentation](docs/developers/architecture.md),
+live in the [contributor guide](AGENTS.md) and [developer documentation](https://buco7854.github.io/vehinode/developers/architecture),
 separate from the operator-focused documentation navigation.
 
 ## Common checks

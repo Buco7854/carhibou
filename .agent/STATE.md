@@ -7,7 +7,10 @@ Updated: 2026-08-25
 - The modular monolith implements local session authentication, vehicle ownership,
   one-time device enrollment, separate device credentials, idempotent telemetry,
   current state, bounded history, dashboards, diagnostics and explicit migrations.
-  Local registration can create only the first administrator. That account can instead
+  Local registration can create only the first administrator; an administrator adds
+  everyone afterwards from Settings, and may suspend, promote or delete an account. The
+  last active administrator cannot be demoted, suspended or deleted, and nobody can
+  remove their own access, so an instance always keeps a way back in. That account can instead
   be bootstrapped idempotently from environment variables; later registration is always
   rejected and the identity boundary remains ready for a future OIDC provider.
 - The Tailwind Vue SPA is a sidebar-only instrument workspace: navigation, account,

@@ -1,6 +1,7 @@
 # Vehicles
 
-Vehicles belong to a user independently of the login provider. Creation asks only for a
+Vehicles belong to a user independently of the login provider. An administrator adds
+people from **Settings → People**; self-registration closes after the first account. Creation asks only for a
 name and, optionally, a telemetry profile. It does not ask the owner to classify the
 powertrain or enter specifications that are unrelated to collecting telemetry. Raw
 C-Zero fields never enter the generic table; choose a profile only when it matches the

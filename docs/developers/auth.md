@@ -19,3 +19,21 @@ link identities through `AuthenticationIdentity`, not reopen the local bootstrap
 
 Device credentials are independent hashes with an independent dependency. Passing a
 device credential to a human route—or a browser cookie to a device route—fails.
+
+## Adding people after the first account
+
+Public registration only ever creates the first administrator, so later identities come
+from the administrator endpoints under `/api/v1/users`, gated on `system.admin`. They
+create an account, suspend or restore it, grant or revoke administration, and delete it.
+
+Two rules keep an instance recoverable. The last active administrator can never be
+demoted, suspended or deleted, because nobody would be left who could restore access and
+registration will not reopen. An administrator also cannot remove their own access, which
+turns the most likely accidental lockout into a plain error.
+
+Suspending is immediate and complete: `is_active` is checked at sign-in, on every
+authenticated request and on the event stream, so an open session stops working rather
+than surviving until it expires.
+
+Deleting an account deletes what it owned. Vehicles, telemetry, trackers and hooks cascade
+in the database, and the interface says so before asking for confirmation.
