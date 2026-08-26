@@ -17,7 +17,7 @@ describe('tracker cadence', () => {
     // the expensive one visibly does not.
     expect(priced('live')).toBeGreaterThan(100)
     expect(priced('standard')).toBeLessThan(50)
-    expect(priced('saver')).toBeLessThan(10)
+    expect(priced('saver')).toBeLessThan(15)
     expect(priced('minimal')).toBeLessThan(5)
     expect(CADENCE_PRESETS.map((item) => priced(item.key))).toEqual(
       [...CADENCE_PRESETS.map((item) => priced(item.key))].sort((left, right) => right - left),
@@ -42,21 +42,30 @@ describe('tracker cadence', () => {
     expect(monthlyUploadBytes(standard, 6, -5)).toBe(monthlyUploadBytes(standard, 6, 0))
   })
 
-  it('never uploads as often as it samples, which is the expensive mistake', () => {
+  it('uploads as often as it samples, so no preset adds lag of its own', () => {
     for (const preset of CADENCE_PRESETS) {
-      expect(preset.upload_seconds).toBeGreaterThan(preset.sampling_seconds)
-      expect(preset.parked_upload_seconds).toBeGreaterThan(preset.parked_sampling_seconds)
+      expect(preset.upload_seconds).toBe(preset.sampling_seconds)
+      expect(preset.parked_upload_seconds).toBe(preset.parked_sampling_seconds)
+      // A reading cannot appear before it is taken, so this is the floor rather
+      // than a delay the preset chose to add.
+      expect(drivingDelaySeconds(preset)).toBe(preset.sampling_seconds)
     }
-    // Batching is where the saving is, and it saturates: the first step is worth
-    // far more than every later one put together.
-    const at = (upload: number) => monthlyUploadBytes(
-      { sampling_seconds: 1, upload_seconds: upload, parked_sampling_seconds: 1, parked_upload_seconds: upload }, 6,
-    )
-    expect(at(1) - at(5)).toBeGreaterThan((at(5) - at(300)) * 3)
   })
 
-  it('reports how stale a long upload interval leaves the dashboard', () => {
-    expect(drivingDelaySeconds({ sampling_seconds: 15, upload_seconds: 900, parked_sampling_seconds: 600, parked_upload_seconds: 1800 })).toBe(900)
+  it('saves data by lowering resolution, which is the compromise on offer', () => {
+    for (const [faster, slower] of ['live standard', 'standard saver', 'saver minimal'].map(
+      (pair) => pair.split(' ').map(preset),
+    )) {
+      expect(slower!.sampling_seconds).toBeGreaterThan(faster!.sampling_seconds)
+      expect(monthlyUploadBytes(slower!, 6)).toBeLessThan(monthlyUploadBytes(faster!, 6))
+    }
+  })
+
+  it('counts delaying the upload past the sample as lag, and only that', () => {
+    const matched = { sampling_seconds: 30, upload_seconds: 30, parked_sampling_seconds: 600, parked_upload_seconds: 600 }
+    expect(drivingDelaySeconds(matched)).toBe(30)
+    // Holding samples back adds their wait on top of the sampling floor.
+    expect(drivingDelaySeconds({ ...matched, upload_seconds: 900 })).toBe(900)
     expect(formatDuration(900, 'en')).toContain('15')
     expect(formatDuration(45, 'en')).toContain('45')
   })
@@ -64,8 +73,10 @@ describe('tracker cadence', () => {
   it('charges for signals and for requests', () => {
     const saver = preset('saver')
     expect(monthlyUploadBytes(saver, 20)).toBeGreaterThan(monthlyUploadBytes(saver, 0))
-    const chatty = { ...saver, upload_seconds: saver.sampling_seconds, parked_upload_seconds: saver.parked_sampling_seconds }
-    expect(monthlyUploadBytes(chatty)).toBeGreaterThan(monthlyUploadBytes(saver))
+    // Batching does save, which is what makes it a trade rather than a free
+    // choice: the interface offers it and prices the lag it costs.
+    const delayed = { ...saver, upload_seconds: 900, parked_upload_seconds: 1800 }
+    expect(monthlyUploadBytes(delayed)).toBeLessThan(monthlyUploadBytes(saver))
   })
 
   it('stops batching beyond the agent limit of 500 samples per request', () => {

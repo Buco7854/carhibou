@@ -38,13 +38,6 @@ type VehicleStatus interface {
 	Status() string
 }
 
-// VehicleLiveness is implemented by a source that can say whether the vehicle
-// answered on the read that just happened, which its metrics cannot: a provider
-// republishes its last known values after the bus goes quiet.
-type VehicleLiveness interface {
-	Live() bool
-}
-
 type EmptyPosition struct{}
 
 func (EmptyPosition) Read() (*model.PositionFix, error) { return nil, nil }
@@ -86,11 +79,7 @@ func (agent *Agent) Collect() (model.Sample, error) {
 		}
 	}
 	sample := model.NewSample(agent.Sequence+1, position, metrics, health)
-	live := false
-	if reporter, ok := agent.Vehicle.(VehicleLiveness); ok {
-		live = reporter.Live()
-	}
-	inUse, source := agent.Activity.Observe(sample, live, time.Now())
+	inUse, source := agent.Activity.Observe(sample, time.Now())
 	agent.InUse = inUse
 	// Published because a tracker that has dropped to its parked cadence is
 	// otherwise indistinguishable from one whose hardware stopped answering.

@@ -11,26 +11,31 @@ which pair is in force and reports the decision as `vehicle_in_use`, with
 
 Presets are starting points; every field stays editable.
 
-| Preset   | Driving      | Parked        | Six signals, driven 1 h/day |
-| -------- | ------------ | ------------- | --------------------------- |
-| Live     | 1 s / 5 s    | 15 s / 5 min  | 172 MB / month              |
-| Standard | 5 s / 1 min  | 1 min / 15 min | 38 MB / month              |
-| Saver    | 15 s / 15 min | 10 min / 30 min | 7 MB / month             |
-| Minimal  | 1 min / 15 min | 15 min / 1 h | 3 MB / month               |
+| Preset   | Driving | Parked | Six signals, driven 1 h/day |
+| -------- | ------- | ------ | --------------------------- |
+| Live     | 1 s     | 30 s   | 256 MB / month              |
+| Standard | 5 s     | 5 min  | 40 MB / month               |
+| Saver    | 30 s    | 10 min | 10 MB / month               |
+| Minimal  | 2 min   | 30 min | 3 MB / month                |
 
-Each pair is *sample / upload*. The figure beside them is calculated from the tracker's
-actual upload payload and the number of signals its profile decodes, weighed by how many
-hours a day you say the vehicle is driven, so a metered plan can be matched to a cadence
-before the tracker is installed rather than after the bill arrives. It assumes the
-tracker is powered all month; one that only has power while the vehicle runs uses far
-less.
+Every preset uploads exactly as often as it samples, so one figure describes both. That
+is the only setting that adds no lag: a sample waiting in the queue is a reading nobody
+can see, and the point of the data is to watch it change. **Save data by lowering the
+resolution, not by delaying it.** Fewer readings is a real compromise, but the ones that
+arrive are current.
 
-**Upload far less often than you sample.** Every request carries a fixed overhead that
-only disappears once samples are batched, so uploading as often as you sample roughly
-doubles the traffic for nothing. At one-second sampling, moving the upload from one
-second to five saves nearly half the data; past about thirty seconds there is almost
-nothing left to save. Beyond that point a longer interval costs freshness rather than
-data, which is why the interface shows how far behind the dashboard will run.
+The figure beside them is calculated from the tracker's actual upload payload and the
+number of signals its profile decodes, weighed by how many hours a day you say the
+vehicle is driven, so a metered plan can be matched to a cadence before the tracker is
+installed rather than after the bill arrives. It assumes the tracker is powered all
+month; one that only has power while the vehicle runs uses far less. Most of the total is
+the parked figure, simply because a vehicle is parked for the great majority of the month.
+
+Uploading less often than you sample is still available and does save a little more,
+because each request carries a fixed overhead that only disappears once samples are
+batched. At one-second sampling, moving the upload from one second to five saves nearly
+half the traffic; past about thirty seconds there is almost nothing left to save. What it
+costs is freshness, which is why the form shows how far behind the dashboard will run.
 
 ## How the tracker knows it is parked
 

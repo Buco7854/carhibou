@@ -20,7 +20,6 @@ type ProfileProvider struct {
 	metrics   map[string]any
 	failure   string
 	nextTry   time.Time
-	live      bool
 }
 
 func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *ProfileProvider {
@@ -34,13 +33,6 @@ func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *Pr
 // error. That made a permanently disconnected adapter invisible: the vehicle
 // published position and health forever and simply never mentioned CAN.
 func (provider *ProfileProvider) Status() string { return provider.failure }
-
-// Live reports whether a frame arrived during the last read.
-//
-// The decoded metrics cannot answer this: they are the last known values and are
-// republished unchanged after the bus goes quiet, so a parked vehicle looks from
-// the metrics alone exactly like a moving one.
-func (provider *ProfileProvider) Live() bool { return provider.live }
 
 func (provider *ProfileProvider) ReadMetrics() (map[string]any, error) {
 	if !provider.connected {
@@ -60,9 +52,7 @@ func (provider *ProfileProvider) ReadMetrics() (map[string]any, error) {
 		provider.connected = true
 		provider.failure = ""
 	}
-	provider.live = false
 	err := provider.adapter.Monitor(time.Second, func(frame model.CANFrame) {
-		provider.live = true
 		for _, decoded := range provider.decoder.Decode(frame, provider.metrics) {
 			provider.metrics[decoded.Name] = decoded.Value
 		}

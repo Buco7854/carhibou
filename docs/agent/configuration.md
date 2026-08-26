@@ -7,16 +7,18 @@ file. Invalid or older configuration cannot replace a working configuration.
 ```json
 {
   "version": 1,
-  "sampling": { "default_seconds": 5, "parked_seconds": 30 },
+  "sampling": { "default_seconds": 5, "parked_seconds": 300 },
   "upload": { "default_seconds": 5, "parked_seconds": 300 },
   "vehicle_profile": "citroen-c-zero-v1",
   "vehicle_profile_definition": null
 }
 ```
 
-Sampling and uploading are separate: at the example settings, three durable SQLite
-samples are normally sent in one request. The queue remains authoritative through
-network loss and deletes only sample IDs acknowledged by the server.
+Sampling and uploading are separate intervals but the presets match them, so a reading
+is sent as soon as it is taken. Setting a longer upload interval batches several durable
+SQLite samples into one request, which saves the per-request overhead at the cost of a
+server that runs behind. The queue remains authoritative through network loss either way
+and deletes only sample IDs acknowledged by the server.
 
 The service authenticates and checks for server configuration every five minutes.
 Same-version responses cause no file write. A syntactically invalid value, rollback, or

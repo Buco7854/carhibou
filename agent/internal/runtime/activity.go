@@ -16,7 +16,7 @@ type ActivitySource string
 
 const (
 	SourceReadiness ActivitySource = "readiness"
-	SourceBus       ActivitySource = "bus"
+	SourceEngine    ActivitySource = "engine"
 	SourceSpeed     ActivitySource = "speed"
 	SourceMovement  ActivitySource = "movement"
 	SourceIdle      ActivitySource = "idle"
@@ -43,10 +43,11 @@ const (
 
 // ActivityDetector decides whether the vehicle is in use.
 //
-// Sources are tried strongest first and each is allowed to fail: a vehicle with
-// no profile still has bus liveness, one with no adapter still has GPS speed,
-// and a receiver that reports no speed field still has displacement. Only when
-// every source is silent for the grace period does the vehicle count as parked.
+// Sources are tried strongest first and each is allowed to fail: a vehicle whose
+// profile decodes no readiness signal may still report engine speed, one with no
+// adapter at all still has GPS speed, and a receiver that reports no speed field
+// still has displacement. Only when every source is silent for the grace period
+// does the vehicle count as parked.
 type ActivityDetector struct {
 	Grace        time.Duration
 	lastEvidence time.Time
@@ -54,10 +55,18 @@ type ActivityDetector struct {
 }
 
 // Observe reports whether the vehicle is in use and what decided it.
-func (detector *ActivityDetector) Observe(sample model.Sample, live bool, now time.Time) (bool, ActivitySource) {
-	if source, found := detector.evidence(sample, live); found {
-		detector.lastEvidence = now
+func (detector *ActivityDetector) Observe(sample model.Sample, now time.Time) (bool, ActivitySource) {
+	source, found := detector.evidence(sample)
+	// The anchor is the place the vehicle was last seen. It has to be set while
+	// parked too, or a tracker that starts up beside a parked car never has one,
+	// and displacement — the only source left for a vehicle with no profile and a
+	// receiver that reports no speed — can never fire. A sample without a fix
+	// leaves the previous anchor alone rather than forgetting it.
+	if sample.Position != nil && (found || detector.anchor == nil) {
 		detector.anchor = sample.Position
+	}
+	if found {
+		detector.lastEvidence = now
 		return true, source
 	}
 	grace := detector.Grace
@@ -72,7 +81,7 @@ func (detector *ActivityDetector) Observe(sample model.Sample, live bool, now ti
 	return false, SourceIdle
 }
 
-func (detector *ActivityDetector) evidence(sample model.Sample, live bool) (ActivitySource, bool) {
+func (detector *ActivityDetector) evidence(sample model.Sample) (ActivitySource, bool) {
 	for _, name := range readinessMetrics {
 		if value, present := sample.Metrics[name]; present {
 			if truthy(value) {
@@ -84,8 +93,11 @@ func (detector *ActivityDetector) evidence(sample model.Sample, live bool) (Acti
 			return SourceIdle, false
 		}
 	}
-	if live {
-		return SourceBus, true
+	// A turning engine is running, whatever else is silent. Only a positive
+	// reading is evidence: zero covers a stop-start system at a light and every
+	// electric vehicle, neither of which is parked.
+	if rpm, ok := number(sample.Metrics["engine.rpm"]); ok && rpm > 0 {
+		return SourceEngine, true
 	}
 	if speed, ok := number(sample.Metrics["vehicle.speed"]); ok && speed >= movingKMH {
 		return SourceSpeed, true
