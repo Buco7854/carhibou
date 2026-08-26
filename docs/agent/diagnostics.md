@@ -163,3 +163,9 @@ probe /dev/serial/by-id/usb-SimTech...-if01-port0  -> nmea+modem: $GPGGA,...
 accepts `AT`, so it is used as the position source *and* as the control port that
 switches the receiver on. Which interface index does this varies by module and
 firmware, so nothing is assumed from the name — a port is only what it answers to.
+
+A line ending in `no answer within 5s; the port was left alone` means that
+interface never returned from being opened. A cellular module publishes interfaces
+that are not conversational serial devices at all — diagnostic, PPP, audio — and
+some of them block. The sweep abandons them and carries on, so one such interface
+no longer stops the agent finding the others.

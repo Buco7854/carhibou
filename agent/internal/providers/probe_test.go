@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -162,5 +163,68 @@ func TestSelectRolesUsesOnePortForBothJobs(t *testing.T) {
 	}
 	if StreamsNMEA(reports, "/dev/ttyUSB0") || StreamsNMEA(reports, "/dev/nothing") {
 		t.Fatal("only a path the sweep saw streaming may be read as a stream")
+	}
+}
+
+// A port that never answers must not stop the sweep. One interface of a cellular
+// module blocked its open on real hardware, and every command that has to find its
+// devices hung behind it, the telemetry service included.
+func TestProbeAbandonsAPortThatNeverAnswers(t *testing.T) {
+	// A path that cannot be opened stands in for one that never returns: both must
+	// produce a report rather than nothing.
+	started := time.Now()
+	report := ProbeDevice("/dev/vehinode-nonexistent-port")
+	if report.Device != "/dev/vehinode-nonexistent-port" || report.Error == "" {
+		t.Fatalf("%+v, want a report naming the failure", report)
+	}
+	if report.NMEA || report.ELM || report.Modem {
+		t.Fatalf("%+v, want no capabilities claimed", report)
+	}
+	if elapsed := time.Since(started); elapsed > probeTimeout {
+		t.Fatalf("probe took %s, beyond its %s bound", elapsed, probeTimeout)
+	}
+}
+
+// The sweep has to report every candidate, including the ones it gave up on, so
+// SelectRoles sees a complete picture and the operator sees which port is at fault.
+func TestSweepReportsEveryCandidateEvenWhenOneFails(t *testing.T) {
+	seen := []string{}
+	reports := ProbeAll(
+		[]string{"/dev/vehinode-missing-a", "/dev/vehinode-missing-b"},
+		func(report PortReport) { seen = append(seen, report.Device) },
+	)
+	if len(reports) != 2 || len(seen) != 2 {
+		t.Fatalf("reports=%d announced=%d, want both candidates covered", len(reports), len(seen))
+	}
+}
+
+// The port that wedged real hardware blocked inside open, where no timeout in the
+// serial library applies and nothing in Go can cancel the syscall.
+func TestProbeGivesUpOnAPortWhoseOpenNeverReturns(t *testing.T) {
+	blocked := make(chan struct{})
+	t.Cleanup(func() { close(blocked) })
+
+	previousOpen, previousTimeout := openPort, probeTimeout
+	openPort = func(string) (serial.Port, error) {
+		<-blocked
+		// Released only when the test ends. Failing rather than returning a nil
+		// port keeps the abandoned goroutine on the same path a real open error
+		// takes, instead of one no serial device produces.
+		return nil, errors.New("released at the end of the test")
+	}
+	probeTimeout = 80 * time.Millisecond
+	t.Cleanup(func() { openPort, probeTimeout = previousOpen, previousTimeout })
+
+	started := time.Now()
+	report := ProbeDevice("/dev/wedged")
+	if report.Error == "" {
+		t.Fatalf("%+v, want the abandonment recorded", report)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("probe waited %s on a port that never opens", elapsed)
+	}
+	// The sweep must keep going, which is the reason for abandoning it at all.
+	if reports := ProbeAll([]string{"/dev/wedged", "/dev/wedged-too"}, nil); len(reports) != 2 {
+		t.Fatalf("got %d reports, want both candidates covered", len(reports))
 	}
 }

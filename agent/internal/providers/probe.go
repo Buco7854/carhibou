@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -166,9 +167,44 @@ func firstMeaningfulLine(reply, command string) string {
 // reopens ports in quick succession, so the cost is a fraction of a second once.
 const portSettle = 200 * time.Millisecond
 
-// ProbeDevice opens one path and reports what it speaks.
+// probeTimeout bounds one port.
+//
+// Opening a serial path can block in the kernel with nothing in Go able to cancel
+// it. A cellular module publishes interfaces that are not conversational character
+// streams at all — diagnostic, PPP, audio — and one of them wedged a sweep on real
+// hardware, taking down every command that has to find its devices, the service
+// included. A port that has not answered by now is abandoned so the rest of the
+// sweep carries on without it. The goroutine left behind is stuck in a syscall and
+// cannot be reclaimed, which is why the sweep runs once rather than repeatedly.
+var probeTimeout = 5 * time.Second
+
+// openPort is a seam: a device that never returns from open cannot be created on
+// demand, and the abandonment path is the whole point of the timeout.
+var openPort = func(device string) (serial.Port, error) {
+	return serial.Open(device, &serial.Mode{BaudRate: 115200})
+}
+
+// ProbeDevice opens one path and reports what it speaks, or gives up on it.
 func ProbeDevice(device string) PortReport {
-	port, err := serial.Open(device, &serial.Mode{BaudRate: 115200})
+	// The opener is settled here rather than inside the goroutine, because that
+	// goroutine outlives this call whenever a port has to be abandoned.
+	open := openPort
+	answered := make(chan PortReport, 1)
+	go func() { answered <- probeDevice(open, device) }()
+	select {
+	case report := <-answered:
+		return report
+	case <-time.After(probeTimeout):
+		return PortReport{
+			Device: device,
+			Role:   RoleUnknown,
+			Error:  fmt.Sprintf("no answer within %s; the port was left alone", probeTimeout),
+		}
+	}
+}
+
+func probeDevice(open func(string) (serial.Port, error), device string) PortReport {
+	port, err := open(device)
 	if err != nil {
 		return PortReport{Device: device, Role: RoleUnknown, Error: err.Error()}
 	}
