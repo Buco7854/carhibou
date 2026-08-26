@@ -138,12 +138,17 @@ describe('vehicle and dashboard management', () => {
     await flushPromises()
 
     await wrapper.get('.header-actions .button').trigger('click')
-    await wrapper.findAll('.enrollment-fields input[type="number"]')[1]!.setValue('300')
+
+    // A preset sets both intervals at once, and the estimate says what the
+    // choice costs on a metered plan.
+    const saver = wrapper.findAll('.cadence-presets .preset').find((button) => button.text().includes('Saver'))!
+    await saver.trigger('click')
+    expect(wrapper.get('.cadence-estimate').text()).toContain('MB')
     await wrapper.get('.enrollment-panel').trigger('submit')
     await flushPromises()
     const enrolled = JSON.parse(fetchMock.mock.calls.find((call) => String(call[0]).includes('/enrollments'))?.[1]?.body as string)
-    expect(enrolled.sampling_seconds).toBe(5)
-    expect(enrolled.upload_seconds).toBe(300)
+    expect(enrolled.sampling_seconds).toBe(60)
+    expect(enrolled.upload_seconds).toBe(600)
 
     // The same two values are editable once the tracker exists.
     await wrapper.findAll('.device-actions .button')[0]!.trigger('click')

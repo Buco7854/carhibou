@@ -2,9 +2,25 @@
 
 Create an enrollment for the intended vehicle and tracker name, and choose how often the
 tracker reads the vehicle and how often it uploads. Both are per tracker, because
-trackers on one account are not alike: a car on a metered connection wants a slower
-upload than a daily driver. A slower upload costs nothing in data, only in latency,
-since samples are queued on the tracker until they are acknowledged.
+trackers on one account are not alike.
+
+Four presets cover the usual range, and either field can be set directly. Beside them is
+what the choice costs in mobile data over a month of continuous operation, calculated
+from the tracker's actual upload payload and the number of signals its profile decodes,
+so a metered plan can be matched to a cadence before the tracker is installed rather
+than after the bill arrives.
+
+| Preset   | Sample | Upload | Roughly, with a six-signal profile |
+| -------- | ------ | ------ | ---------------------------------- |
+| Live     | 1 s    | 10 s   | 1.6 GB / month                     |
+| Standard | 5 s    | 60 s   | 315 MB / month                     |
+| Saver    | 60 s   | 600 s  | 27 MB / month                      |
+| Minimal  | 300 s  | 3600 s | 5 MB / month                       |
+
+Sampling dominates that figure; uploading less often only saves the per-request
+overhead, and costs nothing in data, because samples are queued on the tracker until the
+server acknowledges them. A tracker that only has power while the vehicle runs uses
+proportionally less than the table shows.
 
 **Settings** on the tracker card changes both afterwards. Renaming a tracker does not
 disturb it; changing a cadence issues a new configuration version, which the tracker

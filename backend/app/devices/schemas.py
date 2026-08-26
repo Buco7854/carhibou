@@ -6,8 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field
 # still worth calling telemetry. The agent enforces the same range, so a value
 # outside it is rejected here rather than by a tracker that then keeps its old
 # configuration without saying why.
+#
+# The defaults are the interface's "Standard" preset. A minute between uploads
+# rather than thirty seconds halves the request count at no cost in data, since
+# samples are queued until they are acknowledged either way.
 SAMPLING_SECONDS = Field(default=5, ge=1, le=86400)
-UPLOAD_SECONDS = Field(default=30, ge=1, le=86400)
+UPLOAD_SECONDS = Field(default=60, ge=1, le=86400)
 
 
 class EnrollmentCreate(BaseModel):

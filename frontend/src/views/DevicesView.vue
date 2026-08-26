@@ -2,32 +2,46 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
-import type { Vehicle } from '../api/types'
+import type { Vehicle, VehicleProfile } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
+import CadenceFields from '../components/CadenceFields.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 
 interface Device { id:string; vehicle_id:string; name:string; credential_version:number; agent_version:string|null; hostname:string|null; hardware:Record<string,unknown>; sampling_seconds:number; upload_seconds:number; online:boolean; last_seen_at:string|null; last_config_sync_at:string|null; config_version:number; revoked_at:string|null; created_at:string }
-interface CadenceDraft { name:string; sampling_seconds:number; upload_seconds:number }
+
 const { t } = useI18n()
 const devices = ref<Device[]>([])
 const vehicles = ref<Vehicle[]>([])
 const enrolling = ref(false)
 const selectedVehicle = ref('')
 const trackerName = ref('Vehicle tracker')
-const samplingSeconds = ref(5)
-const uploadSeconds = ref(30)
+const enrollmentCadence = ref({ sampling_seconds:5, upload_seconds:60 })
+const profileSignals = ref<Record<string,number>>({})
 const editing = ref<Device|null>(null)
-const draft = ref<CadenceDraft>({ name:'', sampling_seconds:5, upload_seconds:30 })
+const draftName = ref('')
+const draftCadence = ref({ sampling_seconds:5, upload_seconds:60 })
 const saving = ref(false)
 const installCommand = ref('')
 const copied = ref(false)
 const rotatedCredential = ref<{id:string;credential:string}|null>(null)
 const error = ref('')
 const vehicleNames = computed(() => Object.fromEntries(vehicles.value.map((item) => [item.id, item.name])))
+// A profile's signals travel in every sample, so the data estimate is only
+// honest if it knows how many the chosen vehicle decodes.
+function signalCount(vehicleId:string):number {
+  const profile = vehicles.value.find((item) => item.id === vehicleId)?.vehicle_profile
+  return profile ? profileSignals.value[profile] ?? 0 : 0
+}
 
 async function load() {
-  try { ;[devices.value, vehicles.value] = await Promise.all([api<Device[]>('/devices'), api<Vehicle[]>('/vehicles')]); if (!selectedVehicle.value && vehicles.value[0]) selectedVehicle.value = vehicles.value[0].id }
+  try {
+    const [loadedDevices, loadedVehicles, profiles] = await Promise.all([api<Device[]>('/devices'), api<Vehicle[]>('/vehicles'), api<VehicleProfile[]>('/vehicle-profiles')])
+    devices.value = loadedDevices
+    vehicles.value = loadedVehicles
+    profileSignals.value = Object.fromEntries(profiles.map((profile) => [profile.id, profile.definition.signals.length]))
+    if (!selectedVehicle.value && vehicles.value[0]) selectedVehicle.value = vehicles.value[0].id
+  }
   catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
 }
 function openEnrollment() {
@@ -40,20 +54,21 @@ function openEnrollment() {
 }
 async function createEnrollment() {
   if (!selectedVehicle.value) return
-  const response = await api<{ install_command:string }>(`/vehicles/${selectedVehicle.value}/enrollments`, { method:'POST', body:JSON.stringify({ name:trackerName.value, sampling_seconds:samplingSeconds.value, upload_seconds:uploadSeconds.value }) })
+  const response = await api<{ install_command:string }>(`/vehicles/${selectedVehicle.value}/enrollments`, { method:'POST', body:JSON.stringify({ name:trackerName.value, ...enrollmentCadence.value }) })
   installCommand.value = response.install_command
 }
 function openSettings(device:Device) {
   error.value = ''
   editing.value = device
-  draft.value = { name:device.name, sampling_seconds:device.sampling_seconds, upload_seconds:device.upload_seconds }
+  draftName.value = device.name
+  draftCadence.value = { sampling_seconds:device.sampling_seconds, upload_seconds:device.upload_seconds }
 }
 async function saveSettings() {
   if (!editing.value) return
   saving.value = true
   error.value = ''
   try {
-    await api(`/devices/${editing.value.id}`, { method:'PUT', body:JSON.stringify(draft.value) })
+    await api(`/devices/${editing.value.id}`, { method:'PUT', body:JSON.stringify({ name:draftName.value, ...draftCadence.value }) })
     editing.value = null
     await load()
   } catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
@@ -87,10 +102,7 @@ onMounted(load)
         <div class="enrollment-fields">
           <label class="field"><span>{{ t('devices.vehicle') }}</span><AppSelect v-model="selectedVehicle" searchable :search-placeholder="t('vehicles.search')" :no-results-text="t('vehicles.noMatch')"><option v-for="vehicle in vehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.name }}</option></AppSelect></label>
           <label class="field"><span>{{ t('devices.name') }}</span><input v-model="trackerName" class="input" /></label>
-          <div class="cadence-fields">
-            <label class="field"><span>{{ t('devices.samplingSeconds') }}</span><input v-model.number="samplingSeconds" class="input" type="number" min="1" max="86400" required /></label>
-            <label class="field"><span>{{ t('devices.uploadSeconds') }}</span><input v-model.number="uploadSeconds" class="input" type="number" min="1" max="86400" required /></label>
-          </div>
+          <CadenceFields v-model="enrollmentCadence" :signal-count="signalCount(selectedVehicle)" />
           <p class="field-hint">{{ t('devices.cadenceHint') }}</p>
         </div>
         <button v-if="!installCommand" class="button" :disabled="!selectedVehicle">{{ t('devices.add') }}</button>
@@ -104,11 +116,8 @@ onMounted(load)
 
     <AppModal :open="Boolean(editing)" :title="t('devices.settings')" @close="editing=null">
       <form v-if="editing" class="stack-form" @submit.prevent="saveSettings">
-        <label class="field"><span>{{ t('devices.name') }}</span><input v-model="draft.name" class="input" required autofocus /></label>
-        <div class="cadence-fields">
-          <label class="field"><span>{{ t('devices.samplingSeconds') }}</span><input v-model.number="draft.sampling_seconds" class="input" type="number" min="1" max="86400" required /></label>
-          <label class="field"><span>{{ t('devices.uploadSeconds') }}</span><input v-model.number="draft.upload_seconds" class="input" type="number" min="1" max="86400" required /></label>
-        </div>
+        <label class="field"><span>{{ t('devices.name') }}</span><input v-model="draftName" class="input" required autofocus /></label>
+        <CadenceFields v-model="draftCadence" :signal-count="signalCount(editing.vehicle_id)" />
         <p class="field-hint">{{ t('devices.cadenceHint') }}</p>
         <p class="field-hint">{{ t('devices.cadenceApplyHint') }}</p>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -171,7 +180,6 @@ onMounted(load)
 .device-identity p{margin:2px 0 0;overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .stack-form{display:grid;gap:14px}
 .stack-form .form-actions{justify-content:flex-end;margin-top:4px}
-.cadence-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .device-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:0}
 .device-facts>div{min-width:0}
 .device-facts dt{color:var(--muted);font-size:12px}
