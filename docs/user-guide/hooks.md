@@ -27,6 +27,24 @@ for row in ctx.telemetry_batch:
 Iterating is a choice, not a cost: a ten-row batch is still one process and one entry in
 the execution history.
 
+## Worked examples
+
+Each recipe is a complete hook you can paste into the editor:
+
+- [Forward to Traccar](/recipes/traccar) — push every position the tracker delivered to an
+  external server, iterating the batch so a buffered journey is not reduced to its last
+  point.
+- [Gate on arrival](/recipes/gate-on-arrival) — a geofence: detect crossing into a radius
+  and fire one authenticated HTTP request, without a geofence subsystem.
+- [Charging finished](/recipes/charging-complete) — notify on the transition out of
+  charging, deriving the state from battery power.
+- [Low SOC](/recipes/low-soc) — warn once below a threshold, with hysteresis so a
+  hovering reading does not notify repeatedly.
+
+They share three habits worth copying: act on a *transition* rather than on every sample,
+keep the deciding flag in `ctx.state` because each run is a fresh process, and check
+`ctx.dry_run` before anything with a side effect.
+
 ## What you can import
 
 Hook source is ordinary Python with no import restrictions, so the standard library is

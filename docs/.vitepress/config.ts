@@ -57,11 +57,11 @@ export default defineConfig({
       },
       {
         text: 'Hook recipes',
-        collapsed: true,
         items: [
           { text: 'Gate on arrival', link: '/recipes/gate-on-arrival' },
-          { text: 'Traccar', link: '/recipes/traccar' },
+          { text: 'Forward to Traccar', link: '/recipes/traccar' },
           { text: 'Low SOC', link: '/recipes/low-soc' },
+          { text: 'Charging finished', link: '/recipes/charging-complete' },
         ],
       },
     ],
