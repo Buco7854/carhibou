@@ -29,12 +29,17 @@ const (
 // declaration. Charging counts as in use, because watching a charge is exactly
 // when a slow cadence is least wanted.
 //
+// vehicle.ready covers a combustion vehicle with its ignition on and an electric
+// one showing READY. There was a separate vehicle.ignition, treated identically
+// in every respect, which is two names for one fact and a question anyone reading
+// the list would have to ask.
+//
 // They are booleans on purpose. Vehicles do not agree on what their states are
 // called — ready, run, IG1, accessory, crank — and an agent that had to recognise
 // those names would need updating for every vehicle it met. A profile translates
 // its own raw values into these three meanings and the agent recognises nothing
 // else, so a vehicle nobody has seen before is a profile, not a release.
-var readinessMetrics = []string{"vehicle.ready", "vehicle.ignition", "charging.active"}
+var readinessMetrics = []string{"vehicle.ready", "charging.active"}
 
 const (
 	// Below this a GPS fix is reporting its own noise rather than motion.

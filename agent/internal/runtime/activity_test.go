@@ -18,16 +18,16 @@ func TestReadinessOutranksEverythingWeaker(t *testing.T) {
 	detector := &ActivityDetector{}
 
 	sample := at(48.8, 2.3, &moving)
-	sample.Metrics = map[string]any{"vehicle.ignition": false, "vehicle.speed": 90, "engine.rpm": 900}
+	sample.Metrics = map[string]any{"vehicle.ready": false, "vehicle.speed": 90, "engine.rpm": 900}
 	// A receiver still reporting speed, and an engine speed left over from the
 	// last read, do not outrank the vehicle saying its ignition is off.
 	if active, source := detector.Observe(sample, time.Now()); active || source != SourceIdle {
-		t.Fatalf("ignition off must park the vehicle, got active=%v source=%s", active, source)
+		t.Fatalf("a vehicle saying it is not ready must be parked, got active=%v source=%s", active, source)
 	}
 
-	sample.Metrics = map[string]any{"vehicle.ignition": true}
+	sample.Metrics = map[string]any{"vehicle.ready": true}
 	if active, source := detector.Observe(sample, time.Now()); !active || source != SourceReadiness {
-		t.Fatalf("ignition on must be active, got active=%v source=%s", active, source)
+		t.Fatalf("a vehicle saying it is ready must be active, got active=%v source=%s", active, source)
 	}
 }
 

@@ -43,7 +43,7 @@ costs is freshness, which is why the form shows how far behind the dashboard wil
 Sources are tried strongest first, and each is allowed to be absent:
 
 1. **A readiness signal the profile decodes.** A profile that maps a frame to
-   `vehicle.ready`, `vehicle.ignition` or `charging.active` declares this by doing so;
+   `vehicle.ready` or `charging.active` declares this by doing so;
    no extra profile field is involved. This is authoritative in both directions, so a
    vehicle reporting ignition off is parked whatever else the tracker sees. Charging
    counts as in use, since watching a charge is when a slow cadence is least wanted.

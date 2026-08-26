@@ -11,6 +11,38 @@ bounds. Evidence statuses, source URLs, per-signal prose and a vehicle family we
 carried here once and read by nothing. The hardware validation ledger, not the profile,
 records which formulas have been confirmed against a physical vehicle.
 
+## The names VehiNode knows
+
+Every surface — dashboards, history, hooks, the agent's own decisions — is written
+against canonical metric names, never against a vehicle's raw frames. A profile's
+whole job is to translate one into the other, which is why a vehicle nobody has
+seen before is a profile rather than a change to any of them.
+
+Three names the agent reasons about, all boolean:
+
+| Name | Meaning |
+| --- | --- |
+| `vehicle.ready` | The vehicle is switched on: ignition on, or an electric vehicle showing READY. A stated `false` outranks every other source. |
+| `charging.active` | The vehicle is charging, which counts as in use. |
+| `vehicle.state` | Display only. Its values are the vehicle's own words and nothing reasons about them. |
+
+An enum may map a raw value straight to a boolean, so a profile says "on this
+vehicle, four means ready" and the agent recognises no vehicle-specific vocabulary
+at all. A value the profile does not map decodes to no reading, so a state nobody
+described leaves the vehicle to be judged by motion instead of by a claim nobody
+made.
+
+Everything else is a reading: `battery.soc`, `battery.power`, `vehicle.speed`,
+`engine.rpm` and so on. A name outside the set the interface knows still records
+and still charts; it shows as its raw name rather than a translated one.
+
+**A vehicle with no profile is not silent.** It records position and tracker
+health, and, where the vehicle answers standard diagnostic requests, the ten
+readings those carry: `vehicle.speed`, `engine.rpm`, `engine.load`,
+`engine.throttle`, `engine.coolant_temperature`, `engine.intake_temperature`,
+`engine.maf`, `fuel.level`, `battery.soc` and `device.input_voltage`. Many
+electric vehicles answer none of them, which is what a profile is for.
+
 Monitoring applies the profile's identifiers as adapter pass filters before it
 starts. Without them the adapter forwards the whole bus, which is several times what
 the serial link can carry, and the frames the profile wanted arrive truncated.
