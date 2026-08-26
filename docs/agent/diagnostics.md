@@ -124,13 +124,24 @@ empty fault list mean nothing by themselves. The command separates the two:
   ignition off and is what distinguishes a tracker plugged into a car from one
   plugged into nothing: around 12.4 V is a resting battery, 13.5 V or more means
   something is charging it.
-- `vehicle_responding` is whether anything came back from the car. When it is
-  false, `vehicle_reply` carries what the adapter said instead — `NO DATA`, or a
-  protocol search that found nothing.
+- `answers_requests` is whether the vehicle replied to a standard diagnostic
+  request. **A false here is not a fault and often not even unusual.** Many
+  electric vehicles answer none of them; the C-Zero family is one. When it is
+  false, `vehicle_reply` carries what the adapter said instead, usually `NO DATA`.
+- `can_frames` and `can_ids` come from listening rather than asking, and this is
+  the measurement a profile depends on. A profile decodes frames the vehicle
+  broadcasts on its own; it never asks for anything. So a vehicle can answer no
+  request at all and still be perfectly readable.
 
-A bus goes quiet shortly after the ignition does, so `false` with a plausible
-voltage is a parked car rather than a fault. Switch the ignition on and run it
-again; `vehinode-agent monitor` then shows the frames a profile decodes.
+Nothing is filtered during that listen, so a busy bus sends more than the serial
+link carries: an identifier listed is certainly present, one absent may merely have
+been dropped. Three seconds is enough to see anything a vehicle repeats.
+
+If no frames arrive at all, `supply_voltage` separates the two explanations. Around
+12.4 V is a resting battery and a sleeping vehicle — switch the ignition on. From
+about 13.5 V something is charging that battery, so the vehicle is awake and the
+absence means the adapter settled on the wrong protocol, or this bus is not wired
+to the diagnostic port.
 
 ## The vehicle reports position but no metrics
 

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -428,17 +430,75 @@ func commandOBD(locations paths, arguments []string) error {
 			answered = true
 		}
 	}
-	result["vehicle_responding"] = answered
-	printJSON(result)
-	if !answered {
-		// A null VIN and an empty fault list look identical whether the vehicle is
-		// asleep or the reading failed, so the difference is stated rather than
-		// left to be inferred from two empty fields.
-		fmt.Fprintln(os.Stderr, "The adapter is working but the vehicle did not answer.")
-		fmt.Fprintln(os.Stderr, "A bus goes quiet shortly after the ignition does. Switch it on and run this again;")
-		fmt.Fprintln(os.Stderr, "'vehinode-agent monitor' then shows the frames a profile decodes.")
+	result["answers_requests"] = answered
+
+	// Requests and broadcasts are separate questions, and for a profile only the
+	// second one matters. Plenty of vehicles answer no standard diagnostic request
+	// at all while broadcasting everything a profile decodes, so asking 0902 and
+	// stopping there measured the wrong thing and then explained it wrongly.
+	fmt.Fprintf(os.Stderr, "Listening for CAN frames for %s\n", canSurvey)
+	seen := map[int]int{}
+	frames := 0
+	if err := adapter.Monitor(canSurvey, func(frame model.CANFrame) {
+		frames++
+		seen[frame.CANID]++
+	}); err != nil {
+		result["can_error"] = err.Error()
 	}
+	result["can_frames"] = frames
+	result["can_ids"] = sortedCANIDs(seen)
+	printJSON(result)
+	explainOBD(result, answered, frames)
 	return nil
+}
+
+// canSurvey is long enough to see every identifier a vehicle repeats, and short
+// enough to run while somebody watches. Nothing is filtered, so a busy bus sends
+// more than the serial link carries and the result is a sample rather than a
+// census: an identifier listed is certainly present, one absent may merely have
+// been dropped.
+const canSurvey = 3 * time.Second
+
+func sortedCANIDs(seen map[int]int) []string {
+	ids := make([]int, 0, len(seen))
+	for canID := range seen {
+		ids = append(ids, canID)
+	}
+	sort.Ints(ids)
+	listed := make([]string, 0, len(ids))
+	for _, canID := range ids {
+		listed = append(listed, fmt.Sprintf("%03X", canID))
+	}
+	return listed
+}
+
+func explainOBD(result map[string]any, answered bool, frames int) {
+	if frames > 0 {
+		if !answered {
+			fmt.Fprintln(os.Stderr, "The vehicle answers no standard diagnostic request, which is normal on many")
+			fmt.Fprintln(os.Stderr, "electric vehicles, but it is broadcasting. A profile reads those broadcasts,")
+			fmt.Fprintln(os.Stderr, "so the identifiers listed above are what it has to work with.")
+		}
+		return
+	}
+	// No broadcasts at all. The adapter's own supply says whether that is a
+	// sleeping vehicle or a live one that is not talking on this protocol.
+	voltage, _ := result["supply_voltage"].(string)
+	awake := false
+	if trimmed := strings.TrimSuffix(strings.TrimSpace(voltage), "V"); trimmed != "" {
+		if value, err := strconv.ParseFloat(trimmed, 64); err == nil && value >= 13.0 {
+			awake = true
+		}
+	}
+	fmt.Fprintln(os.Stderr, "No CAN frames arrived.")
+	if awake {
+		fmt.Fprintf(os.Stderr, "The supply reads %s, so the vehicle is awake and something is charging its\n", voltage)
+		fmt.Fprintln(os.Stderr, "battery. Nothing is being broadcast on this protocol: the adapter may have")
+		fmt.Fprintln(os.Stderr, "settled on the wrong one, or this bus may not be wired to the diagnostic port.")
+		return
+	}
+	fmt.Fprintln(os.Stderr, "The supply suggests a resting battery, so the vehicle is most likely asleep.")
+	fmt.Fprintln(os.Stderr, "Switch the ignition on and run this again.")
 }
 
 // commandMonitor prints what the tracker would sample, once per interval, so a

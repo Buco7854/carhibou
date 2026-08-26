@@ -12,8 +12,9 @@ parser and pseudo-serial tests do not constitute hardware validation.
 | `AT+CGPSINFO` position polling | Complete | Passing decode tests | Pending SIM7600G-H |
 | SIM7600 serial reconnection | Complete | Passing | Pending SIM7600G-H |
 | OBDLink SX discovery/identity | Complete | Passing parser tests | **Confirmed** 2026-08-26: `ELM327 v1.3a`, firmware `STN1130 v4.0.1`, DTC read returned empty with the vehicle off; VIN pending an ignition-on session |
-| Standard OBD PID decoding | Complete | Passing | Pending an ignition-on session; the 2026-08-26 run reached the adapter but the vehicle was asleep |
+| Standard OBD PID decoding | Complete | Passing | **Not supported by the C-Zero**, confirmed 2026-08-26: `NO DATA` to `0902` with the vehicle awake at 14.4 V. Pending a vehicle that does answer |
 | Hybrid/EV pack charge (PID `5B`) | Experimental | Passing decode test | Pending hybrid/EV; PID semantics unconfirmed |
+| C-Zero body, brake and tyre signals (`0x424`, `0x384`, `0x3D3`) | Experimental | Passing fixture | Added 2026-08-26 from the proven script. `0x3D3` and the door bit are read straightforwardly; the lamp bits in `0x384` were annotated as uncertain in the source, and main beam is taken as a bit where the script tested an exact nibble |
 | Read-only CAN capture/replay | Complete | Passing | Pending vehicle. Monitoring now applies `STFAP` pass filters first, as the proven script does |
 | C-Zero battery SOC (`0x374`) | Complete | Passing fixture | Byte offset **corrected** 2026-08-26 from a script proven against a physical C-Zero: charge is byte 1, not byte 0. Live comparison still pending |
 | C-Zero pack voltage/current (`0x373`) | Complete | Passing fixture | Offsets agree with the proven script; current **sign reversed** 2026-08-26 to match it. Which direction is charging is still unconfirmed |
@@ -26,6 +27,13 @@ When hardware is tested, record model/revision, OS, agent version, method, evide
 date here. Never replace “pending” with “verified” from simulation alone.
 
 ## Defects found on hardware
+
+- **2026-08-26, C-Zero.** `obd-info` judged the vehicle by whether it answered a
+  standard diagnostic request, and reported "the vehicle did not answer" with a
+  supply reading 14.4 V — a vehicle plainly awake. The C-Zero family answers no
+  standard request, which the proven script demonstrates by never making one: it
+  only listens. The command now listens too and reports the identifiers it heard,
+  which is the measurement a profile actually depends on.
 
 - **2026-08-26, from a working C-Zero script.** Monitoring asked the adapter for
   every frame on the bus. A vehicle CAN bus runs at 500 kbit/s and the serial link

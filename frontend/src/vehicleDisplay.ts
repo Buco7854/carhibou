@@ -31,6 +31,21 @@ const metricDefinitions: Record<string, MetricDefinition> = {
   'battery.pack_voltage': {
     key: 'battery.pack_voltage', labelKey: 'metrics.packVoltage', unit: 'V', icon: 'battery', decimals: 1, kind: 'number',
   },
+  'vehicle.door_open': {
+    key: 'vehicle.door_open', labelKey: 'metrics.doorOpen', unit: '', icon: 'vehicle', decimals: 0, kind: 'boolean',
+  },
+  'vehicle.lights': {
+    key: 'vehicle.lights', labelKey: 'metrics.lights', unit: '', icon: 'vehicle', decimals: 0, kind: 'text',
+  },
+  'vehicle.high_beam': {
+    key: 'vehicle.high_beam', labelKey: 'metrics.highBeam', unit: '', icon: 'vehicle', decimals: 0, kind: 'boolean',
+  },
+  'vehicle.handbrake': {
+    key: 'vehicle.handbrake', labelKey: 'metrics.handbrake', unit: '', icon: 'vehicle', decimals: 0, kind: 'boolean',
+  },
+  'tyre.warning': {
+    key: 'tyre.warning', labelKey: 'metrics.tyreWarning', unit: '', icon: 'vehicle', decimals: 0, kind: 'boolean',
+  },
   'vehicle.state': {
     key: 'vehicle.state', labelKey: 'metrics.vehicleState', unit: '', icon: 'vehicle', decimals: 0, kind: 'text',
   },
@@ -71,6 +86,21 @@ const metricDefinitions: Record<string, MetricDefinition> = {
 
 const unknownEnergy: MetricDefinition = {
   key: '', labelKey: 'metrics.energyLevel', unit: '%', icon: 'energy', decimals: 0, kind: 'number',
+}
+
+const WHEELS: Array<{ key: string; labelKey: string }> = [
+  { key: 'front_left', labelKey: 'frontLeft' },
+  { key: 'front_right', labelKey: 'frontRight' },
+  { key: 'rear_right', labelKey: 'rearRight' },
+  { key: 'rear_left', labelKey: 'rearLeft' },
+]
+for (const wheel of WHEELS) {
+  metricDefinitions[`tyre.${wheel.key}_pressure`] = {
+    key: `tyre.${wheel.key}_pressure`, labelKey: `metrics.${wheel.labelKey}Pressure`, unit: 'bar', icon: 'vehicle', decimals: 2, kind: 'number',
+  }
+  metricDefinitions[`tyre.${wheel.key}_temperature`] = {
+    key: `tyre.${wheel.key}_temperature`, labelKey: `metrics.${wheel.labelKey}Temperature`, unit: '°C', icon: 'temperature', decimals: 0, kind: 'number',
+  }
 }
 
 export function metricDefinition(key: string): MetricDefinition {

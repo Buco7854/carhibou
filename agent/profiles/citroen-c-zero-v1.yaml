@@ -1,6 +1,6 @@
 id: citroen-c-zero-v1
 name: Citroën C-Zero / Mitsubishi i-MiEV / Peugeot iOn
-version: 4
+version: 5
 description: >-
   CAN mappings for compatible vehicles, taken from a script proven against a
   physical C-Zero.
@@ -82,6 +82,92 @@ signals:
     unit: A
     minimum: 0
     maximum: 40
+  # 0x424 carries the body state. The lights live in the two nibbles of byte 1:
+  # the upper one selects the running lights, the lower one raises main beam.
+  - name: vehicle.door_open
+    display_name: Door open
+    source: {type: can, can_id: 0x424}
+    decoder: {byte_offset: 2, data_type: boolean, bit: 0}
+  - name: vehicle.lights
+    display_name: Lights
+    source: {type: can, can_id: 0x424}
+    decoder:
+      byte_offset: 1
+      data_type: uint8
+      bit_mask: 0xF0
+      shift: 4
+      enum: {"0": "off", "4": sidelights, "6": dipped}
+  - name: vehicle.high_beam
+    display_name: Main beam
+    source: {type: can, can_id: 0x424}
+    decoder: {byte_offset: 1, data_type: boolean, bit: 2}
+  # 0x384 byte 3 collects the warning lamps.
+  - name: vehicle.handbrake
+    display_name: Handbrake
+    source: {type: can, can_id: 0x384}
+    decoder: {byte_offset: 3, data_type: boolean, bit: 0}
+  - name: tyre.warning
+    display_name: Tyre pressure warning
+    source: {type: can, can_id: 0x384}
+    decoder: {byte_offset: 3, data_type: boolean, bit: 4}
+  # 0x3D3 reports the four wheels as pressure then temperature, going clockwise
+  # from the front left rather than in the left-to-right order one might expect.
+  - name: tyre.front_left_pressure
+    display_name: Front left tyre pressure
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 0, data_type: uint8, scale: 0.0157}
+    unit: bar
+    minimum: 0
+    maximum: 5
+  - name: tyre.front_left_temperature
+    display_name: Front left tyre temperature
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 1, data_type: uint8, offset: -50}
+    unit: °C
+    minimum: -50
+    maximum: 150
+  - name: tyre.front_right_pressure
+    display_name: Front right tyre pressure
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 2, data_type: uint8, scale: 0.0157}
+    unit: bar
+    minimum: 0
+    maximum: 5
+  - name: tyre.front_right_temperature
+    display_name: Front right tyre temperature
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 3, data_type: uint8, offset: -50}
+    unit: °C
+    minimum: -50
+    maximum: 150
+  - name: tyre.rear_right_pressure
+    display_name: Rear right tyre pressure
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 4, data_type: uint8, scale: 0.0157}
+    unit: bar
+    minimum: 0
+    maximum: 5
+  - name: tyre.rear_right_temperature
+    display_name: Rear right tyre temperature
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 5, data_type: uint8, offset: -50}
+    unit: °C
+    minimum: -50
+    maximum: 150
+  - name: tyre.rear_left_pressure
+    display_name: Rear left tyre pressure
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 6, data_type: uint8, scale: 0.0157}
+    unit: bar
+    minimum: 0
+    maximum: 5
+  - name: tyre.rear_left_temperature
+    display_name: Rear left tyre temperature
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 7, data_type: uint8, offset: -50}
+    unit: °C
+    minimum: -50
+    maximum: 150
 computed_metrics:
   # Volts times amps gives watts; scale to the kilowatts every VehiNode surface expects.
   - name: battery.power
