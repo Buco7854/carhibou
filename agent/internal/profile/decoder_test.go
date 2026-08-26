@@ -112,3 +112,38 @@ func TestBuiltInProfileDecodesBodyAndTyreSignals(t *testing.T) {
 		t.Fatalf("rear left temperature=%v", tyres["tyre.rear_left_temperature"])
 	}
 }
+
+// Vehicles do not agree on what their states are called, so a profile translates
+// its own raw values into the canonical meanings and the agent recognises nothing
+// else. A state the profile does not describe decodes to no reading, rather than
+// to a placeholder that anything reading it would have to know to disbelieve.
+func TestStateFrameYieldsCanonicalMeaningsAndNothingElse(t *testing.T) {
+	decoder, err := FromFile(filepath.Join("..", "..", "profiles", "citroen-c-zero-v1.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := func(raw byte) map[string]any {
+		result := map[string]any{}
+		for _, signal := range decoder.Decode(model.CANFrame{CANID: 0x101, Data: []byte{raw}}, nil) {
+			result[signal.Name] = signal.Value
+		}
+		return result
+	}
+
+	ready := values(0x04)
+	if ready["vehicle.ready"] != true || ready["charging.active"] != false || ready["vehicle.state"] != "ready" {
+		t.Fatalf("ready=%#v", ready)
+	}
+	charging := values(0x00)
+	if charging["charging.active"] != true || charging["vehicle.ready"] != false || charging["vehicle.state"] != "charging" {
+		t.Fatalf("charging=%#v", charging)
+	}
+
+	// Neither of the two. Nothing is claimed, so nothing is published.
+	other := values(0x02)
+	for _, name := range []string{"vehicle.state", "vehicle.ready", "charging.active"} {
+		if _, present := other[name]; present {
+			t.Fatalf("%s was published for an unmapped state: %#v", name, other)
+		}
+	}
+}

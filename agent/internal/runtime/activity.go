@@ -24,18 +24,17 @@ const (
 )
 
 // readinessMetrics are the canonical names that state outright whether the
-// vehicle is in use. A profile declares one simply by decoding a frame to that
-// name, so this needs no field in the profile format: the canonical name is the
+// vehicle is in use. A profile declares one by decoding a frame to that name, so
+// this needs no field in the profile format: the canonical name is the
 // declaration. Charging counts as in use, because watching a charge is exactly
 // when a slow cadence is least wanted.
+//
+// They are booleans on purpose. Vehicles do not agree on what their states are
+// called — ready, run, IG1, accessory, crank — and an agent that had to recognise
+// those names would need updating for every vehicle it met. A profile translates
+// its own raw values into these three meanings and the agent recognises nothing
+// else, so a vehicle nobody has seen before is a profile, not a release.
 var readinessMetrics = []string{"vehicle.ready", "vehicle.ignition", "charging.active"}
-
-// inUseStates are the values of a vehicle.state signal that mean the vehicle is
-// doing something. A profile that decodes a single frame into a named state says
-// more than a set of booleans could, and the C-Zero's 0x101 is exactly that: it is
-// transmitted at all only when the car is awake, reading "ready" when it can drive
-// and "charging" when it is plugged in.
-var inUseStates = map[string]bool{"ready": true, "charging": true, "driving": true, "on": true}
 
 const (
 	// Below this a GPS fix is reporting its own noise rather than motion.
@@ -89,11 +88,6 @@ func (detector *ActivityDetector) Observe(sample model.Sample, now time.Time) (b
 }
 
 func (detector *ActivityDetector) evidence(sample model.Sample) (ActivitySource, bool) {
-	if state, present := sample.Metrics["vehicle.state"]; present {
-		if text, ok := state.(string); ok {
-			return SourceReadiness, inUseStates[text]
-		}
-	}
 	for _, name := range readinessMetrics {
 		if value, present := sample.Metrics[name]; present {
 			if truthy(value) {
@@ -101,7 +95,10 @@ func (detector *ActivityDetector) evidence(sample model.Sample) (ActivitySource,
 			}
 			// A readiness signal that says "off" is the strongest evidence there
 			// is, so nothing weaker may overrule it. A car reporting ignition off
-			// while its receiver drifts is parked.
+			// while its receiver drifts is parked. This is only reached for a
+			// stated false: a raw value the profile does not map decodes to no
+			// reading at all, so the vehicle is judged by the sources below it
+			// rather than by a state nobody claimed.
 			return SourceIdle, false
 		}
 	}

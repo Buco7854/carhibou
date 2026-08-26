@@ -125,6 +125,14 @@ a { color: inherit; }
   background: linear-gradient(to right, var(--sidebar) 0 212px, var(--workspace) 212px);
 }
 
+/* One gutter, declared once. Three breakpoints had each been setting their own
+   page padding, so how far a card sat from the edge depended on which of them was
+   in force rather than on a decision anybody made. */
+:root { --gutter: 32px; }
+@media (max-width: 1080px) { :root { --gutter: 24px; } }
+@media (max-width: 780px) { :root { --gutter: 16px; } }
+@media (max-width: 380px) { :root { --gutter: 12px; } }
+
 .sidebar {
   position: sticky; top: 0; z-index: 60; height: 100vh; min-height: 520px;
   display: flex; flex-direction: column; gap: 2px; padding: 16px 10px 12px;
@@ -162,7 +170,7 @@ a { color: inherit; }
 .tool-button:hover { color: var(--text); background: color-mix(in srgb, var(--text) 7%, transparent); }
 
 .workspace { min-width: 0; min-height: 100vh; }
-.main-content { min-width: 0; padding: 30px 32px 64px; }
+.main-content { min-width: 0; padding: 30px var(--gutter) 64px; }
 .page { width: 100%; max-width: 1340px; margin: 0 auto; }
 
 /* ---------- page structure ---------- */
@@ -274,7 +282,6 @@ a { color: inherit; }
   .main-nav a { justify-content: center; padding: 0; }
   .account { grid-template-columns: 1fr; justify-items: center; }
   .sidebar-tools { justify-content: center; flex-wrap: wrap; }
-  .main-content { padding-inline: 24px; }
 }
 
 @media (max-width: 780px) {
@@ -291,7 +298,7 @@ a { color: inherit; }
   .main-nav a.active, .main-nav a.router-link-active { background: var(--panel-2); box-shadow: none; }
   .main-nav .nav-label { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
   .main-nav .app-icon { width: 17px; height: 17px; }
-  .main-content { padding: 22px 16px 40px; }
+  .main-content { padding-block: 22px 40px; }
   .page-header { align-items: flex-start; flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr; }
 }

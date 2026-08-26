@@ -98,6 +98,12 @@ async function create(): Promise<void> {
   catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
 }
 
+async function clearTelemetry(vehicle: Vehicle): Promise<void> {
+  if (!confirm(t('vehicles.clearDataConfirm', { name: vehicle.name }))) return
+  await api(`/vehicles/${vehicle.id}/telemetry`, { method: 'DELETE' })
+  await load()
+}
+
 async function assignVehicleProfile(vehicle: Vehicle, value: string | number | null): Promise<void> {
   const profileId = typeof value === 'string' && value ? value : null
   try {
@@ -251,6 +257,7 @@ onMounted(load)
           <AppSelect class="card-profile-select" compact :model-value="vehicle.vehicle_profile" :aria-label="t('vehicles.profile')" @update:model-value="assignVehicleProfile(vehicle,$event)"><option :value="null">{{ t('vehicles.noProfile') }}</option><option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profileNames[profile.id] }}</option></AppSelect>
           <RouterLink class="link-button" :to="`/vehicles/${vehicle.id}/history`">{{ t('vehicles.history') }}</RouterLink>
           <RouterLink class="link-button" to="/devices">{{ t('vehicles.tracker') }}</RouterLink>
+          <button class="link-button" type="button" @click="clearTelemetry(vehicle)">{{ t('vehicles.clearData') }}</button>
           <button class="link-button danger" type="button" @click="deleteTarget=vehicle">{{ t('common.delete') }}</button>
         </footer>
       </article>

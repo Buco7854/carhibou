@@ -27,6 +27,30 @@ const emptyPerson = () => ({ email: '', display_name: '', password: '', is_admin
 const person = ref(emptyPerson())
 const isAdmin = computed(() => Boolean(auth.user?.permissions['system.admin']))
 
+const clearing = ref(false)
+const dataMessage = ref('')
+const dataError = ref('')
+
+/**
+ * Empty every vehicle of readings. The vehicles, trackers, hooks and dashboards
+ * are left standing; only what was recorded goes, which is what makes this usable
+ * after a period of testing rather than a way to start over.
+ */
+async function clearAllTelemetry(): Promise<void> {
+  if (!confirm(t('settings.clearAllConfirm'))) return
+  clearing.value = true
+  dataMessage.value = ''
+  dataError.value = ''
+  try {
+    await api('/vehicles/telemetry', { method: 'DELETE' })
+    dataMessage.value = t('settings.clearAllDone')
+  } catch (reason) {
+    dataError.value = reason instanceof Error ? reason.message : t('common.error')
+  } finally {
+    clearing.value = false
+  }
+}
+
 async function loadPeople(): Promise<void> {
   if (!isAdmin.value) return
   people.value = await api<UserAccount[]>('/users')
@@ -187,6 +211,16 @@ onMounted(async () => {
         <div class="form-actions"><button class="button" :disabled="saving">{{ t('settings.createUser') }}</button><button class="button ghost" type="button" @click="creating = false">{{ t('common.cancel') }}</button></div>
       </form>
     </AppModal>
+
+    <section class="settings-block">
+      <div class="settings-label"><h2>{{ t('settings.data') }}</h2></div>
+      <div class="settings-body">
+        <p class="field-hint">{{ t('settings.clearAllHint') }}</p>
+        <p v-if="dataMessage" class="saved-note" role="status">{{ dataMessage }}</p>
+        <p v-if="dataError" class="error" role="alert">{{ dataError }}</p>
+        <button class="button danger" type="button" :disabled="clearing" @click="clearAllTelemetry">{{ t('settings.clearAll') }}</button>
+      </div>
+    </section>
 
     <section v-if="diagnostics" class="settings-block">
       <div class="settings-label"><h2>{{ t('settings.diagnostics') }}</h2></div>

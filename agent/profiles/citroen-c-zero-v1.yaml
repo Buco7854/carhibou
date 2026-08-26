@@ -1,10 +1,19 @@
 id: citroen-c-zero-v1
 name: Citroën C-Zero / Mitsubishi i-MiEV / Peugeot iOn
-version: 5
+version: 6
 description: >-
   CAN mappings for compatible vehicles, taken from a script proven against a
   physical C-Zero.
 signals:
+  # 0x101 is broadcast only while the vehicle is awake, and byte 0 says which way.
+  # It is decoded three times: once as a label to show, and twice as the canonical
+  # booleans the agent reasons about. The agent knows nothing of "ready" or
+  # "charging" as words — the profile is what translates this vehicle's raw values
+  # into meanings, which is why a vehicle that names its states differently needs
+  # a profile rather than a new release.
+  #
+  # Any other value decodes to nothing, so a state this profile does not describe
+  # leaves the agent to judge by motion instead of by a claim nobody made.
   - name: vehicle.state
     display_name: Vehicle state
     source: {type: can, can_id: 0x101}
@@ -12,6 +21,20 @@ signals:
       byte_offset: 0
       data_type: uint8
       enum: {"4": ready, "0": charging}
+  - name: vehicle.ready
+    display_name: Ready to drive
+    source: {type: can, can_id: 0x101}
+    decoder:
+      byte_offset: 0
+      data_type: uint8
+      enum: {"4": true, "0": false}
+  - name: charging.active
+    display_name: Charging
+    source: {type: can, can_id: 0x101}
+    decoder:
+      byte_offset: 0
+      data_type: uint8
+      enum: {"0": true, "4": false}
   - name: battery.soc
     display_name: Battery state of charge
     source: {type: can, can_id: 0x374}

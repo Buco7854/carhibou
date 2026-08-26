@@ -134,3 +134,24 @@ func TestAGapInReceptionKeepsTheAnchor(t *testing.T) {
 		t.Fatalf("the anchor must survive a missing fix, got active=%v source=%s", active, source)
 	}
 }
+
+// The agent recognises three canonical booleans and no vehicle-specific words, so
+// a vehicle whose states it has never heard of falls through to motion rather than
+// being judged by a claim nobody made.
+func TestAnUnmappedStateFallsThroughToMotion(t *testing.T) {
+	moving := 40.0
+	now := time.Now()
+
+	// The profile published nothing for this state, so the readiness rule does not
+	// apply and speed decides.
+	sample := at(48.8, 2.3, &moving)
+	if active, source := (&ActivityDetector{}).Observe(sample, now); !active || source != SourceSpeed {
+		t.Fatalf("active=%v source=%s, want the vehicle judged by motion", active, source)
+	}
+
+	// A stated false still outranks motion, because that is a claim.
+	sample.Metrics = map[string]any{"vehicle.ready": false}
+	if active, source := (&ActivityDetector{}).Observe(sample, now); active || source != SourceIdle {
+		t.Fatalf("active=%v source=%s, want a stated false to hold", active, source)
+	}
+}

@@ -225,7 +225,11 @@ func decodeValue(signal Signal, data []byte) (any, error) {
 		if value, ok := decoder.Enum[strconv.FormatInt(int64(number), 10)]; ok {
 			return value, nil
 		}
-		return fmt.Sprintf("unknown:%d", int64(number)), nil
+		// A value the profile does not map is not a reading of "unknown"; it is
+		// the absence of a reading. Publishing a placeholder made an unmapped
+		// state indistinguishable from a stated one, and anything reasoning about
+		// the signal then had to know the placeholder to avoid believing it.
+		return nil, fmt.Errorf("value %d is not mapped for %q", int64(number), signal.Name)
 	}
 	scale, offset := 1.0, 0.0
 	if decoder.Scale != nil {

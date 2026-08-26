@@ -1,7 +1,7 @@
 import shlex
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from backend.app.auth.security import hash_token, new_opaque_token
@@ -16,7 +16,9 @@ from backend.app.devices.schemas import (
     EnrollRequest,
     EnrollResponse,
 )
+from backend.app.telemetry.models import Telemetry
 from backend.app.vehicle_profiles.services import profile_definition
+from backend.app.vehicle_state.models import VehicleState
 from backend.app.vehicles.models import Vehicle
 
 
@@ -121,6 +123,31 @@ def update_device(device: Device, data: DeviceSettings) -> bool:
     if changed:
         device.config_version += 1
     return changed
+
+
+def delete_device(db: Session, device: Device) -> None:
+    """Remove a tracker and the telemetry it recorded.
+
+    Revoking keeps a tracker's history and stops it reporting; deleting is for
+    hardware that is gone. Telemetry cascades from the device, so what the tracker
+    recorded goes with it, which is the point: a tracker enrolled by mistake should
+    leave nothing behind.
+    """
+
+    db.delete(device)
+
+
+def reset_vehicle_telemetry(db: Session, vehicle_id: str) -> int:
+    """Delete every reading recorded for one vehicle, keeping the vehicle.
+
+    Its trackers, hooks and dashboards are untouched, so a vehicle can be emptied
+    of test data without being set up again. The current-state row goes with the
+    readings, or the vehicle would keep showing a reading nothing now supports.
+    """
+
+    deleted = db.execute(delete(Telemetry).where(Telemetry.vehicle_id == vehicle_id))
+    db.execute(delete(VehicleState).where(VehicleState.vehicle_id == vehicle_id))
+    return int(getattr(deleted, "rowcount", 0) or 0)
 
 
 def rotate_credential(device: Device) -> str:

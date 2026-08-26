@@ -20,6 +20,7 @@ from backend.app.devices.schemas import (
 from backend.app.devices.services import (
     EnrollmentError,
     create_enrollment,
+    delete_device,
     device_config,
     enroll,
     install_command,
@@ -95,6 +96,19 @@ def edit_device(
     db.commit()
     db.refresh(device)
     return _device_response(device)
+
+
+@human_router.delete("/devices/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_device(device_id: str, db: Db, auth: CurrentUserWrite) -> None:
+    """Delete a tracker outright, with the telemetry it recorded.
+
+    Revoking is for hardware that exists but must stop reporting; this is for
+    hardware that is gone, or that was enrolled by mistake and should leave
+    nothing behind.
+    """
+
+    delete_device(db, _owned_device(db, auth.user.id, device_id))
+    db.commit()
 
 
 @human_router.post("/devices/{device_id}/revoke", status_code=status.HTTP_204_NO_CONTENT)

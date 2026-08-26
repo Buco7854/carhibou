@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 
 
@@ -105,3 +108,70 @@ def test_tracker_cadence_is_chosen_at_enrollment_and_editable_afterwards(
         },
     )
     assert rejected.status_code == 422
+
+
+def test_a_tracker_can_be_deleted_and_a_vehicle_emptied(
+    registered: tuple[TestClient, str],
+) -> None:
+    client, csrf = registered
+    headers = {"X-CSRF-Token": csrf}
+    vehicle = client.post("/api/v1/vehicles", headers=headers, json={"name": "Test car"}).json()
+
+    token = client.post(
+        f"/api/v1/vehicles/{vehicle['id']}/enrollments", headers=headers, json={"name": "Pi"}
+    ).json()["token"]
+    enrolled = client.post(
+        "/api/v1/device/enroll",
+        json={"token": token, "agent_version": "test", "hostname": "pi"},
+    ).json()
+    credential = {"Authorization": f"Device {enrolled['credential']}"}
+    sent = client.post(
+        "/api/v1/device/telemetry/batch",
+        headers=credential,
+        json={
+            "boot_id": str(uuid4()),
+            "samples": [
+                {
+                    "id": str(uuid4()),
+                    "sequence": 1,
+                    "recorded_at": datetime.now(UTC).isoformat(),
+                    "position": {"latitude": 48.0, "longitude": 2.0},
+                    "metrics": {"battery.soc": 80},
+                    "device": {},
+                }
+            ],
+        },
+    )
+    assert sent.status_code == 200, sent.text
+
+    entries = f"/api/v1/vehicles/{vehicle['id']}/history/entries"
+    assert client.get(entries).json()["total"] == 1
+
+    # Emptying a vehicle keeps the vehicle and its tracker; only readings go.
+    assert (
+        client.delete(f"/api/v1/vehicles/{vehicle['id']}/telemetry", headers=headers).status_code
+        == 204
+    )
+    assert client.get(entries).json()["total"] == 0
+    assert client.get(f"/api/v1/vehicles/{vehicle['id']}").status_code == 200
+    assert any(d["id"] == enrolled["device_id"] for d in client.get("/api/v1/devices").json())
+    # The vehicle must stop claiming a reading nothing now supports.
+    assert client.get(f"/api/v1/vehicles/{vehicle['id']}").json()["state"] is None
+
+    # Deleting the tracker is for hardware that is gone, and leaves nothing behind.
+    removed = client.delete(f"/api/v1/devices/{enrolled['device_id']}", headers=headers)
+    assert removed.status_code == 204, removed.text
+    assert client.get("/api/v1/devices").json() == []
+    # Its credential no longer works.
+    assert client.get("/api/v1/device/config", headers=credential).status_code == 401
+
+
+def test_every_vehicle_can_be_emptied_at_once(registered: tuple[TestClient, str]) -> None:
+    client, csrf = registered
+    headers = {"X-CSRF-Token": csrf}
+    for name in ("One", "Two"):
+        client.post("/api/v1/vehicles", headers=headers, json={"name": name})
+
+    assert client.delete("/api/v1/vehicles/telemetry", headers=headers).status_code == 204
+    # The vehicles themselves survive; this empties them rather than removing them.
+    assert len(client.get("/api/v1/vehicles").json()) == 2

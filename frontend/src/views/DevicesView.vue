@@ -81,7 +81,12 @@ async function saveSettings() {
   finally { saving.value = false }
 }
 async function copy() { await navigator.clipboard.writeText(installCommand.value); copied.value = true; window.setTimeout(() => copied.value = false, 1500) }
-async function revoke(id:string) { if (!confirm(t('devices.revoke') + '?')) return; await api(`/devices/${id}/revoke`, { method:'POST' }); await load() }
+async function revoke(id:string) { if (!confirm(t('devices.revokeConfirm'))) return; await api(`/devices/${id}/revoke`, { method:'POST' }); await load() }
+async function remove(device:Device) {
+  if (!confirm(t('devices.deleteConfirm', { name: device.name }))) return
+  await api(`/devices/${device.id}`, { method:'DELETE' })
+  await load()
+}
 async function rotate(id:string) { const response = await api<{credential:string}>(`/devices/${id}/rotate`, {method:'POST'}); rotatedCredential.value={id,credential:response.credential} }
 async function copyCredential() { if(!rotatedCredential.value)return;await navigator.clipboard.writeText(rotatedCredential.value.credential);copied.value=true;window.setTimeout(()=>copied.value=false,1500) }
 const onlineCount = computed(() => devices.value.filter((device) => device.online && !device.revoked_at).length)
@@ -151,6 +156,7 @@ onMounted(load)
           <button class="button secondary" :disabled="!!device.revoked_at" @click="openSettings(device)">{{ t('devices.settings') }}</button>
           <button class="button secondary" :disabled="!!device.revoked_at" @click="rotate(device.id)">{{ t('devices.rotate') }}</button>
           <button class="link-button danger" type="button" :disabled="!!device.revoked_at" @click="revoke(device.id)">{{ t('devices.revoke') }}</button>
+          <button class="link-button danger" type="button" @click="remove(device)">{{ t('common.delete') }}</button>
         </div>
         <div v-if="rotatedCredential?.id===device.id" class="credential-reveal">
           <div class="credential-heading"><strong>{{ t('devices.credentialReady') }}</strong><button class="icon-button" :aria-label="t('common.close')" @click="rotatedCredential=null"><AppIcon name="close" :size="15" /></button></div>

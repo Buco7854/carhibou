@@ -24,7 +24,11 @@ class ProfileDecoder(BaseModel):
     bit_mask: int | str | None = None
     shift: int | None = Field(default=None, ge=0, le=63)
     signed: bool = False
-    enum: dict[str, str] | None = None
+    # An enum turns a raw value into a meaning. That meaning is a label when the
+    # signal is for display and a boolean when it is one the agent reasons about,
+    # so a profile can say "on this vehicle, four means ready" without the agent
+    # needing to know what any particular vehicle calls its states.
+    enum: dict[str, str | bool | float] | None = None
 
 
 class ProfileSignal(BaseModel):

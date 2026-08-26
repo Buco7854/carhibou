@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 
 from backend.app.auth.dependencies import CurrentUser, CurrentUserWrite, Db
+from backend.app.devices.services import reset_vehicle_telemetry
 from backend.app.vehicle_profiles.schemas import VehicleProfileSelection
 from backend.app.vehicle_profiles.services import assign_profile, profile_definition
 from backend.app.vehicles.photo_storage import photo_path, remove_photo_file, store_photo
@@ -47,6 +48,15 @@ def vehicle(vehicle_id: str, db: Db, auth: CurrentUser) -> VehicleResponse:
     return serialize_vehicle(model)
 
 
+@router.delete("/telemetry", status_code=status.HTTP_204_NO_CONTENT)
+def clear_all_telemetry(db: Db, auth: CurrentUserWrite) -> None:
+    """Delete every reading recorded for every vehicle this account owns."""
+
+    for model in list_vehicles(db, auth.user.id):
+        reset_vehicle_telemetry(db, model.id)
+    db.commit()
+
+
 @router.delete("/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_vehicle(vehicle_id: str, db: Db, auth: CurrentUserWrite) -> None:
     model = owned_vehicle(db, auth.user.id, vehicle_id)
@@ -59,6 +69,21 @@ def remove_vehicle(vehicle_id: str, db: Db, auth: CurrentUserWrite) -> None:
             remove_photo_file(storage_key)
         except (OSError, ValueError):
             logger.exception("vehicle deleted but its photo file could not be removed")
+
+
+@router.delete("/{vehicle_id}/telemetry", status_code=status.HTTP_204_NO_CONTENT)
+def clear_vehicle_telemetry(vehicle_id: str, db: Db, auth: CurrentUserWrite) -> None:
+    """Delete every reading recorded for this vehicle, keeping the vehicle itself.
+
+    Its trackers, hooks and dashboards survive, so a vehicle full of test data can
+    be emptied without being set up again.
+    """
+
+    model = owned_vehicle(db, auth.user.id, vehicle_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="vehicle not found")
+    reset_vehicle_telemetry(db, model.id)
+    db.commit()
 
 
 @router.put("/{vehicle_id}/profile", response_model=VehicleResponse)
