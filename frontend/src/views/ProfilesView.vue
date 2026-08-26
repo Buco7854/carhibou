@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { Vehicle, VehicleProfile } from '../api/types'
+import { canCreateProfiles } from '../access'
 import AppIcon from '../components/AppIcon.vue'
 import VehicleProfileEditor from '../components/VehicleProfileEditor.vue'
 
@@ -59,7 +60,7 @@ onMounted(load)
         <p>{{ t('profiles.pageHint') }}</p>
       </div>
       <div class="header-actions">
-        <button class="button" type="button" @click="createProfile"><AppIcon name="plus" :size="15" />{{ t('profiles.new') }}</button>
+        <button v-if="canCreateProfiles" class="button" type="button" @click="createProfile"><AppIcon name="plus" :size="15" />{{ t('profiles.new') }}</button>
       </div>
     </header>
 
@@ -74,16 +75,18 @@ onMounted(load)
         <article v-for="profile in customProfiles" :key="profile.id" class="profile-card panel">
           <header>
             <h3>{{ profile.name }}</h3>
-            <div class="profile-actions">
+            <!-- The server says who may touch a profile; everyone else reads it. -->
+            <div v-if="profile.editable" class="profile-actions">
               <button class="icon-button" type="button" :aria-label="t('profiles.edit')" @click="editProfile(profile)"><AppIcon name="edit" :size="15" /></button>
               <button class="icon-button danger-text" type="button" :aria-label="t('common.delete')" @click="remove(profile)"><AppIcon name="trash" :size="15" /></button>
             </div>
+            <span v-else class="readonly-badge">{{ t('profiles.readOnly') }}</span>
           </header>
           <p>{{ profile.description || t('profiles.noDescription') }}</p>
           <div class="metric-chips"><code v-for="item in profile.definition.signals.slice(0,6)" :key="item.name">{{ item.name }}</code><span v-if="profile.definition.signals.length>6">+{{ profile.definition.signals.length-6 }}</span></div>
           <footer><span>{{ t('profiles.signalCount', { count:profile.definition.signals.length }) }}</span><span>{{ t('profiles.assignedCount', { count:assignedCount(profile) }) }}</span><span>v{{ profile.definition.version }}</span></footer>
         </article>
-        <button v-if="!customProfiles.length" class="empty-profile panel" type="button" @click="createProfile">
+        <button v-if="!customProfiles.length && canCreateProfiles" class="empty-profile panel" type="button" @click="createProfile">
           <strong>{{ t('profiles.createFirst') }}</strong>
           <span>{{ t('profiles.noCustom') }}</span>
         </button>

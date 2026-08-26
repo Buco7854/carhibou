@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { login, register, registrationIsOpen } from '../api/auth'
+import { authMethods, login, register, registrationIsOpen } from '../api/auth'
 import { APP_NAME } from '../branding'
 import AppIcon from '../components/AppIcon.vue'
 import AppSelect from '../components/AppSelect.vue'
@@ -15,6 +15,7 @@ const email = ref('')
 const password = ref('')
 const displayName = ref('')
 const registrationOpen = ref(false)
+const oidc = ref<{ enabled: boolean; name: string }>({ enabled: false, name: '' })
 const error = ref('')
 const busy = ref(false)
 const router = useRouter()
@@ -22,13 +23,22 @@ const route = useRoute()
 const { locale, t } = useI18n()
 
 onMounted(async () => {
+  // authMethods already degrades to password-only when the endpoint is unreachable.
+  const methods = authMethods()
   try {
     registrationOpen.value = await registrationIsOpen()
     if (registrationOpen.value) mode.value = 'register'
   } catch {
     // A configured account can still sign in if the optional setup check is unavailable.
   }
+  oidc.value = (await methods).oidc
 })
+
+function ssoLogin(): void {
+  // A full-page redirect: the OIDC flow ends by setting the same session cookie
+  // password login sets, so the app is simply re-entered signed in.
+  window.location.href = '/api/v1/auth/oidc/login'
+}
 
 function changeLocale(value: string | number | null): void {
   if (value !== 'en' && value !== 'fr') return
@@ -68,6 +78,7 @@ async function submit() {
       <form class="login-form" @submit.prevent="submit">
         <h1>{{ mode === 'login' ? t('auth.signInTitle') : t('auth.registerTitle') }}</h1>
         <p class="login-hint">{{ mode === 'login' ? t('auth.signInHint') : t('auth.registerHint') }}</p>
+        <button v-if="oidc.enabled" class="button secondary sso-button" type="button" @click="ssoLogin">{{ t('auth.continueWith', { name: oidc.name }) }}</button>
         <div v-if="mode === 'register'" class="field"><label for="name">{{ t('auth.displayName') }}</label><input id="name" v-model="displayName" class="input" required /></div>
         <div class="field"><label for="email">{{ t('auth.email') }}</label><input id="email" v-model="email" class="input" type="email" autocomplete="email" required /></div>
         <div class="field"><label for="password">{{ t('auth.password') }}</label><input id="password" v-model="password" class="input" type="password" :minlength="mode === 'register' ? 12 : 1" :autocomplete="mode === 'register' ? 'new-password' : 'current-password'" required /></div>
@@ -95,6 +106,7 @@ async function submit() {
 .login-form h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-.01em}
 .login-hint{margin:-8px 0 2px;color:var(--muted);font-size:13px}
 .login-button{width:100%;height:36px;margin-top:4px}
+.sso-button{width:100%;height:36px}
 .mode-switch{justify-self:center;color:var(--muted);font-size:12px}
 .mode-switch:hover{color:var(--accent)}
 

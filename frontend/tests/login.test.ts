@@ -38,6 +38,39 @@ describe('login', () => {
     expect(wrapper.text()).toContain('Espace de télémétrie automobile')
   })
 
+  it('offers single sign-on only when the server advertises it', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/auth/methods')) return Promise.resolve(jsonResponse({ password: true, oidc: { enabled: true, name: 'Authentik' } }))
+      if (url.endsWith('/auth/setup')) return Promise.resolve(jsonResponse({ registration_open: false }))
+      return Promise.resolve(jsonResponse({}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
+    await router.push('/login')
+    const wrapper = mount(LoginView, { global: { plugins: [router, i18n] } })
+    await flushPromises()
+
+    expect(wrapper.get('.sso-button').text()).toBe('Continue with Authentik')
+    // The password form stays: SSO is an addition, not a replacement.
+    expect(wrapper.find('#password').exists()).toBe(true)
+  })
+
+  it('falls back to password-only when the methods endpoint is unavailable', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/auth/methods')) return Promise.reject(new Error('unreachable'))
+      if (url.endsWith('/auth/setup')) return Promise.resolve(jsonResponse({ registration_open: false }))
+      return Promise.resolve(jsonResponse({}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
+    await router.push('/login')
+    const wrapper = mount(LoginView, { global: { plugins: [router, i18n] } })
+    await flushPromises()
+
+    expect(wrapper.find('.sso-button').exists()).toBe(false)
+    expect(wrapper.find('#password').exists()).toBe(true)
+  })
+
   it('offers one-time administrator setup only while the instance is empty', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/auth/setup')) return Promise.resolve(jsonResponse({ registration_open: true }))

@@ -5,6 +5,14 @@ export function jsonResponse(body: unknown, status = 200): Response {
   })
 }
 
+export const adminUser = {
+  id: 'admin-1', email: 'admin@example.com', display_name: 'Admin', permissions: { 'system.admin': true },
+}
+
+export const memberUser = {
+  id: 'member-1', email: 'member@example.com', display_name: 'Member', permissions: {},
+}
+
 export const vehicle = {
   id: 'vehicle-1',
   name: 'Éclair',
@@ -17,6 +25,7 @@ export const vehicle = {
   color: '#65e0ad',
   icon: 'car',
   photo_url: null,
+  access: 'operate' as const,
   state: {
     updated_at: new Date().toISOString(),
     online: true,

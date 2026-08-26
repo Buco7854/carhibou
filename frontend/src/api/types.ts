@@ -15,6 +15,8 @@ export interface VehicleState {
   device: Record<string, unknown>
 }
 
+export type VehicleAccessLevel = 'view' | 'operate'
+
 export interface Vehicle {
   id: string
   name: string
@@ -28,6 +30,7 @@ export interface Vehicle {
   icon: string
   photo_url: string | null
   state: VehicleState | null
+  access: VehicleAccessLevel
   created_at: string
   updated_at: string
 }
@@ -56,6 +59,7 @@ export interface VehicleProfile {
   name: string
   description: string
   built_in: boolean
+  editable: boolean
   definition: {
     id: string
     name: string
@@ -208,5 +212,28 @@ export interface UserAccount {
   display_name: string
   is_active: boolean
   is_admin: boolean
+  can_create_profiles: boolean
   created_at: string
+}
+
+export interface VehicleGrant {
+  user_id: string
+  email: string
+  display_name: string
+  level: VehicleAccessLevel
+}
+
+export interface DefaultAccessGrant {
+  vehicle_id: string
+  level: VehicleAccessLevel
+}
+
+export interface DefaultAccess {
+  profiles_create: boolean
+  grants: DefaultAccessGrant[]
+}
+
+export interface AuthMethods {
+  password: boolean
+  oidc: { enabled: boolean; name: string }
 }

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import { isAdmin } from './access'
 import { auth, logout } from './api/auth'
 import { APP_NAME } from './branding'
 import AppIcon from './components/AppIcon.vue'
@@ -12,7 +13,6 @@ import { resolvedTheme, setTheme } from './theme'
 
 const router = useRouter()
 const { locale, t } = useI18n()
-const isAdmin = computed(() => Boolean(auth.user?.permissions['system.admin']))
 const initials = computed(() => auth.user?.display_name.slice(0, 2).toUpperCase() ?? '')
 
 function changeLocale(value: string | number | null): void {
@@ -44,7 +44,7 @@ async function signOut() {
         <RouterLink to="/" exact-active-class="active" :title="t('nav.dashboards')"><AppIcon name="grid" :size="17" /><span class="nav-label">{{ t('nav.dashboards') }}</span></RouterLink>
         <RouterLink to="/vehicles" :title="t('nav.vehicles')"><AppIcon name="vehicle" :size="17" /><span class="nav-label">{{ t('nav.vehicles') }}</span></RouterLink>
         <RouterLink to="/profiles" :title="t('nav.profiles')"><AppIcon name="profile" :size="17" /><span class="nav-label">{{ t('nav.profiles') }}</span></RouterLink>
-        <RouterLink to="/hooks" :title="t('nav.hooks')"><AppIcon name="hooks" :size="17" /><span class="nav-label">{{ t('nav.hooks') }}</span></RouterLink>
+        <RouterLink v-if="isAdmin" to="/hooks" :title="t('nav.hooks')"><AppIcon name="hooks" :size="17" /><span class="nav-label">{{ t('nav.hooks') }}</span></RouterLink>
         <RouterLink to="/devices" :title="t('nav.devices')"><AppIcon name="devices" :size="17" /><span class="nav-label">{{ t('nav.devices') }}</span></RouterLink>
         <span class="nav-divider" />
         <RouterLink to="/settings" :title="t('nav.settings')"><AppIcon name="settings" :size="17" /><span class="nav-label">{{ t('nav.settings') }}</span></RouterLink>

@@ -1,13 +1,14 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../src/i18n'
+import { auth } from '../src/api/auth'
 import AppSelect from '../src/components/AppSelect.vue'
 import VehicleProfileEditor from '../src/components/VehicleProfileEditor.vue'
 import DashboardsView from '../src/views/DashboardsView.vue'
 import DevicesView from '../src/views/DevicesView.vue'
 import ProfilesView from '../src/views/ProfilesView.vue'
 import VehiclesView from '../src/views/VehiclesView.vue'
-import { jsonResponse, vehicle } from './helpers'
+import { adminUser, jsonResponse, vehicle } from './helpers'
 
 vi.mock('gridstack', () => ({
   GridStack: {
@@ -18,7 +19,11 @@ vi.mock('gridstack', () => ({
 }))
 
 describe('vehicle and dashboard management', () => {
-  beforeEach(() => { i18n.global.locale.value = 'en' })
+  // These flows exercise controls the access model reserves for administrators.
+  beforeEach(() => {
+    i18n.global.locale.value = 'en'
+    auth.user = { ...adminUser }
+  })
 
   it('creates a vehicle through the real form/API contract', async () => {
     let created = false

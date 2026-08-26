@@ -8,6 +8,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 import VehicleMedia from '../components/VehicleMedia.vue'
+import { canOperate, isAdmin } from '../access'
 import { chargingState, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber, agentStatus, vehicleActivity } from '../vehicleDisplay'
 
 type VehicleFilter = 'all' | 'online' | 'parked'
@@ -189,7 +190,7 @@ onMounted(load)
       </div>
       <div class="header-actions">
         <RouterLink class="button secondary" to="/profiles">{{ t('profiles.title') }}</RouterLink>
-        <button class="button" @click="showForm = true"><AppIcon name="plus" :size="15" />{{ t('vehicles.add') }}</button>
+        <button v-if="isAdmin" class="button" @click="showForm = true"><AppIcon name="plus" :size="15" />{{ t('vehicles.add') }}</button>
       </div>
     </header>
 
@@ -231,7 +232,7 @@ onMounted(load)
 
     <div class="vehicle-list">
       <article v-for="vehicle in filteredVehicles" :key="vehicle.id" class="vehicle-card panel">
-        <div class="vehicle-visual"><VehicleMedia :vehicle="vehicle" editable :busy="photoBusyId === vehicle.id" @select="uploadPhoto(vehicle, $event)" @remove="removePhoto(vehicle)" /></div>
+        <div class="vehicle-visual"><VehicleMedia :vehicle="vehicle" :editable="canOperate(vehicle)" :busy="photoBusyId === vehicle.id" @select="uploadPhoto(vehicle, $event)" @remove="removePhoto(vehicle)" /></div>
 
         <div class="vehicle-card-body">
           <header class="vehicle-identity">
@@ -260,17 +261,20 @@ onMounted(load)
         </div>
 
         <footer>
-          <AppSelect class="card-profile-select" compact :model-value="vehicle.vehicle_profile" :aria-label="t('vehicles.profile')" @update:model-value="assignVehicleProfile(vehicle,$event)"><option :value="null">{{ t('vehicles.noProfile') }}</option><option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profileNames[profile.id] }}</option></AppSelect>
+          <AppSelect v-if="canOperate(vehicle)" class="card-profile-select" compact :model-value="vehicle.vehicle_profile" :aria-label="t('vehicles.profile')" @update:model-value="assignVehicleProfile(vehicle,$event)"><option :value="null">{{ t('vehicles.noProfile') }}</option><option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profileNames[profile.id] }}</option></AppSelect>
+          <!-- Viewers get the fact, not the control; the span keeps the links right-aligned. -->
+          <span v-else class="card-profile-name">{{ vehicle.vehicle_profile ? profileNames[vehicle.vehicle_profile] : '' }}</span>
           <RouterLink class="link-button" :to="`/vehicles/${vehicle.id}/history`">{{ t('vehicles.history') }}</RouterLink>
           <RouterLink class="link-button" to="/devices">{{ t('vehicles.agent') }}</RouterLink>
-          <button class="link-button" type="button" @click="clearTelemetry(vehicle)">{{ t('vehicles.clearData') }}</button>
-          <button class="link-button danger" type="button" @click="deleteTarget=vehicle">{{ t('common.delete') }}</button>
+          <button v-if="canOperate(vehicle)" class="link-button" type="button" @click="clearTelemetry(vehicle)">{{ t('vehicles.clearData') }}</button>
+          <button v-if="isAdmin" class="link-button danger" type="button" @click="deleteTarget=vehicle">{{ t('common.delete') }}</button>
         </footer>
       </article>
 
       <div v-if="!filteredVehicles.length" class="empty panel">
         <h2>{{ vehicles.length ? t('vehicles.noMatch') : t('vehicles.noVehicles') }}</h2>
-        <p v-if="!vehicles.length">{{ t('vehicles.noVehiclesHint') }}</p>
+        <!-- Only an administrator can act on this hint, so only one sees it. -->
+        <p v-if="!vehicles.length && isAdmin">{{ t('vehicles.noVehiclesHint') }}</p>
       </div>
     </div>
   </div>
@@ -328,6 +332,7 @@ onMounted(load)
 
 .vehicle-card>footer{display:flex;align-items:center;gap:14px;padding:9px 16px;border-top:1px solid var(--line)}
 .card-profile-select{margin-right:auto;max-width:150px}
+.card-profile-name{margin-right:auto;overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .card-profile-select :deep(.app-select-trigger){min-height:26px;padding:3px 6px 3px 8px;background:transparent;border-color:transparent;color:var(--muted);font-size:12px}
 .card-profile-select :deep(.app-select-trigger:hover){color:var(--text);border-color:var(--line-strong)}
 

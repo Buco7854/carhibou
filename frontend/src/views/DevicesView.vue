@@ -6,6 +6,7 @@ import type { Vehicle, VehicleProfile } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import CadenceFields from '../components/CadenceFields.vue'
 import { CADENCE_PRESETS, type Cadence } from '../agentCadence'
+import { canOperate, isAdmin, operableVehicles } from '../access'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 
@@ -28,6 +29,12 @@ const copied = ref(false)
 const rotatedCredential = ref<{id:string;credential:string}|null>(null)
 const error = ref('')
 const vehicleNames = computed(() => Object.fromEntries(vehicles.value.map((item) => [item.id, item.name])))
+// Enrollment creates a credential for the vehicle, so the choice is limited to
+// vehicles the user may operate; a device row follows its vehicle's level.
+const enrollableVehicles = computed(() => operableVehicles(vehicles.value))
+function canOperateDevice(device: Device): boolean {
+  return canOperate(vehicles.value.find((item) => item.id === device.vehicle_id))
+}
 // A profile's signals travel in every sample, so the data estimate is only
 // honest if it knows how many the chosen vehicle decodes.
 function signalCount(vehicleId:string):number {
@@ -41,15 +48,15 @@ async function load() {
     devices.value = loadedDevices
     vehicles.value = loadedVehicles
     profileSignals.value = Object.fromEntries(profiles.map((profile) => [profile.id, profile.definition.signals.length]))
-    if (!selectedVehicle.value && vehicles.value[0]) selectedVehicle.value = vehicles.value[0].id
+    if (!selectedVehicle.value && enrollableVehicles.value[0]) selectedVehicle.value = enrollableVehicles.value[0].id
   }
   catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
 }
 function openEnrollment() {
   installCommand.value = ''
   copied.value = false
-  if (!vehicles.value.some((vehicle) => vehicle.id === selectedVehicle.value)) {
-    selectedVehicle.value = vehicles.value[0]?.id ?? ''
+  if (!enrollableVehicles.value.some((vehicle) => vehicle.id === selectedVehicle.value)) {
+    selectedVehicle.value = enrollableVehicles.value[0]?.id ?? ''
   }
   enrolling.value = true
 }
@@ -102,7 +109,7 @@ onMounted(load)
         <p>{{ t('devices.summary',{count:devices.length,online:onlineCount,versions:versionCount}) }}</p>
       </div>
       <div class="header-actions">
-        <button class="button" :disabled="!vehicles.length" @click="openEnrollment"><AppIcon name="plus" :size="15" />{{ t('devices.add') }}</button>
+        <button v-if="enrollableVehicles.length" class="button" @click="openEnrollment"><AppIcon name="plus" :size="15" />{{ t('devices.add') }}</button>
       </div>
     </header>
 
@@ -111,7 +118,7 @@ onMounted(load)
     <AppModal :open="enrolling" :title="t('devices.enrollTitle')" @close="enrolling=false">
       <form class="enrollment-panel" @submit.prevent="createEnrollment">
         <div class="enrollment-fields">
-          <label class="field"><span>{{ t('devices.vehicle') }}</span><AppSelect v-model="selectedVehicle" searchable :search-placeholder="t('vehicles.search')" :no-results-text="t('vehicles.noMatch')"><option v-for="vehicle in vehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.name }}</option></AppSelect></label>
+          <label class="field"><span>{{ t('devices.vehicle') }}</span><AppSelect v-model="selectedVehicle" searchable :search-placeholder="t('vehicles.search')" :no-results-text="t('vehicles.noMatch')"><option v-for="vehicle in enrollableVehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.name }}</option></AppSelect></label>
           <label class="field"><span>{{ t('devices.name') }}</span><input v-model="agentName" class="input" /></label>
           <CadenceFields v-model="enrollmentCadence" :signal-count="signalCount(selectedVehicle)" />
           <p class="field-hint">{{ t('devices.cadenceHint') }}</p>
@@ -152,7 +159,7 @@ onMounted(load)
           <div><dt>{{ t('devices.lastSeen') }}</dt><dd>{{ device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : t('common.never') }}</dd></div>
           <div><dt>{{ t('devices.cadence') }}</dt><dd>{{ t('devices.cadenceValue',{driving:device.sampling_seconds,parked:device.parked_sampling_seconds}) }}</dd></div>
         </dl>
-        <div class="device-actions">
+        <div v-if="canOperateDevice(device)" class="device-actions">
           <button class="button secondary" :disabled="!!device.revoked_at" @click="openSettings(device)">{{ t('devices.settings') }}</button>
           <button class="button secondary" :disabled="!!device.revoked_at" @click="rotate(device.id)">{{ t('devices.rotate') }}</button>
           <button class="link-button danger" type="button" :disabled="!!device.revoked_at" @click="revoke(device.id)">{{ t('devices.revoke') }}</button>
@@ -167,7 +174,9 @@ onMounted(load)
     </div>
     <div v-else class="empty panel">
       <h2>{{ t('devices.noDevices') }}</h2>
-      <p>{{ vehicles.length ? t('devices.noDevicesHint') : t('hooks.createVehicleFirst') }}</p>
+      <!-- Each hint names an action, so each shows only to someone who can take it. -->
+      <p v-if="enrollableVehicles.length">{{ t('devices.noDevicesHint') }}</p>
+      <p v-else-if="isAdmin">{{ t('hooks.createVehicleFirst') }}</p>
     </div>
   </div>
 </template>

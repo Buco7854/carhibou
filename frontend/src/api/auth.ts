@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import type { User } from './types'
+import type { AuthMethods, User } from './types'
 import { APIError, api } from './client'
 
 export const auth = reactive<{ user: User | null; ready: boolean }>({ user: null, ready: false })
@@ -22,6 +22,17 @@ export async function login(email: string, password: string): Promise<void> {
     body: JSON.stringify({ email, password }),
   })
   auth.user = response.user
+}
+
+export async function authMethods(): Promise<AuthMethods> {
+  try {
+    const methods = await api<AuthMethods>('/auth/methods')
+    if (methods?.oidc) return methods
+  } catch {
+    // Fall through: sign-in must never be blocked on an optional discovery call.
+  }
+  // An unreachable or older backend means password-only.
+  return { password: true, oidc: { enabled: false, name: '' } }
 }
 
 export async function registrationIsOpen(): Promise<boolean> {

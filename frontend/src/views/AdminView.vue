@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import { auth } from '../api/auth'
-import type { Diagnostics, UserAccount } from '../api/types'
+import { isAdmin } from '../access'
+import type { DefaultAccess, DefaultAccessGrant, Diagnostics, UserAccount, Vehicle, VehicleGrant } from '../api/types'
+import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
+import AppSelect from '../components/AppSelect.vue'
 
 const { t } = useI18n()
 const diagnostics = ref<Diagnostics | null>(null)
@@ -17,7 +20,22 @@ const dataMessage = ref('')
 const dataError = ref('')
 const emptyPerson = () => ({ email: '', display_name: '', password: '', is_admin: false })
 const person = ref(emptyPerson())
-const isAdmin = computed(() => Boolean(auth.user?.permissions['system.admin']))
+
+const vehicles = ref<Vehicle[]>([])
+const accessVehicleId = ref<string | number | null>(null)
+const grants = ref<VehicleGrant[]>([])
+const grantUserId = ref<string | number | null>(null)
+const grantsSaving = ref(false)
+const grantsSaved = ref(false)
+const grantsError = ref('')
+const defaults = ref<DefaultAccess | null>(null)
+const defaultsSaving = ref(false)
+const defaultsSaved = ref(false)
+const defaultsError = ref('')
+
+// Administrators already operate every vehicle, so granting them one is noise.
+const grantCandidates = computed(() =>
+  people.value.filter((account) => !account.is_admin && !grants.value.some((grant) => grant.user_id === account.id)))
 
 async function loadPeople(): Promise<void> {
   if (!isAdmin.value) return
@@ -54,6 +72,79 @@ async function removePerson(account: UserAccount): Promise<void> {
   } catch (reason) { peopleError.value = reason instanceof Error ? reason.message : t('common.error') }
 }
 
+async function loadGrants(): Promise<void> {
+  grantsSaved.value = false
+  grantsError.value = ''
+  if (!accessVehicleId.value) { grants.value = []; return }
+  try { grants.value = await api<VehicleGrant[]>(`/vehicles/${accessVehicleId.value}/access`) }
+  catch (reason) { grantsError.value = reason instanceof Error ? reason.message : t('common.error') }
+}
+watch(accessVehicleId, loadGrants)
+
+function addGrant(): void {
+  const account = people.value.find((item) => item.id === grantUserId.value)
+  if (!account) return
+  grants.value.push({ user_id: account.id, email: account.email, display_name: account.display_name, level: 'view' })
+  grantUserId.value = null
+  grantsSaved.value = false
+}
+
+function setGrantLevel(grant: VehicleGrant, value: string | number | null): void {
+  if (value === 'view' || value === 'operate') { grant.level = value; grantsSaved.value = false }
+}
+
+function removeGrant(grant: VehicleGrant): void {
+  grants.value = grants.value.filter((item) => item !== grant)
+  grantsSaved.value = false
+}
+
+async function saveGrants(): Promise<void> {
+  grantsSaving.value = true
+  grantsError.value = ''
+  try {
+    // Full replacement: the list on screen is exactly the list that will exist.
+    grants.value = await api<VehicleGrant[]>(`/vehicles/${accessVehicleId.value}/access`, {
+      method: 'PUT',
+      body: JSON.stringify(grants.value.map(({ user_id, level }) => ({ user_id, level }))),
+    })
+    grantsSaved.value = true
+  } catch (reason) { grantsError.value = reason instanceof Error ? reason.message : t('common.error') }
+  finally { grantsSaving.value = false }
+}
+
+function addDefaultGrant(): void {
+  const remaining = vehicles.value.find((vehicle) => !defaults.value?.grants.some((grant) => grant.vehicle_id === vehicle.id))
+  if (defaults.value && remaining) defaults.value.grants.push({ vehicle_id: remaining.id, level: 'view' })
+  defaultsSaved.value = false
+}
+
+function setDefaultGrantVehicle(grant: DefaultAccessGrant, value: string | number | null): void {
+  if (typeof value === 'string') { grant.vehicle_id = value; defaultsSaved.value = false }
+}
+
+function setDefaultGrantLevel(grant: DefaultAccessGrant, value: string | number | null): void {
+  if (value === 'view' || value === 'operate') { grant.level = value; defaultsSaved.value = false }
+}
+
+function removeDefaultGrant(index: number): void {
+  defaults.value?.grants.splice(index, 1)
+  defaultsSaved.value = false
+}
+
+async function saveDefaults(): Promise<void> {
+  if (!defaults.value) return
+  defaultsSaving.value = true
+  defaultsError.value = ''
+  try {
+    defaults.value = await api<DefaultAccess>('/admin/default-access', {
+      method: 'PUT',
+      body: JSON.stringify(defaults.value),
+    })
+    defaultsSaved.value = true
+  } catch (reason) { defaultsError.value = reason instanceof Error ? reason.message : t('common.error') }
+  finally { defaultsSaving.value = false }
+}
+
 /**
  * Empty every vehicle of readings. The vehicles, agents, hooks and dashboards
  * are left standing; only what was recorded goes, which is what makes this usable
@@ -73,6 +164,13 @@ async function clearAllTelemetry(): Promise<void> {
 
 onMounted(async () => {
   await loadPeople()
+  if (isAdmin.value) {
+    try {
+      vehicles.value = await api<Vehicle[]>('/vehicles')
+      accessVehicleId.value = vehicles.value[0]?.id ?? null
+      defaults.value = await api<DefaultAccess>('/admin/default-access')
+    } catch (reason) { defaultsError.value = reason instanceof Error ? reason.message : t('common.error') }
+  }
   try { diagnostics.value = await api<Diagnostics>('/system/diagnostics') } catch { /* shown by its absence */ }
 })
 </script>
@@ -95,6 +193,8 @@ onMounted(async () => {
             <span :class="['status', { online: account.is_active }]">{{ account.is_active ? t('settings.activeAccount') : t('settings.inactiveAccount') }}</span>
             <div class="person-actions">
               <button class="link-button" type="button" @click="updatePerson(account, { is_admin: !account.is_admin })">{{ account.is_admin ? t('settings.revokeAdmin') : t('settings.makeAdmin') }}</button>
+              <!-- An administrator can already create profiles, so the toggle would say nothing. -->
+              <button v-if="!account.is_admin" class="link-button" type="button" @click="updatePerson(account, { can_create_profiles: !account.can_create_profiles })">{{ account.can_create_profiles ? t('admin.revokeProfiles') : t('admin.allowProfiles') }}</button>
               <button class="link-button" type="button" @click="updatePerson(account, { is_active: !account.is_active })">{{ account.is_active ? t('settings.suspend') : t('settings.restore') }}</button>
               <button class="link-button danger" type="button" @click="removePerson(account)">{{ t('common.delete') }}</button>
             </div>
@@ -115,6 +215,70 @@ onMounted(async () => {
         <div class="form-actions"><button class="button" :disabled="saving">{{ t('settings.createUser') }}</button><button class="button ghost" type="button" @click="creating = false">{{ t('common.cancel') }}</button></div>
       </form>
     </AppModal>
+
+
+    <section v-if="isAdmin && vehicles.length" class="settings-block">
+      <div class="settings-label"><h2>{{ t('admin.vehicleAccess') }}</h2><p>{{ t('admin.vehicleAccessHint') }}</p></div>
+      <div class="settings-body">
+        <label class="field grant-vehicle"><span>{{ t('devices.vehicle') }}</span>
+          <AppSelect v-model="accessVehicleId" :aria-label="t('devices.vehicle')">
+            <option v-for="item in vehicles" :key="item.id" :value="item.id">{{ item.name }}</option>
+          </AppSelect>
+        </label>
+        <p v-if="grantsError" class="error" role="alert">{{ grantsError }}</p>
+        <ul v-if="grants.length" class="grant-list">
+          <li v-for="grant in grants" :key="grant.user_id">
+            <div class="person">
+              <strong>{{ grant.display_name }}</strong>
+              <small>{{ grant.email }}</small>
+            </div>
+            <AppSelect compact :model-value="grant.level" :aria-label="t('admin.level')" @update:model-value="setGrantLevel(grant, $event)">
+              <option value="view">{{ t('admin.levelView') }}</option>
+              <option value="operate">{{ t('admin.levelOperate') }}</option>
+            </AppSelect>
+            <button class="link-button danger" type="button" @click="removeGrant(grant)">{{ t('admin.remove') }}</button>
+          </li>
+        </ul>
+        <p v-else class="field-hint">{{ t('admin.noGrants') }}</p>
+        <div v-if="grantCandidates.length" class="grant-add">
+          <AppSelect v-model="grantUserId" :aria-label="t('settings.users')">
+            <option :value="null">{{ t('admin.choosePerson') }}</option>
+            <option v-for="account in grantCandidates" :key="account.id" :value="account.id">{{ account.display_name }}</option>
+          </AppSelect>
+          <button class="button secondary" type="button" :disabled="!grantUserId" @click="addGrant">{{ t('admin.addGrant') }}</button>
+        </div>
+        <div class="save-row">
+          <button class="button" type="button" :disabled="grantsSaving" @click="saveGrants">{{ t('common.save') }}</button>
+          <span v-if="grantsSaved" class="saved-note" role="status">{{ t('admin.accessSaved') }}</span>
+        </div>
+      </div>
+    </section>
+
+
+    <section v-if="isAdmin && defaults" class="settings-block">
+      <div class="settings-label"><h2>{{ t('admin.defaultAccess') }}</h2><p>{{ t('admin.defaultAccessHint') }}</p></div>
+      <div class="settings-body">
+        <p v-if="defaultsError" class="error" role="alert">{{ defaultsError }}</p>
+        <label class="check"><input v-model="defaults.profiles_create" type="checkbox" /><span>{{ t('admin.defaultProfilesCreate') }}</span></label>
+        <ul v-if="defaults.grants.length" class="grant-list">
+          <li v-for="(grant, index) in defaults.grants" :key="index">
+            <AppSelect :model-value="grant.vehicle_id" :aria-label="t('devices.vehicle')" @update:model-value="setDefaultGrantVehicle(grant, $event)">
+              <option v-for="item in vehicles" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </AppSelect>
+            <AppSelect compact :model-value="grant.level" :aria-label="t('admin.level')" @update:model-value="setDefaultGrantLevel(grant, $event)">
+              <option value="view">{{ t('admin.levelView') }}</option>
+              <option value="operate">{{ t('admin.levelOperate') }}</option>
+            </AppSelect>
+            <button class="link-button danger" type="button" @click="removeDefaultGrant(index)">{{ t('admin.remove') }}</button>
+          </li>
+        </ul>
+        <button v-if="vehicles.length" class="button secondary" type="button" @click="addDefaultGrant"><AppIcon name="plus" :size="15" />{{ t('admin.addGrant') }}</button>
+        <div class="save-row">
+          <button class="button" type="button" :disabled="defaultsSaving" @click="saveDefaults">{{ t('common.save') }}</button>
+          <span v-if="defaultsSaved" class="saved-note" role="status">{{ t('admin.accessSaved') }}</span>
+        </div>
+      </div>
+    </section>
 
 
     <section class="settings-block">
@@ -184,6 +348,13 @@ onMounted(async () => {
 .person-form .form-actions{justify-content:flex-end;margin-top:2px}
 .check{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
 .check input{width:14px;height:14px;accent-color:var(--accent)}
+.grant-vehicle{max-width:320px}
+.grant-list{list-style:none;margin:0;padding:0;display:grid}
+.grant-list li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px 12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.grant-list li:first-child{padding-top:0}
+.grant-add{display:flex;align-items:center;gap:10px}
+.grant-add>:first-child{width:min(260px,100%)}
+.save-row{display:flex;align-items:center;gap:12px}
 .diagnostics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:14px;margin:0}
 .diagnostics-grid dt{color:var(--muted);font-size:12px}
 .diagnostics-grid dd{margin:3px 0 0;font-size:15px;font-weight:500}
