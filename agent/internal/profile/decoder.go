@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 
 	"github.com/Buco7854/vehinode/agent/internal/model"
@@ -124,6 +125,17 @@ func validateSignal(signal Signal) error {
 }
 
 func (engine *DecoderEngine) ID() string { return engine.definition.ID }
+
+// CANIDs lists the identifiers the profile decodes, so a monitor can ask the
+// adapter for those and nothing else.
+func (engine *DecoderEngine) CANIDs() []int {
+	ids := make([]int, 0, len(engine.byCANID))
+	for canID := range engine.byCANID {
+		ids = append(ids, canID)
+	}
+	sort.Ints(ids)
+	return ids
+}
 
 func (engine *DecoderEngine) Decode(frame model.CANFrame, current map[string]any) []DecodedSignal {
 	result := []DecodedSignal{}

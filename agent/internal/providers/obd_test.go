@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -121,4 +122,60 @@ func TestVoltageAndProtocolComeFromTheAdapter(t *testing.T) {
 	if err != nil || protocol != "ISO 15765-4 (CAN 11/500)" {
 		t.Fatalf("protocol=%q err=%v", protocol, err)
 	}
+}
+
+// A displayed length is one hex digit. Accepting two swallowed any first data byte
+// that read as a small decimal, shifting every offset in the frame by one — and
+// only for the frames whose first byte happened to look like that.
+func TestFirstDataByteIsNotMistakenForALength(t *testing.T) {
+	frame, err := ParseCANFrame("374 00 96 00 00 00 00 00 00", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frame.Data) != 8 || frame.Data[0] != 0x00 || frame.Data[1] != 0x96 {
+		t.Fatalf("data=% X, want the leading 00 kept as data", frame.Data)
+	}
+
+	// A genuine displayed length is still recognised.
+	withLength, err := ParseCANFrame("374 8 00 96 00 00 00 00 00 00", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(withLength.Data) != 8 || withLength.Data[1] != 0x96 {
+		t.Fatalf("data=% X, want the length consumed and the data kept", withLength.Data)
+	}
+}
+
+// A vehicle bus runs at 500 kbit/s and the serial link carries 115200, so an
+// unfiltered monitor asks for roughly four times what the cable can take.
+func TestPassFiltersAskForOnlyTheProfilesIdentifiers(t *testing.T) {
+	port := &recordingPort{scriptedPort: scriptedPort{replies: map[string]string{"STFAP": "OK\r>"}}}
+	adapter := NewOBDAdapter("scripted")
+	adapter.port = port
+	adapter.CommandWindow = time.Second
+
+	if err := adapter.PassFilters([]int{0x101, 0x373, 0x374}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"STFAP 101,FFF", "STFAP 373,FFF", "STFAP 374,FFF"} {
+		if !strings.Contains(port.written, want) {
+			t.Fatalf("wrote %q, missing %q", port.written, want)
+		}
+	}
+
+	// A 29-bit identifier has no three-digit form, so it is refused rather than
+	// silently truncated into a filter that would pass the wrong traffic.
+	if err := adapter.PassFilters([]int{0x1FFFFFFF}); err == nil {
+		t.Fatal("expected an extended identifier to be refused")
+	}
+}
+
+type recordingPort struct {
+	scriptedPort
+	written string
+}
+
+func (port *recordingPort) Write(payload []byte) (int, error) {
+	port.written += string(payload)
+	return port.scriptedPort.Write(payload)
 }

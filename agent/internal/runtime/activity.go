@@ -30,6 +30,13 @@ const (
 // when a slow cadence is least wanted.
 var readinessMetrics = []string{"vehicle.ready", "vehicle.ignition", "charging.active"}
 
+// inUseStates are the values of a vehicle.state signal that mean the vehicle is
+// doing something. A profile that decodes a single frame into a named state says
+// more than a set of booleans could, and the C-Zero's 0x101 is exactly that: it is
+// transmitted at all only when the car is awake, reading "ready" when it can drive
+// and "charging" when it is plugged in.
+var inUseStates = map[string]bool{"ready": true, "charging": true, "driving": true, "on": true}
+
 const (
 	// Below this a GPS fix is reporting its own noise rather than motion.
 	movingKMH = 3.0
@@ -82,6 +89,11 @@ func (detector *ActivityDetector) Observe(sample model.Sample, now time.Time) (b
 }
 
 func (detector *ActivityDetector) evidence(sample model.Sample) (ActivitySource, bool) {
+	if state, present := sample.Metrics["vehicle.state"]; present {
+		if text, ok := state.(string); ok {
+			return SourceReadiness, inUseStates[text]
+		}
+	}
 	for _, name := range readinessMetrics {
 		if value, present := sample.Metrics[name]; present {
 			if truthy(value) {

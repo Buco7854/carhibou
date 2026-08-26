@@ -209,6 +209,28 @@ func (adapter *OBDAdapter) Query(mode, pid int) ([]string, error) {
 	return adapter.Command(fmt.Sprintf("%02X%02X", mode, pid), 0)
 }
 
+// PassFilters restricts monitoring to the given CAN identifiers.
+//
+// Without them a monitor sees every frame on the bus. A vehicle CAN bus runs at
+// 500 kbit/s and the serial link carries 115200, so an unfiltered monitor asks the
+// adapter to forward roughly four times what the cable can take: it overruns, and
+// what arrives is truncated frames rather than the handful the profile wanted.
+// Filtering is done in the adapter, before the bottleneck.
+//
+// A reset clears filters, and Connect resets, so there is nothing to clear first.
+func (adapter *OBDAdapter) PassFilters(canIDs []int) error {
+	for _, canID := range canIDs {
+		if canID < 0 || canID > 0x7FF {
+			// Only 11-bit identifiers have the three-digit form this takes.
+			return fmt.Errorf("cannot filter on identifier %#x", canID)
+		}
+		if _, err := adapter.Command(fmt.Sprintf("STFAP %03X,FFF", canID), 0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (adapter *OBDAdapter) Monitor(duration time.Duration, onFrame func(model.CANFrame)) error {
 	if adapter.port == nil {
 		return fmt.Errorf("adapter is not connected")
@@ -257,7 +279,10 @@ func ParseCANFrame(line string, timestamp float64) (model.CANFrame, error) {
 	} else {
 		canIDText = parts[0]
 		remaining := parts[1:]
-		if value, err := strconv.Atoi(remaining[0]); err == nil && value <= 8 {
+		// A displayed length is one hex digit. Accepting two swallowed any first
+		// data byte that happened to read as a small decimal — "00" through "08" —
+		// shifting every offset in the frame by one, but only for some frames.
+		if value, err := strconv.Atoi(remaining[0]); err == nil && len(remaining[0]) == 1 && value <= 8 {
 			declared = value
 			remaining = remaining[1:]
 		}

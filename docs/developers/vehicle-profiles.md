@@ -11,6 +11,10 @@ bounds. Evidence statuses, source URLs, per-signal prose and a vehicle family we
 carried here once and read by nothing. The hardware validation ledger, not the profile,
 records which formulas have been confirmed against a physical vehicle.
 
+Monitoring applies the profile's identifiers as adapter pass filters before it
+starts. Without them the adapter forwards the whole bus, which is several times what
+the serial link can carry, and the frames the profile wanted arrive truncated.
+
 Built-in profiles are YAML under `agent/profiles`; adding one requires synthetic fixtures
 for each formula, source/license notes and an update to the hardware validation ledger.
 Owners manage owner-scoped definitions on the dedicated **Telemetry profiles** page.

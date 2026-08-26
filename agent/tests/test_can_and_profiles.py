@@ -36,14 +36,21 @@ def test_can_frame_parsing_capture_and_replay(tmp_path: Path) -> None:
 
 def test_experimental_c_zero_profile_decodes_documented_starting_points() -> None:
     decoder = VehicleProfileDecoder.from_path(profile_path())
-    soc = decoder.decode(CANFrame(1, 0x374, bytes.fromhex("9600000000000000")))
+    # Byte 1 carries the charge; byte 0 is something else. Taken from a script
+    # proven against a physical C-Zero.
+    soc = decoder.decode(CANFrame(1, 0x374, bytes.fromhex("0096000000000000")))
     assert {value.name: value.value for value in soc}["battery.soc"] == 70
     assert {value.name: value.unit for value in soc}["battery.soc"] == "%"
 
     battery = decoder.decode(CANFrame(2, 0x373, bytes.fromhex("000080640CE40000")))
     values = {value.name: value.value for value in battery}
-    assert values["battery.current"] == pytest.approx(-1.0)
+    # (0x8064 - 0x8000) / 100 = +1.0 A, the direction the proven script reports.
+    assert values["battery.current"] == pytest.approx(1.0)
     assert values["battery.pack_voltage"] == pytest.approx(330.0)
+
+    # 0x101 is transmitted only while the car is awake, and says which way.
+    state = decoder.decode(CANFrame(3, 0x101, bytes.fromhex("04")))
+    assert {value.name: value.value for value in state}["vehicle.state"] == "ready"
 
 
 def test_standard_obd_parsing() -> None:

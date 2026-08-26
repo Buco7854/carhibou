@@ -6,7 +6,7 @@ export interface MetricDefinition {
   unit: string
   icon: string
   decimals: number
-  kind: 'number' | 'boolean'
+  kind: 'number' | 'boolean' | 'text'
 }
 
 export interface MetricReading extends MetricDefinition {
@@ -30,6 +30,12 @@ const metricDefinitions: Record<string, MetricDefinition> = {
   },
   'battery.pack_voltage': {
     key: 'battery.pack_voltage', labelKey: 'metrics.packVoltage', unit: 'V', icon: 'battery', decimals: 1, kind: 'number',
+  },
+  'vehicle.state': {
+    key: 'vehicle.state', labelKey: 'metrics.vehicleState', unit: '', icon: 'vehicle', decimals: 0, kind: 'text',
+  },
+  'vehicle.range': {
+    key: 'vehicle.range', labelKey: 'metrics.range', unit: 'km', icon: 'energy', decimals: 0, kind: 'number',
   },
   'charging.active': {
     key: 'charging.active', labelKey: 'metrics.charging', unit: '', icon: 'charging', decimals: 0, kind: 'boolean',

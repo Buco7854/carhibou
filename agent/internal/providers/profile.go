@@ -49,6 +49,11 @@ func (provider *ProfileProvider) ReadMetrics() (map[string]any, error) {
 			provider.failure = "adapter rejected CAN protocol 6: " + err.Error()
 			return copyMetrics(provider.metrics), nil
 		}
+		if err := provider.adapter.PassFilters(provider.decoder.CANIDs()); err != nil {
+			provider.adapter.Close()
+			provider.failure = "adapter rejected the CAN filters: " + err.Error()
+			return copyMetrics(provider.metrics), nil
+		}
 		provider.connected = true
 		provider.failure = ""
 	}

@@ -1,20 +1,28 @@
 id: citroen-c-zero-v1
 name: Citroën C-Zero / Mitsubishi i-MiEV / Peugeot iOn
-version: 3
+version: 4
 description: >-
-  Community-documented CAN mappings for compatible vehicles and capture hardware.
+  CAN mappings for compatible vehicles, taken from a script proven against a
+  physical C-Zero.
 signals:
+  - name: vehicle.state
+    display_name: Vehicle state
+    source: {type: can, can_id: 0x101}
+    decoder:
+      byte_offset: 0
+      data_type: uint8
+      enum: {"4": ready, "0": charging}
   - name: battery.soc
     display_name: Battery state of charge
     source: {type: can, can_id: 0x374}
-    decoder: {byte_offset: 0, data_type: uint8, scale: 0.5, offset: -5}
+    decoder: {byte_offset: 1, data_type: uint8, scale: 0.5, offset: -5}
     unit: "%"
     minimum: 0
     maximum: 100
   - name: battery.current
     display_name: Battery pack current
     source: {type: can, can_id: 0x373}
-    decoder: {byte_offset: 2, data_type: uint16, scale: -0.01, offset: 327.68}
+    decoder: {byte_offset: 2, data_type: uint16, scale: 0.01, offset: -327.68}
     unit: A
     minimum: -500
     maximum: 500
@@ -39,10 +47,50 @@ signals:
     unit: km
     minimum: 0
     maximum: 2000000
+  - name: vehicle.range
+    display_name: Estimated range
+    source: {type: can, can_id: 0x346}
+    decoder: {byte_offset: 7, data_type: uint8}
+    unit: km
+    minimum: 0
+    maximum: 300
+  - name: engine.rpm
+    display_name: Motor speed
+    source: {type: can, can_id: 0x298}
+    decoder: {byte_offset: 6, data_type: uint16, offset: -10000}
+    unit: rpm
+    minimum: -10000
+    maximum: 12000
+  - name: engine.coolant_temperature
+    display_name: Motor temperature
+    source: {type: can, can_id: 0x298}
+    decoder: {byte_offset: 3, data_type: uint8, offset: -40}
+    unit: °C
+    minimum: -40
+    maximum: 200
+  - name: charging.voltage
+    display_name: Charger input voltage
+    source: {type: can, can_id: 0x389}
+    decoder: {byte_offset: 1, data_type: uint8}
+    unit: V
+    minimum: 0
+    maximum: 300
+  - name: charging.current
+    display_name: Charger input current
+    source: {type: can, can_id: 0x389}
+    decoder: {byte_offset: 6, data_type: uint8, scale: 0.1}
+    unit: A
+    minimum: 0
+    maximum: 40
 computed_metrics:
   # Volts times amps gives watts; scale to the kilowatts every VehiNode surface expects.
   - name: battery.power
     operation: multiply
     inputs: [battery.pack_voltage, battery.current]
+    scale: 0.001
+    unit: kW
+  - name: charging.power
+    operation: multiply
+    inputs: [charging.voltage, charging.current]
     scale: 0.001
     unit: kW
