@@ -52,7 +52,11 @@ describe('telemetry table', () => {
     // A profile-only signal with no built-in label keeps its raw metric key.
     expect(headers.some((text) => text.includes('custom.oil_pressure'))).toBe(true)
     expect(headers.some((text) => text.includes('Battery level'))).toBe(true)
-    expect(headers.some((text) => text.includes('Mobile signal'))).toBe(true)
+    // The tracker's own readings are not readings from the car, and there are
+    // enough of them to bury the ones that are, so they start hidden.
+    expect(headers.some((text) => text.includes('Mobile signal'))).toBe(false)
+    const offered = wrapper.findAll('.columns-menu li').map((item) => item.text())
+    expect(offered.length === 0 || offered.some((text) => text.includes('Mobile signal'))).toBe(true)
     // A row missing that signal shows a dash rather than dropping out.
     expect(wrapper.findAll('tbody tr')[1]!.text()).toContain('—')
   })
@@ -135,7 +139,10 @@ describe('telemetry table', () => {
     expect(current.attributes('title')).toContain('battery.current')
     expect(current.attributes('title')).toContain('charging')
 
-    const device = wrapper.findAll('thead th button').find((button) => button.text().includes('Mobile signal'))!
+    // A tracker column is hidden by default, so its name is reached through the
+    // column menu rather than through a header that is not there.
+    await wrapper.get('.entries-tools button').trigger('click')
+    const device = wrapper.findAll('.columns-menu label').find((item) => item.text().includes('Mobile signal'))!
     expect(device.attributes('title')).toContain('mobile_signal')
   })
 

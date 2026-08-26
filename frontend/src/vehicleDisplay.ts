@@ -115,6 +115,38 @@ for (const wheel of WHEELS) {
   }
 }
 
+/** Whether the tracker is reporting. This is about the tracker, not the vehicle. */
+export type TrackerStatus = 'online' | 'stale' | 'never'
+
+/** What the vehicle is doing, as far as the last report knows. */
+export type VehicleActivity = 'driving' | 'charging' | 'parked' | 'unknown'
+
+export function trackerStatus(vehicle: Vehicle | null | undefined): TrackerStatus {
+  if (!vehicle?.state) return 'never'
+  return vehicle.state.online ? 'online' : 'stale'
+}
+
+/**
+ * What the vehicle is doing.
+ *
+ * Deliberately separate from the tracker's status, which had been standing in for
+ * it: a tracker that has stopped reporting was shown as a parked car, which is a
+ * claim about the vehicle made from evidence about the tracker. A car towed away
+ * with its tracker unplugged is not parked; nobody knows what it is.
+ */
+export function vehicleActivity(vehicle: Vehicle | null | undefined): VehicleActivity {
+  const state = vehicle?.state
+  if (!state || !state.online) return 'unknown'
+  const declared = state.metrics['vehicle.state']
+  if (typeof declared === 'string') {
+    if (declared === 'charging') return 'charging'
+    if (declared === 'ready' || declared === 'driving' || declared === 'on') return 'driving'
+  }
+  if (chargingState(vehicle).active) return 'charging'
+  if (state.device['vehicle_in_use'] === true) return 'driving'
+  return 'parked'
+}
+
 export function metricDefinition(key: string): MetricDefinition {
   return metricDefinitions[key] ?? { key, labelKey: '', unit: '', icon: 'signal', decimals: 1, kind: 'number' }
 }

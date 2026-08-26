@@ -7,7 +7,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 import VehicleMedia from '../components/VehicleMedia.vue'
-import { chargingState, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber } from '../vehicleDisplay'
+import { chargingState, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber, trackerStatus, vehicleActivity } from '../vehicleDisplay'
 
 type VehicleFilter = 'all' | 'online' | 'parked'
 
@@ -227,7 +227,7 @@ onMounted(load)
               <h2>{{ vehicle.name }}</h2>
               <p v-if="[vehicle.manufacturer, vehicle.model, vehicle.year].filter(Boolean).length">{{ [vehicle.manufacturer, vehicle.model, vehicle.year].filter(Boolean).join(' · ') }}</p>
             </div>
-            <span :class="['status',{online:vehicle.state?.online}]">{{ vehicle.state?.online ? t('common.online') : t('common.parked') }}</span>
+            <span :class="['status',{online:vehicle.state?.online}]">{{ vehicle.state?.online ? t(`dashboard.activity.${vehicleActivity(vehicle)}`) : t(`dashboard.tracker.${trackerStatus(vehicle)}`) }}</span>
           </header>
 
           <section class="charge-reading">

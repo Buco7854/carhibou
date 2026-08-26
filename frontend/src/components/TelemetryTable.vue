@@ -126,11 +126,20 @@ const activeFilters = computed(() => filters.value.flatMap((filter) => {
   return query ? [query] : []
 }))
 
+/** Columns the tracker reports about itself rather than about the vehicle. */
+function systemColumns(): string[] {
+  return (data.value?.device_keys ?? []).map((name) => `device:${name}`)
+}
+
 function loadPreference(): void {
-  preference.value = { order: [], hidden: [] }
+  // A tracker's own load average and queue depth are not readings from the car,
+  // and there are enough of them to bury the ones that are. They stay available,
+  // in the column menu, rather than shown by default.
+  preference.value = { order: [], hidden: systemColumns() }
   try {
     const stored = JSON.parse(localStorage.getItem(storageKey.value) ?? 'null') as ColumnPreference | null
     if (stored && Array.isArray(stored.order) && Array.isArray(stored.hidden)) preference.value = stored
+    else hideSystemOnceKnown = true
   } catch {
     // A malformed preference falls back to showing every column.
   }
@@ -245,7 +254,16 @@ function cell(entry: HistoryEntry, column: TableColumn): string {
 
 // The column set is per vehicle, so a filter on a column the next vehicle does not
 // report would silently return nothing.
-watch(() => props.vehicleId, () => { loadPreference(); filters.value = []; offset.value = 0 }, { immediate: true })
+// The tracker's columns are only known once a page has arrived, so a first visit
+// applies the default the moment they are.
+let hideSystemOnceKnown = true
+watch(() => data.value?.device_keys, (keys) => {
+  if (!hideSystemOnceKnown || !keys?.length) return
+  hideSystemOnceKnown = false
+  preference.value = { ...preference.value, hidden: [...new Set([...preference.value.hidden, ...systemColumns()])] }
+})
+
+watch(() => props.vehicleId, () => { hideSystemOnceKnown = true; loadPreference(); filters.value = []; offset.value = 0 }, { immediate: true })
 watch(() => props.days, () => { offset.value = 0 })
 watch(activeFilters, () => { offset.value = 0 })
 watch([() => props.vehicleId, () => props.days, sort, direction, limit, offset, activeFilters], load, { immediate: true })
