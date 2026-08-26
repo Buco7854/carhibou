@@ -52,3 +52,17 @@ metric you selected.
 The SPA supports English and French through locale catalogs designed for more languages.
 The browser language is used initially; an explicit choice is then saved. Light, Dark
 and Auto themes are saved per browser; Auto follows operating-system changes.
+
+## Choosing what a card shows
+
+A card is given patterns rather than a fixed list. A pattern is either an exact
+canonical name, `battery.soc`, or a prefix, `tyre.*`. Exact is predictable and is
+what a card about one reading wants. A prefix keeps a card correct as a vehicle
+gains signals: a card asking for `tyre.*` shows a fourth wheel without being
+edited. Both can be mixed, and the order they are written is the order they appear.
+
+How many a card can take is decided by how it draws, not by preference. A gauge is
+a proportion of one thing and a reading is one number, so neither has an
+arrangement for a second and both take one metric. A table and a chart are lists by
+nature and take as many as they are given. A single-value card whose patterns match
+several keeps the first the patterns named, so the choice stays yours.
