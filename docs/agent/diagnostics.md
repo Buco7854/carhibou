@@ -164,8 +164,11 @@ accepts `AT`, so it is used as the position source *and* as the control port tha
 switches the receiver on. Which interface index does this varies by module and
 firmware, so nothing is assumed from the name — a port is only what it answers to.
 
-A line ending in `no answer within 5s; the port was left alone` means that
-interface never returned from being opened. A cellular module publishes interfaces
+A line ending in `no answer within 2.5s; the port was left alone` means that
+interface never returned from being opened. The wait is the probe's own budget
+plus a margin: listening long enough to catch a receiver's once-a-second burst,
+then two questions no answering device takes more than a fraction of a second to
+reply to. A cellular module publishes interfaces
 that are not conversational serial devices at all — diagnostic, PPP, audio — and
 some of them block. The sweep abandons them and carries on, so one such interface
 no longer stops the agent finding the others.

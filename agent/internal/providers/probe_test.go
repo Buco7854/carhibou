@@ -228,3 +228,16 @@ func TestProbeGivesUpOnAPortWhoseOpenNeverReturns(t *testing.T) {
 		t.Fatalf("got %d reports, want both candidates covered", len(reports))
 	}
 }
+
+// The watchdog has to sit above the conversation it guards and not far above it:
+// below, and a port about to answer is abandoned; far above, and a dead port costs
+// more than it has to. Deriving it keeps the two from drifting apart.
+func TestProbeTimeoutTracksTheConversationBudget(t *testing.T) {
+	budget := defaultConversation.budget()
+	if probeTimeout <= budget {
+		t.Fatalf("timeout %s is not above the %s a healthy port may take", probeTimeout, budget)
+	}
+	if probeTimeout > budget*2 {
+		t.Fatalf("timeout %s is far beyond the %s budget it guards", probeTimeout, budget)
+	}
+}

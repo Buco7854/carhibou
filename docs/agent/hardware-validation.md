@@ -30,8 +30,8 @@ date here. Never replace “pending” with “verified” from simulation alone
 - **2026-08-26, SIM7600G-H on Pi Zero W.** One of the module's interfaces never
   returned from being opened, and the sweep waited on it forever, so every command
   that has to find its devices hung — the telemetry service included. Nothing in Go
-  can cancel a blocked syscall, so each port is now given five seconds and abandoned
-  if it does not answer. The interface that blocks is past `if02`; which one, and
+  can cancel a blocked syscall, so each port is now given the probe's own budget
+  plus a margin — 2.5 s — and abandoned if it does not answer. The interface that blocks is past `if02`; which one, and
   why, is not yet established.
 
 - **2026-08-26, SIM7600G-H on Pi Zero W.** Reopening a serial interface immediately

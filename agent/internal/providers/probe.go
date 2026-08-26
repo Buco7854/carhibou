@@ -59,7 +59,18 @@ type probeConversation struct {
 	command time.Duration
 }
 
-var defaultConversation = probeConversation{listen: 900 * time.Millisecond, command: 700 * time.Millisecond}
+// The listen window is the floor here, not the command windows: a receiver emits
+// its sentences in a burst about once a second, so a port opened just after one
+// has to be given long enough to hear the next. An ELM327 answers ATI in tens of
+// milliseconds and a SIMCom module answers AT faster still, so those windows are
+// already an order of magnitude more than either needs.
+var defaultConversation = probeConversation{listen: 900 * time.Millisecond, command: 400 * time.Millisecond}
+
+// budget is the longest a probe can legitimately take: listen, then ask twice,
+// then leave the port alone after closing it.
+func (timing probeConversation) budget() time.Duration {
+	return timing.listen + 2*timing.command + portSettle
+}
 
 // ClassifyPort reports everything one already-open port turns out to do.
 //
@@ -176,7 +187,12 @@ const portSettle = 200 * time.Millisecond
 // included. A port that has not answered by now is abandoned so the rest of the
 // sweep carries on without it. The goroutine left behind is stuck in a syscall and
 // cannot be reclaimed, which is why the sweep runs once rather than repeatedly.
-var probeTimeout = 5 * time.Second
+//
+// It is derived from the conversation rather than chosen, so the two cannot drift
+// apart: a longer window without a longer watchdog would abandon ports that were
+// about to answer, and a watchdog far above the budget just makes a dead port cost
+// more than it needs to. The margin covers scheduling on a single slow core.
+var probeTimeout = defaultConversation.budget() + 600*time.Millisecond
 
 // openPort is a seam: a device that never returns from open cannot be created on
 // demand, and the abandonment path is the whole point of the timeout.
