@@ -86,17 +86,52 @@ func SerialCandidates() []string {
 	return values
 }
 
-// Detection is what the running service resolved at startup.
+// Detection is what the service resolved, kept so it need not be resolved again.
 //
-// The service holds the serial ports while it runs, so a diagnostic command cannot
-// probe them itself without stopping it first. Publishing the result lets an
-// operator see what was chosen without interrupting telemetry.
+// It serves two purposes. The service holds the serial ports while it runs, so a
+// diagnostic cannot probe them without stopping it first; publishing the result
+// lets an operator see what was chosen without interrupting telemetry. And a sweep
+// costs seconds per port, all of it spent waiting, which is not worth repeating on
+// every restart of a service that lives on a single slow core.
 type Detection struct {
 	At    string `json:"at"`
 	GPS   string `json:"gps,omitempty"`
 	OBD   string `json:"obd,omitempty"`
 	Modem string `json:"modem,omitempty"`
-	Ports any    `json:"ports,omitempty"`
+	// GPSStreams records whether the GPS path publishes sentences by itself, since
+	// that decides whether its position is streamed or polled over AT.
+	GPSStreams bool `json:"gps_streams,omitempty"`
+	// Candidates is the port list the sweep was made against. A different list
+	// means hardware was added, removed or renumbered underneath the answer.
+	Candidates []string `json:"candidates,omitempty"`
+	Ports      any      `json:"ports,omitempty"`
+}
+
+// Usable reports whether a stored detection can still be trusted without probing.
+//
+// Two cheap checks, neither of which opens a port: the set of candidates has to be
+// the one the answer was made against, and every path the answer names has to
+// still exist. A tracker that was replugged into a different socket, or a module
+// that enumerated its interfaces in another order, fails the first; a device that
+// simply went away fails the second.
+func (detection Detection) Usable(candidates []string) bool {
+	if len(detection.Candidates) != len(candidates) {
+		return false
+	}
+	for index, candidate := range candidates {
+		if detection.Candidates[index] != candidate {
+			return false
+		}
+	}
+	for _, device := range []string{detection.GPS, detection.OBD, detection.Modem} {
+		if device == "" {
+			continue
+		}
+		if _, err := os.Stat(device); err != nil {
+			return false
+		}
+	}
+	return len(candidates) > 0
 }
 
 type DetectionStore struct{ Path string }
@@ -111,4 +146,14 @@ func (store DetectionStore) Load() (Detection, bool) {
 
 func (store DetectionStore) Save(detection Detection) error {
 	return WriteJSONAtomic(store.Path, detection, 0o644)
+}
+
+// Forget discards the stored answer so the next start works it out again.
+//
+// The structural checks in Usable cannot catch a path that still exists and still
+// enumerates the same but no longer behaves as it did. Failing to open what the
+// answer named is the evidence for that, and throwing the answer away is what lets
+// a restart recover instead of failing the same way forever.
+func (store DetectionStore) Forget() {
+	_ = os.Remove(store.Path)
 }

@@ -43,7 +43,9 @@ selection with:
 sudo vehinode-agent devices
 ```
 
-Each source can be `auto`, `off`, or an explicit path. Save a verified stable choice and
+An `auto` source is worked out once and remembered in `detection.json`, and that
+answer is reused while the serial paths it was made against are still the ones
+present. Each source can be `auto`, `off`, or an explicit path. Save a verified stable choice and
 restart the service with:
 
 ```sh

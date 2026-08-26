@@ -255,12 +255,12 @@ func commandDoctor(locations paths, probe bool) error {
 		if probe {
 			// Opening every port is the only way to tell identical USB names apart.
 			// The service must be stopped first, or it still holds them.
-			devices := resolveDevices(hardware)
+			devices := resolveDevices(hardware, locations, true)
 			result["ports"] = devices.reports
 			result["gps_device"] = nullIfEmpty(devices.gps)
 			result["obd_device"] = nullIfEmpty(devices.obd)
 			result["modem_device"] = nullIfEmpty(devices.modem)
-		} else if detection, found := (store.DetectionStore{Path: filepath.Join(locations.data, "detection.json")}).Load(); found {
+		} else if detection, found := detectionStore(locations).Load(); found {
 			result["detected_by_service"] = detection
 		}
 	}
@@ -318,7 +318,7 @@ func commandDevices(locations paths, arguments []string) error {
 	// Listing alone stays cheap and does not open hardware, so it is safe while the
 	// service is running. "doctor --probe" identifies ports, once the service is stopped.
 	listing := map[string]any{"selection": hardware, "serial_candidates": store.SerialCandidates()}
-	if detection, found := (store.DetectionStore{Path: filepath.Join(locations.data, "detection.json")}).Load(); found {
+	if detection, found := detectionStore(locations).Load(); found {
 		listing["detected_by_service"] = detection
 	}
 	printJSON(listing)
@@ -340,7 +340,7 @@ func commandGPS(locations paths, arguments []string) error {
 	if err != nil {
 		return err
 	}
-	devices := resolveDevices(hardware)
+	devices := resolveDevices(hardware, locations, true)
 	if *device != "" {
 		devices = resolvedDevices{gps: *device}
 		if report := providers.ProbeDevice(*device); report.Role == providers.RoleModem {
@@ -386,7 +386,7 @@ func commandOBD(locations paths, arguments []string) error {
 		if err != nil {
 			return err
 		}
-		*device = resolveDevices(hardware).obd
+		*device = resolveDevices(hardware, locations, true).obd
 	}
 	if *device == "" {
 		return fmt.Errorf("no OBD adapter found; run 'vehinode-agent doctor --probe'")
@@ -431,7 +431,7 @@ func commandMonitor(locations paths, arguments []string) error {
 	if err != nil {
 		return err
 	}
-	devices := resolveDevices(hardware)
+	devices := resolveDevices(hardware, locations, true)
 	fmt.Fprintf(os.Stderr, "GPS %s | OBD %s\n", orNone(devices.gps), orNone(devices.obd))
 	configuration, err := (store.ConfigurationStore{Path: filepath.Join(locations.config, "config.json")}).Load()
 	if err != nil {
@@ -503,7 +503,7 @@ func commandRecord(locations paths, arguments []string) error {
 		if err != nil {
 			return err
 		}
-		*device = resolveDevices(hardware).obd
+		*device = resolveDevices(hardware, locations, true).obd
 	}
 	if *device == "" {
 		return fmt.Errorf("no OBD adapter found; run 'vehinode-agent doctor --probe'")
@@ -590,15 +590,47 @@ type resolvedDevices struct {
 // because the USB product name cannot distinguish the five identical interfaces a
 // cellular module publishes, and picking the wrong one leaves the tracker silently
 // without a position.
-func resolveDevices(hardware store.Hardware) resolvedDevices {
+func detectionStore(locations paths) store.DetectionStore {
+	return store.DetectionStore{Path: filepath.Join(locations.data, "detection.json")}
+}
+
+// resolveDevices decides the role of each serial path, reusing the stored answer
+// unless asked for a fresh one.
+//
+// A sweep is seconds per port and nearly all of it is spent waiting, so repeating
+// it on every service restart is a slow start for nothing. The stored answer is
+// used while the ports it was made against are still the ports that are there.
+// Diagnostics always ask for a fresh one: they are run precisely when something
+// has changed or broken, which is when a remembered answer is worth least.
+func resolveDevices(hardware store.Hardware, locations paths, refresh bool) resolvedDevices {
 	result := resolvedDevices{gps: hardware.GPS, obd: hardware.OBD, modem: hardware.Modem}
 	if hardware.GPS == store.Auto || hardware.OBD == store.Auto {
+		candidates := store.SerialCandidates()
+		cache := detectionStore(locations)
+		if !refresh {
+			if detection, found := cache.Load(); found && detection.Usable(candidates) {
+				return fromDetection(hardware, detection)
+			}
+		}
 		// A sweep takes a couple of seconds per port. Reporting each one as it
 		// finishes is what separates "still working" from "hung", both for an
 		// operator running a diagnostic and in the service journal.
-		result.reports = providers.ProbeAll(store.SerialCandidates(), func(report providers.PortReport) {
+		result.reports = providers.ProbeAll(candidates, func(report providers.PortReport) {
 			fmt.Fprintf(os.Stderr, "probe %s -> %s\n", report.Device, describePort(report))
 		})
+		defer func() {
+			if err := cache.Save(store.Detection{
+				At:         time.Now().UTC().Format(time.RFC3339),
+				GPS:        result.gps,
+				OBD:        result.obd,
+				Modem:      result.modem,
+				GPSStreams: result.gpsStreams,
+				Candidates: candidates,
+				Ports:      result.reports,
+			}); err != nil {
+				fmt.Fprintln(os.Stderr, "Could not record hardware detection:", err)
+			}
+		}()
 		probedGPS, probedOBD, probedModem := providers.SelectRoles(result.reports)
 		if result.modem == "" {
 			result.modem = probedModem
@@ -623,6 +655,28 @@ func resolveDevices(hardware store.Hardware) resolvedDevices {
 		result.modem = modemPath(result.reports, result.gps)
 	}
 	result.gpsStreams = providers.StreamsNMEA(result.reports, result.gps)
+	return result
+}
+
+// fromDetection rebuilds a selection from the stored answer. An explicit choice in
+// the hardware file still wins: the cache only ever answers for "auto".
+func fromDetection(hardware store.Hardware, detection store.Detection) resolvedDevices {
+	result := resolvedDevices{gps: hardware.GPS, obd: hardware.OBD, modem: hardware.Modem}
+	if hardware.GPS == store.Auto {
+		result.gps = detection.GPS
+	}
+	if hardware.OBD == store.Auto {
+		result.obd = detection.OBD
+	}
+	if result.modem == "" {
+		result.modem = detection.Modem
+	}
+	for _, field := range []*string{&result.gps, &result.obd, &result.modem} {
+		if *field == store.Off || *field == store.Auto {
+			*field = ""
+		}
+	}
+	result.gpsStreams = detection.GPSStreams && result.gps == detection.GPS
 	return result
 }
 
@@ -792,14 +846,9 @@ func commandRun(locations paths, arguments []string) error {
 	if err != nil {
 		return err
 	}
-	devices := resolveDevices(hardware)
-	detection := store.Detection{At: time.Now().UTC().Format(time.RFC3339), GPS: devices.gps, OBD: devices.obd, Modem: devices.modem}
-	if len(devices.reports) > 0 {
-		detection.Ports = devices.reports
-	}
-	if err := (store.DetectionStore{Path: filepath.Join(locations.data, "detection.json")}).Save(detection); err != nil {
-		fmt.Fprintln(os.Stderr, "Could not record hardware detection:", err)
-	}
+	// The sweep records itself, so a start that reused the stored answer leaves it
+	// as it was rather than restamping an answer it did not make.
+	devices := resolveDevices(hardware, locations, false)
 	if *gpsOverride != "" {
 		devices.gps = *gpsOverride
 	}
@@ -821,11 +870,16 @@ func commandRun(locations paths, arguments []string) error {
 	defer queue.Close()
 	position, closePosition, err := startPosition(devices, configuration.Sampling.Longest())
 	if err != nil {
+		// What the stored answer named did not open, so it is no longer an answer.
+		// Discarding it is what lets the next start find the hardware again rather
+		// than fail identically for as long as the file survives.
+		detectionStore(locations).Forget()
 		return err
 	}
 	defer closePosition()
 	vehicle, err := vehicleProvider(obdDevice, configuration)
 	if err != nil {
+		detectionStore(locations).Forget()
 		return err
 	}
 	defer vehicle.Close()

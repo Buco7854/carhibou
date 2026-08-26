@@ -150,6 +150,22 @@ cellular module's USB serial driver dislikes an interface being reopened the mom
 it was closed, so the sweep leaves each one alone briefly and reuses what it already
 learned rather than probing the same path twice.
 
+## The sweep is remembered
+
+Probing is seconds per port and nearly all of it is waiting, which is not worth
+repeating every time the service restarts on a single slow core. The service works
+the ports out once and stores the answer in `detection.json`, then reuses it.
+
+It is trusted only while the hardware matches: the set of serial paths has to be
+the one the answer was made against, and every device the answer names has to still
+exist. Replugging a tracker into another socket, or a module enumerating its
+interfaces in a different order, invalidates it by itself. So does failing to open
+what it named — the answer is discarded and the next start works it out again.
+
+`gps-info`, `obd-info`, `monitor`, `can-record` and `doctor --probe` always probe
+afresh and replace the stored answer. They are run precisely when something has
+changed or broken, which is when a remembered answer is worth least.
+
 ## Reading the sweep
 
 Each line names every capability the port has, not just the one it is filed under:
