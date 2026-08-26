@@ -19,6 +19,8 @@ argon2-cffi==25.1.0
     # via vehinode (pyproject.toml)
 argon2-cffi-bindings==26.1.0
     # via argon2-cffi
+authlib==1.7.2
+    # via vehinode (pyproject.toml)
 certifi==2026.7.22
     # via
     #   httpcore
@@ -30,7 +32,9 @@ cffi==2.1.1
 click==8.4.2
     # via uvicorn
 cryptography==46.0.7
-    # via vehinode (pyproject.toml)
+    # via
+    #   authlib
+    #   vehinode (pyproject.toml)
 dnspython==2.8.0
     # via email-validator
 email-validator==2.3.0
@@ -54,6 +58,12 @@ idna==3.19
     #   anyio
     #   email-validator
     #   httpx
+itsdangerous==2.2.0
+    # via vehinode (pyproject.toml)
+joserfc==1.7.4
+    # via
+    #   authlib
+    #   vehinode (pyproject.toml)
 mako==1.4.1
     # via alembic
 markupsafe==3.0.3

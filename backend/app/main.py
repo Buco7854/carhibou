@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import Response
 from starlette.types import Scope
 
@@ -76,6 +77,14 @@ app = FastAPI(
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
     lifespan=lifespan,
+)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_pepper,
+    session_cookie="vehinode_oidc",
+    max_age=600,
+    same_site="lax",
+    https_only=settings.session_cookie_secure,
 )
 app.add_middleware(RequestContextMiddleware)
 install_error_handlers(app)

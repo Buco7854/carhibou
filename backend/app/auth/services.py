@@ -99,7 +99,7 @@ def create_local_user(
 
 
 def registration_is_open(db: Session) -> bool:
-    return db.scalar(select(func.count(User.id))) == 0
+    return not get_settings().oidc_enabled and db.scalar(select(func.count(User.id))) == 0
 
 
 def register_first_local_admin(db: Session, email: str, password: str, display_name: str) -> User:
@@ -110,12 +110,12 @@ def register_first_local_admin(db: Session, email: str, password: str, display_n
 
 
 def bootstrap_local_admin(db: Session, email: str, password: str, display_name: str) -> User | None:
-    """Create the only self-registerable local administrator, once."""
+    """Create an explicitly configured recovery administrator, once."""
 
-    try:
-        return register_first_local_admin(db, email, password, display_name)
-    except RegistrationClosedError:
+    _lock_user_creation(db)
+    if db.scalar(select(func.count(User.id))) != 0:
         return None
+    return create_local_user(db, email, password, display_name, admin=True)
 
 
 def create_session(

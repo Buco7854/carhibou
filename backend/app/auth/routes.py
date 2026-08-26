@@ -1,12 +1,23 @@
+from collections.abc import Mapping
+
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import select
+from starlette.responses import RedirectResponse
 
 from backend.app.access.services import permissions_for
 from backend.app.auth.dependencies import CurrentUser, CurrentUserWrite, Db
 from backend.app.auth.models import BrowserSession
+from backend.app.auth.oidc import (
+    OIDCAuthenticationError,
+    authenticate_oidc_claims,
+    oidc_login_redirect,
+    validated_oidc_claims,
+)
 from backend.app.auth.schemas import (
+    AuthMethodsResponse,
     LoginRequest,
     LoginResponse,
+    OIDCMethodResponse,
     PasswordChangeRequest,
     RegisterRequest,
     SessionResponse,
@@ -16,6 +27,7 @@ from backend.app.auth.schemas import (
 from backend.app.auth.services import (
     AuthenticationError,
     LocalAuthenticationProvider,
+    NewSession,
     RegistrationClosedError,
     change_password,
     create_session,
@@ -23,7 +35,7 @@ from backend.app.auth.services import (
     registration_is_open,
     revoke_other_sessions,
 )
-from backend.app.common.settings import get_settings
+from backend.app.common.settings import Settings, get_settings
 from backend.app.common.time import utcnow
 from backend.app.users.models import User
 
@@ -60,14 +72,7 @@ def _clear_session_cookies(response: Response) -> None:
 
 
 def _login_response(response: Response, db: Db, request: Request, user: User) -> LoginResponse:
-    new_session = create_session(
-        db,
-        user,
-        request.client.host if request.client else None,
-        request.headers.get("user-agent"),
-    )
-    db.commit()
-    _set_session_cookies(response, new_session.token, new_session.csrf_token)
+    new_session = _establish_session(response, db, request, user)
     return LoginResponse(
         user=UserResponse(
             id=user.id,
@@ -77,6 +82,56 @@ def _login_response(response: Response, db: Db, request: Request, user: User) ->
         ),
         csrf_token=new_session.csrf_token,
     )
+
+
+def _establish_session(response: Response, db: Db, request: Request, user: User) -> NewSession:
+    new_session = create_session(
+        db,
+        user,
+        request.client.host if request.client else None,
+        request.headers.get("user-agent"),
+    )
+    db.commit()
+    _set_session_cookies(response, new_session.token, new_session.csrf_token)
+    return new_session
+
+
+@router.get("/methods", response_model=AuthMethodsResponse)
+def auth_methods() -> AuthMethodsResponse:
+    settings = get_settings()
+    return AuthMethodsResponse(
+        password=True,
+        oidc=OIDCMethodResponse(
+            enabled=settings.oidc_enabled,
+            name=settings.oidc_display_name.strip(),
+        ),
+    )
+
+
+def _require_oidc_settings() -> Settings:
+    settings = get_settings()
+    if not settings.oidc_enabled:
+        raise HTTPException(status_code=404, detail="OIDC authentication is not configured")
+    return settings
+
+
+@router.get("/oidc/login", response_model=None)
+async def oidc_login(request: Request) -> RedirectResponse:
+    return await oidc_login_redirect(request, _require_oidc_settings())
+
+
+@router.get("/oidc/callback", response_model=None)
+async def oidc_callback(request: Request, db: Db) -> RedirectResponse:
+    settings = _require_oidc_settings()
+    try:
+        claims: Mapping[str, object] = await validated_oidc_claims(request, settings)
+        user = authenticate_oidc_claims(db, claims, settings)
+    except OIDCAuthenticationError as exc:
+        db.rollback()
+        raise HTTPException(status_code=401, detail="OIDC authentication failed") from exc
+    response = RedirectResponse(f"{settings.public_url.rstrip('/')}/", status_code=302)
+    _establish_session(response, db, request, user)
+    return response
 
 
 @router.post("/register", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)

@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     bootstrap_admin_email: EmailStr | None = None
     bootstrap_admin_password: SecretStr | None = None
     bootstrap_admin_display_name: str = Field(default="Administrator", min_length=1, max_length=120)
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: SecretStr | None = None
+    oidc_scopes: str = "openid email profile"
+    oidc_group_claim: str = "groups"
+    oidc_admin_group: str = ""
+    oidc_auto_provision: bool = True
+    oidc_display_name: str = "SSO"
     max_request_bytes: int = Field(default=32 * 1024 * 1024, ge=1024)
     media_dir: str = "./data/media"
     default_online_threshold_seconds: int = Field(default=180, ge=30)
@@ -37,6 +45,10 @@ class Settings(BaseSettings):
     frontend_dir: str = ""
     log_level: str = "INFO"
 
+    @property
+    def oidc_enabled(self) -> bool:
+        return bool(self.oidc_issuer.strip() and self.oidc_client_id.strip())
+
     @model_validator(mode="after")
     def reject_development_secrets_in_production(self) -> "Settings":
         if bool(self.bootstrap_admin_email) != bool(self.bootstrap_admin_password):
@@ -46,6 +58,12 @@ class Settings(BaseSettings):
             and len(self.bootstrap_admin_password.get_secret_value()) < 12
         ):
             raise ValueError("bootstrap admin password must contain at least 12 characters")
+        if self.oidc_enabled and "openid" not in self.oidc_scopes.split():
+            raise ValueError("OIDC scopes must include openid")
+        if not self.oidc_display_name.strip():
+            raise ValueError("OIDC display name must not be empty")
+        if not self.oidc_group_claim.strip():
+            raise ValueError("OIDC group claim must not be empty")
         try:
             master_key = base64.urlsafe_b64decode(self.master_key.encode())
         except Exception as exc:
