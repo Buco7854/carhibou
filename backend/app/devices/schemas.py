@@ -11,7 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field
 # rather than thirty seconds halves the request count at no cost in data, since
 # samples are queued until they are acknowledged either way.
 SAMPLING_SECONDS = Field(default=5, ge=1, le=86400)
-UPLOAD_SECONDS = Field(default=60, ge=1, le=86400)
+UPLOAD_SECONDS = Field(default=5, ge=1, le=86400)
+PARKED_SAMPLING_SECONDS = Field(default=30, ge=1, le=86400)
+PARKED_UPLOAD_SECONDS = Field(default=300, ge=1, le=86400)
 
 
 class EnrollmentCreate(BaseModel):
@@ -19,6 +21,8 @@ class EnrollmentCreate(BaseModel):
     ttl_minutes: int = Field(default=30, ge=5, le=1440)
     sampling_seconds: int = SAMPLING_SECONDS
     upload_seconds: int = UPLOAD_SECONDS
+    parked_sampling_seconds: int = PARKED_SAMPLING_SECONDS
+    parked_upload_seconds: int = PARKED_UPLOAD_SECONDS
 
 
 class DeviceSettings(BaseModel):
@@ -27,6 +31,8 @@ class DeviceSettings(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     sampling_seconds: int = SAMPLING_SECONDS
     upload_seconds: int = UPLOAD_SECONDS
+    parked_sampling_seconds: int = PARKED_SAMPLING_SECONDS
+    parked_upload_seconds: int = PARKED_UPLOAD_SECONDS
 
 
 class EnrollmentCreated(BaseModel):
@@ -44,6 +50,8 @@ class EnrollRequest(BaseModel):
 
 class DeviceConfig(BaseModel):
     version: int
+    # Each carries "default_seconds" for a vehicle in use and "parked_seconds"
+    # for one that is not; the tracker decides which state it is in.
     sampling: dict[str, int]
     upload: dict[str, int]
     vehicle_profile: str | None
@@ -74,6 +82,8 @@ class DeviceResponse(BaseModel):
     hardware: dict[str, object]
     sampling_seconds: int
     upload_seconds: int
+    parked_sampling_seconds: int
+    parked_upload_seconds: int
     online: bool
     last_seen_at: datetime | None
     last_config_sync_at: datetime | None

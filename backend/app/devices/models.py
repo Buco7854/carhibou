@@ -27,8 +27,15 @@ class Device(TimestampMixin, Base):
     # How often the tracker takes a sample, and how often it drains its queue.
     # Both are per device because trackers on one account are not alike: a car on
     # a metered connection wants a slower upload than a daily driver.
+    #
+    # The parked pair applies while the tracker judges the vehicle out of use.
+    # Its server_default matches the driving pair so that migrating an existing
+    # deployment changes nothing until somebody chooses a slower parked cadence;
+    # a device created from now on gets the interface's "Standard" preset.
     sampling_seconds: Mapped[int] = mapped_column(Integer, default=5, server_default="5")
-    upload_seconds: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
+    upload_seconds: Mapped[int] = mapped_column(Integer, default=5, server_default="30")
+    parked_sampling_seconds: Mapped[int] = mapped_column(Integer, default=30, server_default="5")
+    parked_upload_seconds: Mapped[int] = mapped_column(Integer, default=300, server_default="30")
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     vehicle = relationship("Vehicle", back_populates="devices")
@@ -50,4 +57,6 @@ class EnrollmentToken(Base):
     # tracker starts on the cadence it was enrolled with rather than a default it
     # then has to be corrected away from.
     sampling_seconds: Mapped[int] = mapped_column(Integer, default=5, server_default="5")
-    upload_seconds: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
+    upload_seconds: Mapped[int] = mapped_column(Integer, default=5, server_default="30")
+    parked_sampling_seconds: Mapped[int] = mapped_column(Integer, default=30, server_default="5")
+    parked_upload_seconds: Mapped[int] = mapped_column(Integer, default=300, server_default="30")

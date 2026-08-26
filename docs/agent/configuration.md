@@ -7,8 +7,8 @@ file. Invalid or older configuration cannot replace a working configuration.
 ```json
 {
   "version": 1,
-  "sampling": { "default_seconds": 10 },
-  "upload": { "default_seconds": 30 },
+  "sampling": { "default_seconds": 5, "parked_seconds": 30 },
+  "upload": { "default_seconds": 5, "parked_seconds": 300 },
   "vehicle_profile": "citroen-c-zero-v1",
   "vehicle_profile_definition": null
 }
@@ -27,7 +27,9 @@ last-known-good file. The standalone executable therefore does not need a separa
 installed profile package.
 
 Sampling and upload intervals are set per tracker in **Devices**, at enrollment and
-afterwards. Inspect the accepted server configuration with `sudo vehinode-agent config`,
+afterwards. `parked_seconds` is optional: a configuration without it uses one cadence in
+both states. The tracker decides which state it is in, and publishes that decision as
+`vehicle_in_use` alongside the `activity_source` that settled it. Inspect the accepted server configuration with `sudo vehinode-agent config`,
 and fetch the server's current one without waiting for the next sync with
 `sudo vehinode-agent config --pull`. Pulling stores the configuration; the running
 service reloads it at its next sync or immediately on restart. Hardware is

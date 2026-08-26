@@ -19,31 +19,35 @@ depends_on: str | Sequence[str] | None = None
 # existing deployment keeps the cadence it already had.
 SAMPLING_SECONDS = 5
 UPLOAD_SECONDS = 30
+# A parked vehicle produced the same traffic as a moving one before this existed,
+# so the parked columns start equal to the driving ones and change nothing until
+# somebody chooses otherwise.
+PARKED_SAMPLING_SECONDS = 5
+PARKED_UPLOAD_SECONDS = 30
 
 
 def upgrade() -> None:
+    columns = {
+        "sampling_seconds": SAMPLING_SECONDS,
+        "upload_seconds": UPLOAD_SECONDS,
+        "parked_sampling_seconds": PARKED_SAMPLING_SECONDS,
+        "parked_upload_seconds": PARKED_UPLOAD_SECONDS,
+    }
     for table in ("devices", "device_enrollment_tokens"):
         with op.batch_alter_table(table) as batch_op:
-            batch_op.add_column(
-                sa.Column(
-                    "sampling_seconds",
-                    sa.Integer(),
-                    nullable=False,
-                    server_default=str(SAMPLING_SECONDS),
+            for name, default in columns.items():
+                batch_op.add_column(
+                    sa.Column(name, sa.Integer(), nullable=False, server_default=str(default))
                 )
-            )
-            batch_op.add_column(
-                sa.Column(
-                    "upload_seconds",
-                    sa.Integer(),
-                    nullable=False,
-                    server_default=str(UPLOAD_SECONDS),
-                )
-            )
 
 
 def downgrade() -> None:
     for table in ("device_enrollment_tokens", "devices"):
         with op.batch_alter_table(table) as batch_op:
-            batch_op.drop_column("upload_seconds")
-            batch_op.drop_column("sampling_seconds")
+            for name in (
+                "parked_upload_seconds",
+                "parked_sampling_seconds",
+                "upload_seconds",
+                "sampling_seconds",
+            ):
+                batch_op.drop_column(name)

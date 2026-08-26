@@ -126,7 +126,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('sets a tracker cadence at enrollment and edits it afterwards', async () => {
-    const device = { id:'device-1', vehicle_id:'vehicle-1', name:'Pi', credential_version:1, agent_version:'0.1.0', hostname:'pi', hardware:{}, sampling_seconds:5, upload_seconds:30, online:true, last_seen_at:null, last_config_sync_at:null, config_version:1, revoked_at:null, created_at:'2026-01-01T00:00:00Z' }
+    const device = { id:'device-1', vehicle_id:'vehicle-1', name:'Pi', credential_version:1, agent_version:'0.1.0', hostname:'pi', hardware:{}, sampling_seconds:5, upload_seconds:5, parked_sampling_seconds:30, parked_upload_seconds:300, online:true, last_seen_at:null, last_config_sync_at:null, config_version:1, revoked_at:null, created_at:'2026-01-01T00:00:00Z' }
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([device]))
       if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
@@ -147,15 +147,18 @@ describe('vehicle and dashboard management', () => {
     await wrapper.get('.enrollment-panel').trigger('submit')
     await flushPromises()
     const enrolled = JSON.parse(fetchMock.mock.calls.find((call) => String(call[0]).includes('/enrollments'))?.[1]?.body as string)
-    expect(enrolled.sampling_seconds).toBe(60)
-    expect(enrolled.upload_seconds).toBe(600)
+    // A preset carries both states, so a parked vehicle stops paying the driving rate.
+    expect(enrolled.sampling_seconds).toBe(15)
+    expect(enrolled.upload_seconds).toBe(15)
+    expect(enrolled.parked_sampling_seconds).toBe(60)
+    expect(enrolled.parked_upload_seconds).toBe(600)
 
     // The same two values are editable once the tracker exists.
     await wrapper.findAll('.device-actions .button')[0]!.trigger('click')
     await flushPromises()
     // The enrollment modal is still mounted, so scope to the settings one.
     const settings = wrapper.findAll('[role="dialog"]').at(-1)!
-    await settings.findAll('.cadence-fields input')[0]!.setValue('60')
+    await settings.findAll('.cadence-states input')[0]!.setValue('60')
     await settings.get('form').trigger('submit')
     await flushPromises()
     const saved = fetchMock.mock.calls.find((call) => call[1]?.method === 'PUT')

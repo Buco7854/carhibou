@@ -433,7 +433,7 @@ func commandMonitor(locations paths, arguments []string) error {
 	if err != nil {
 		return err
 	}
-	position, closePosition, err := startPosition(devices, configuration.Sampling.DefaultSeconds)
+	position, closePosition, err := startPosition(devices, configuration.Sampling.Longest())
 	if err != nil {
 		return err
 	}
@@ -755,7 +755,7 @@ func commandRun(locations paths, arguments []string) error {
 		return err
 	}
 	defer queue.Close()
-	position, closePosition, err := startPosition(devices, configuration.Sampling.DefaultSeconds)
+	position, closePosition, err := startPosition(devices, configuration.Sampling.Longest())
 	if err != nil {
 		return err
 	}
@@ -804,13 +804,13 @@ func commandRun(locations paths, arguments []string) error {
 			if _, err := agent.Collect(); err != nil {
 				fmt.Fprintln(os.Stderr, "Collection failed:", err)
 			}
-			nextSample = now.Add(time.Duration(configuration.Sampling.DefaultSeconds) * time.Second)
+			nextSample = now.Add(time.Duration(configuration.Sampling.Seconds(agent.InUse)) * time.Second)
 		}
 		if !now.Before(nextUpload) {
 			if _, err := agent.Upload(500); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}
-			nextUpload = now.Add(time.Duration(configuration.Upload.DefaultSeconds) * time.Second)
+			nextUpload = now.Add(time.Duration(configuration.Upload.Seconds(agent.InUse)) * time.Second)
 		}
 		time.Sleep(250 * time.Millisecond)
 	}

@@ -377,6 +377,7 @@ type StandardOBDProvider struct {
 	connected bool
 	failure   string
 	nextTry   time.Time
+	live      bool
 }
 
 func NewStandardOBDProvider(adapter *OBDAdapter) *StandardOBDProvider {
@@ -385,6 +386,11 @@ func NewStandardOBDProvider(adapter *OBDAdapter) *StandardOBDProvider {
 
 // Status explains why the provider is publishing nothing. See ProfileProvider.
 func (provider *StandardOBDProvider) Status() string { return provider.failure }
+
+// Live reports whether the vehicle answered a PID on the last read. Most ECUs
+// stop answering shortly after the ignition is switched off, which makes this
+// the best evidence a tracker has when its vehicle has no profile.
+func (provider *StandardOBDProvider) Live() bool { return provider.live }
 
 func (provider *StandardOBDProvider) ReadMetrics() (map[string]any, error) {
 	if !provider.connected {
@@ -405,6 +411,7 @@ func (provider *StandardOBDProvider) ReadMetrics() (map[string]any, error) {
 		provider.failure = ""
 	}
 	metrics := map[string]any{}
+	provider.live = false
 	for pid, definition := range StandardPIDs {
 		lines, err := provider.adapter.Query(1, pid)
 		if err != nil {
@@ -417,6 +424,7 @@ func (provider *StandardOBDProvider) ReadMetrics() (map[string]any, error) {
 		if data == nil {
 			continue
 		}
+		provider.live = true
 		value, err := definition.Decode(data)
 		if err == nil {
 			metrics[definition.Name] = value

@@ -46,3 +46,31 @@ func TestProfileDefinitionMustMatchReference(t *testing.T) {
 		t.Fatal("mismatched profile was accepted")
 	}
 }
+
+// A parked cadence is optional, so a server that sends none must still produce a
+// working configuration rather than one the agent refuses.
+func TestIntervalFallsBackToTheDefaultCadence(t *testing.T) {
+	plain := Interval{DefaultSeconds: 5}
+	if plain.Seconds(true) != 5 || plain.Seconds(false) != 5 || plain.Longest() != 5 {
+		t.Fatalf("an interval without a parked value must use its default throughout: %+v", plain)
+	}
+	split := Interval{DefaultSeconds: 1, ParkedSeconds: 15}
+	if split.Seconds(true) != 1 || split.Seconds(false) != 15 {
+		t.Fatalf("a split interval must switch on state: %+v", split)
+	}
+	// The fix tolerance is sized from this, so it has to be the slow one.
+	if split.Longest() != 15 {
+		t.Fatalf("Longest() = %d, want the parked cadence", split.Longest())
+	}
+}
+
+func TestParkedCadenceIsBoundedWhenStated(t *testing.T) {
+	base := Configuration{Version: 1, Sampling: Interval{DefaultSeconds: 5}, Upload: Interval{DefaultSeconds: 30}}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("a configuration without parked values must be accepted: %v", err)
+	}
+	base.Sampling.ParkedSeconds = 90000
+	if base.Validate() == nil {
+		t.Fatal("a parked cadence beyond a day must be refused")
+	}
+}

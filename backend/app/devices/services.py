@@ -27,8 +27,14 @@ class EnrollmentError(Exception):
 def device_config(db: Session, device: Device, vehicle: Vehicle) -> DeviceConfig:
     return DeviceConfig(
         version=device.config_version,
-        sampling={"default_seconds": device.sampling_seconds},
-        upload={"default_seconds": device.upload_seconds},
+        sampling={
+            "default_seconds": device.sampling_seconds,
+            "parked_seconds": device.parked_sampling_seconds,
+        },
+        upload={
+            "default_seconds": device.upload_seconds,
+            "parked_seconds": device.parked_upload_seconds,
+        },
         vehicle_profile=vehicle.vehicle_profile,
         vehicle_profile_definition=profile_definition(
             db, vehicle.owner_id, vehicle.vehicle_profile
@@ -49,6 +55,8 @@ def create_enrollment(
         expires_at=now + timedelta(minutes=data.ttl_minutes),
         sampling_seconds=data.sampling_seconds,
         upload_seconds=data.upload_seconds,
+        parked_sampling_seconds=data.parked_sampling_seconds,
+        parked_upload_seconds=data.parked_upload_seconds,
     )
     db.add(model)
     db.flush()
@@ -77,6 +85,8 @@ def enroll(db: Session, request: EnrollRequest) -> EnrollResponse:
         hardware=request.hardware,
         sampling_seconds=token.sampling_seconds,
         upload_seconds=token.upload_seconds,
+        parked_sampling_seconds=token.parked_sampling_seconds,
+        parked_upload_seconds=token.parked_upload_seconds,
     )
     token.used_at = now
     db.add(device)
@@ -99,12 +109,15 @@ def update_device(device: Device, data: DeviceSettings) -> bool:
     """
 
     device.name = data.name
-    changed = (
-        device.sampling_seconds != data.sampling_seconds
-        or device.upload_seconds != data.upload_seconds
+    cadence = (
+        "sampling_seconds",
+        "upload_seconds",
+        "parked_sampling_seconds",
+        "parked_upload_seconds",
     )
-    device.sampling_seconds = data.sampling_seconds
-    device.upload_seconds = data.upload_seconds
+    changed = any(getattr(device, field) != getattr(data, field) for field in cadence)
+    for field in cadence:
+        setattr(device, field, getattr(data, field))
     if changed:
         device.config_version += 1
     return changed

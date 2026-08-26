@@ -1,9 +1,14 @@
 /** Cadence presets and the mobile-data cost of running one for a month. */
 
-export interface CadencePreset {
+export interface Cadence {
+  sampling_seconds: number
+  upload_seconds: number
+  parked_sampling_seconds: number
+  parked_upload_seconds: number
+}
+
+export interface CadencePreset extends Cadence {
   key: string
-  samplingSeconds: number
-  uploadSeconds: number
 }
 
 /**
@@ -22,30 +27,59 @@ const BYTES_PER_REQUEST = 800
 const MAX_SAMPLES_PER_REQUEST = 500
 const SECONDS_PER_MONTH = 30 * 24 * 60 * 60
 
+/**
+ * Driving cadences people actually ask for, each with a parked cadence chosen so
+ * that a vehicle sitting on a driveway does not spend the plan that the driving
+ * cadence was chosen for. A vehicle is parked far more of the month than it is
+ * driven, so the parked pair dominates the bill.
+ */
 export const CADENCE_PRESETS: CadencePreset[] = [
-  { key: 'live', samplingSeconds: 1, uploadSeconds: 10 },
-  { key: 'standard', samplingSeconds: 5, uploadSeconds: 60 },
-  { key: 'saver', samplingSeconds: 60, uploadSeconds: 600 },
-  { key: 'minimal', samplingSeconds: 300, uploadSeconds: 3600 },
+  { key: 'live', sampling_seconds: 1, upload_seconds: 1, parked_sampling_seconds: 15, parked_upload_seconds: 60 },
+  { key: 'standard', sampling_seconds: 5, upload_seconds: 5, parked_sampling_seconds: 30, parked_upload_seconds: 300 },
+  { key: 'saver', sampling_seconds: 15, upload_seconds: 15, parked_sampling_seconds: 60, parked_upload_seconds: 600 },
+  { key: 'minimal', sampling_seconds: 60, upload_seconds: 60, parked_sampling_seconds: 300, parked_upload_seconds: 1800 },
 ]
 
-/**
- * Bytes a tracker uploads over thirty days of continuous operation.
- *
- * Continuous is the honest assumption to show: a tracker on permanent power
- * samples whether or not the vehicle moves, and a figure that quietly assumed
- * otherwise would understate the bill it is there to prevent.
- */
-export function monthlyUploadBytes(
+/** Hours a day the vehicle is in use, which the estimate is weighted by. */
+export const DEFAULT_DRIVING_HOURS = 1
+
+function windowBytes(
+  seconds: number,
   samplingSeconds: number,
   uploadSeconds: number,
-  signalCount = 0,
+  signalCount: number,
 ): number {
   if (!(samplingSeconds > 0) || !(uploadSeconds > 0)) return 0
-  const samples = SECONDS_PER_MONTH / samplingSeconds
+  const samples = seconds / samplingSeconds
   const perRequest = Math.min(MAX_SAMPLES_PER_REQUEST, Math.max(1, uploadSeconds / samplingSeconds))
   const sampleCost = BYTES_PER_SAMPLE + signalCount * BYTES_PER_SIGNAL + BYTES_PER_ACKNOWLEDGEMENT
   return samples * sampleCost + (samples / perRequest) * BYTES_PER_REQUEST
+}
+
+/**
+ * Bytes a tracker uploads over thirty days, split between driving and parked.
+ *
+ * The tracker is assumed to be powered the whole month, which is the honest
+ * assumption for hardware on permanent power: it samples at its parked cadence
+ * whether or not the vehicle moves, and that is most of the bill. Only the hours
+ * actually spent driving are charged at the driving cadence.
+ */
+export function monthlyUploadBytes(
+  cadence: Cadence,
+  signalCount = 0,
+  drivingHoursPerDay = DEFAULT_DRIVING_HOURS,
+): number {
+  const drivingSeconds = Math.min(24, Math.max(0, drivingHoursPerDay)) * 60 * 60 * 30
+  const parkedSeconds = SECONDS_PER_MONTH - drivingSeconds
+  return (
+    windowBytes(drivingSeconds, cadence.sampling_seconds, cadence.upload_seconds, signalCount) +
+    windowBytes(
+      parkedSeconds,
+      cadence.parked_sampling_seconds,
+      cadence.parked_upload_seconds,
+      signalCount,
+    )
+  )
 }
 
 export function formatDataVolume(bytes: number, locale: string): string {

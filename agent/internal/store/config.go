@@ -16,13 +16,43 @@ type Configuration struct {
 	VehicleProfileDefinition json.RawMessage `json:"vehicle_profile_definition,omitempty"`
 }
 
+// Interval carries the cadence for a vehicle in use and, optionally, a slower
+// one for a parked vehicle. A server that sends no parked value gets the same
+// cadence in both states, which is what every tracker did before this existed.
 type Interval struct {
 	DefaultSeconds int `json:"default_seconds"`
+	ParkedSeconds  int `json:"parked_seconds,omitempty"`
+}
+
+// Longest is the slowest cadence this interval can produce. A fix tolerance
+// sized from the fast cadence would discard every parked reading as stale.
+func (interval Interval) Longest() int {
+	if interval.ParkedSeconds > interval.DefaultSeconds {
+		return interval.ParkedSeconds
+	}
+	return interval.DefaultSeconds
+}
+
+// Seconds picks the interval for the state the vehicle is in.
+func (interval Interval) Seconds(inUse bool) int {
+	if !inUse && interval.ParkedSeconds > 0 {
+		return interval.ParkedSeconds
+	}
+	return interval.DefaultSeconds
 }
 
 func (configuration Configuration) Validate() error {
-	if configuration.Version < 1 || configuration.Sampling.DefaultSeconds < 1 || configuration.Sampling.DefaultSeconds > 86400 || configuration.Upload.DefaultSeconds < 1 || configuration.Upload.DefaultSeconds > 86400 {
+	if configuration.Version < 1 {
 		return fmt.Errorf("remote configuration values are outside safe bounds")
+	}
+	for _, interval := range []Interval{configuration.Sampling, configuration.Upload} {
+		if interval.DefaultSeconds < 1 || interval.DefaultSeconds > 86400 {
+			return fmt.Errorf("remote configuration values are outside safe bounds")
+		}
+		// Zero means "no separate parked cadence", so only a stated value is bounded.
+		if interval.ParkedSeconds != 0 && (interval.ParkedSeconds < 1 || interval.ParkedSeconds > 86400) {
+			return fmt.Errorf("remote configuration values are outside safe bounds")
+		}
 	}
 	if len(configuration.VehicleProfileDefinition) > 0 && string(configuration.VehicleProfileDefinition) != "null" {
 		if configuration.VehicleProfile == nil || *configuration.VehicleProfile == "" {

@@ -5,10 +5,11 @@ import { api } from '../api/client'
 import type { Vehicle, VehicleProfile } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import CadenceFields from '../components/CadenceFields.vue'
+import { CADENCE_PRESETS, type Cadence } from '../trackerCadence'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 
-interface Device { id:string; vehicle_id:string; name:string; credential_version:number; agent_version:string|null; hostname:string|null; hardware:Record<string,unknown>; sampling_seconds:number; upload_seconds:number; online:boolean; last_seen_at:string|null; last_config_sync_at:string|null; config_version:number; revoked_at:string|null; created_at:string }
+interface Device { id:string; vehicle_id:string; name:string; credential_version:number; agent_version:string|null; hostname:string|null; hardware:Record<string,unknown>; sampling_seconds:number; upload_seconds:number; parked_sampling_seconds:number; parked_upload_seconds:number; online:boolean; last_seen_at:string|null; last_config_sync_at:string|null; config_version:number; revoked_at:string|null; created_at:string }
 
 const { t } = useI18n()
 const devices = ref<Device[]>([])
@@ -16,11 +17,11 @@ const vehicles = ref<Vehicle[]>([])
 const enrolling = ref(false)
 const selectedVehicle = ref('')
 const trackerName = ref('Vehicle tracker')
-const enrollmentCadence = ref({ sampling_seconds:5, upload_seconds:60 })
+const enrollmentCadence = ref<Cadence>({ ...CADENCE_PRESETS.find((preset) => preset.key === 'standard')! })
 const profileSignals = ref<Record<string,number>>({})
 const editing = ref<Device|null>(null)
 const draftName = ref('')
-const draftCadence = ref({ sampling_seconds:5, upload_seconds:60 })
+const draftCadence = ref<Cadence>({ ...CADENCE_PRESETS.find((preset) => preset.key === 'standard')! })
 const saving = ref(false)
 const installCommand = ref('')
 const copied = ref(false)
@@ -61,7 +62,12 @@ function openSettings(device:Device) {
   error.value = ''
   editing.value = device
   draftName.value = device.name
-  draftCadence.value = { sampling_seconds:device.sampling_seconds, upload_seconds:device.upload_seconds }
+  draftCadence.value = {
+    sampling_seconds:device.sampling_seconds,
+    upload_seconds:device.upload_seconds,
+    parked_sampling_seconds:device.parked_sampling_seconds,
+    parked_upload_seconds:device.parked_upload_seconds,
+  }
 }
 async function saveSettings() {
   if (!editing.value) return
@@ -139,7 +145,7 @@ onMounted(load)
           <div><dt>{{ t('devices.version') }}</dt><dd class="mono">{{ device.agent_version ?? '—' }}</dd></div>
           <div><dt>{{ t('devices.hardware') }}</dt><dd>{{ device.hostname ?? '—' }}</dd></div>
           <div><dt>{{ t('devices.lastSeen') }}</dt><dd>{{ device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : t('common.never') }}</dd></div>
-          <div><dt>{{ t('devices.cadence') }}</dt><dd>{{ t('devices.cadenceValue',{sampling:device.sampling_seconds,upload:device.upload_seconds}) }}</dd></div>
+          <div><dt>{{ t('devices.cadence') }}</dt><dd>{{ t('devices.cadenceValue',{driving:device.sampling_seconds,parked:device.parked_sampling_seconds}) }}</dd></div>
         </dl>
         <div class="device-actions">
           <button class="button secondary" :disabled="!!device.revoked_at" @click="openSettings(device)">{{ t('devices.settings') }}</button>
