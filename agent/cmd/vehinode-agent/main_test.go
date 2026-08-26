@@ -68,3 +68,40 @@ func TestResolveReusesTheSweepRatherThanReprobing(t *testing.T) {
 		t.Fatalf("an unprobed missing device must not be taken for a modem, got %q", path)
 	}
 }
+
+// A receiver that is already publishing sentences needs nothing switched on, and
+// the control port must be left shut. Opening it anyway asked a module that was
+// plainly working whether it was, and printed a failure to enable something
+// already enabled, on an interface that answers only intermittently.
+func TestStreamingGPSNeverOpensTheControlPort(t *testing.T) {
+	devices := resolvedDevices{
+		gps:        "/dev/vehinode-absent-gps",
+		modem:      "/dev/vehinode-absent-modem",
+		gpsStreams: true,
+	}
+	position, closePosition, err := startPosition(devices, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer closePosition()
+	// Both paths are absent, so anything that opened one would have failed. The
+	// stream provider opens lazily, which is what lets this assert the choice
+	// rather than the hardware.
+	if _, ok := position.(*providers.NMEAProvider); !ok {
+		t.Fatalf("position source is %T, want the sentence stream", position)
+	}
+}
+
+// With nothing streaming, the control port is both what switches the receiver on
+// and the only thing left able to answer a position.
+func TestPositionFallsBackToTheControlPortWhenNothingStreams(t *testing.T) {
+	devices := resolvedDevices{gps: "/dev/vehinode-absent", modem: "/dev/vehinode-absent"}
+	position, closePosition, err := startPosition(devices, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer closePosition()
+	if _, ok := position.(*providers.ModemPort); !ok {
+		t.Fatalf("position source is %T, want the control port", position)
+	}
+}

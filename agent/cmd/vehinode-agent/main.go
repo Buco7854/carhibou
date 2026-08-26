@@ -750,7 +750,12 @@ func startPosition(devices resolvedDevices, samplingSeconds int) (agentruntime.P
 	if devices.gps == "" {
 		return agentruntime.EmptyPosition{}, func() {}, nil
 	}
-	if devices.modem != "" {
+	// A GPS path that publishes sentences is proof the receiver is already on, so
+	// there is nothing to switch on and no reason to open the control port at all.
+	// Doing it anyway asked a module that was plainly working whether it was, and
+	// reported a failure to enable something already enabled — on hardware whose
+	// control interface answers only sometimes.
+	if devices.modem != "" && !devices.gpsStreams {
 		modem := providers.NewModemPort(devices.modem)
 		enabled, err := modem.GNSSEnabled()
 		if err == nil && !enabled {
@@ -758,14 +763,9 @@ func startPosition(devices resolvedDevices, samplingSeconds int) (agentruntime.P
 				fmt.Fprintln(os.Stderr, "GNSS enable failed:", enableErr)
 			}
 		}
-		// A port that publishes sentences is read as a stream even when it is also
-		// the control port: streaming reports a fix as the receiver produces it,
-		// while polling reports whatever the module last stored. The control port
-		// is only needed to switch the receiver on, so it is handed back.
-		if !devices.gpsStreams {
-			return modem, modem.Close, nil
-		}
-		modem.Close()
+		// Nothing is streaming, so the control port is the position source too:
+		// it can still answer a fix over AT.
+		return modem, modem.Close, nil
 	}
 	provider := providers.NewNMEAProvider(devices.gps)
 	// Tolerate a couple of missed receiver updates, no more. Holding a fix for
