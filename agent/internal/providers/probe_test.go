@@ -57,32 +57,58 @@ var fastProbe = probeConversation{listen: 60 * time.Millisecond, command: 60 * t
 
 func TestClassifyIdentifiesAnNMEAStreamWithoutWriting(t *testing.T) {
 	port := &scriptedPort{stream: nmeaSentence("GPGGA,120000.00,4851.0000,N,00220.0000,E,1,08,1.0,89.6,M,,,,") + "\r\n"}
-	role, identity := ClassifyPort(port, fastProbe)
-	if role != RoleNMEA {
-		t.Fatalf("role=%q identity=%q, want nmea", role, identity)
+	report := ClassifyPort(port, fastProbe)
+	if !report.NMEA || report.Role != RoleNMEA {
+		t.Fatalf("%+v, want nmea", report)
+	}
+}
+
+// The interface that streams sentences is often the one that accepts the command
+// switching that stream on. Stopping at the first answer left the agent holding a
+// receiver it had no way to power up, and which interface index carries which
+// capability varies by module, so it cannot be assumed either.
+func TestClassifyKeepsAskingAfterFindingAnNMEAStream(t *testing.T) {
+	port := &scriptedPort{
+		stream:  nmeaSentence("GPGGA,120000.00,4851.0000,N,00220.0000,E,1,08,1.0,89.6,M,,,,") + "\r\n",
+		replies: map[string]string{"AT\r": "AT\r\r\nOK\r\n"},
+	}
+	report := ClassifyPort(port, fastProbe)
+	if !report.NMEA || !report.Modem {
+		t.Fatalf("%+v, want a port that both streams and accepts AT", report)
+	}
+}
+
+// An ELM adapter answers plain AT as well, so the enquiry has to stop once it has
+// identified itself or every OBD adapter would be filed as a modem.
+func TestClassifyDoesNotMistakeAnELMAdapterForAModem(t *testing.T) {
+	port := &scriptedPort{replies: map[string]string{
+		"ATI":  "ATI\r\rELM327 v1.3a\r\r>",
+		"AT\r": "AT\r\r\nOK\r\n",
+	}}
+	report := ClassifyPort(port, fastProbe)
+	if !report.ELM || report.Modem {
+		t.Fatalf("%+v, want an adapter that is not also a modem", report)
 	}
 }
 
 func TestClassifyIdentifiesAnELMAdapter(t *testing.T) {
 	port := &scriptedPort{replies: map[string]string{"ATI": "ATI\r\rELM327 v1.3a\r\r>"}}
-	role, identity := ClassifyPort(port, fastProbe)
-	if role != RoleELM || identity != "ELM327 v1.3a" {
-		t.Fatalf("role=%q identity=%q, want an ELM adapter", role, identity)
+	report := ClassifyPort(port, fastProbe)
+	if report.Role != RoleELM || report.Identity != "ELM327 v1.3a" {
+		t.Fatalf("%+v, want an ELM adapter", report)
 	}
 }
 
 func TestClassifyIdentifiesAModemControlPort(t *testing.T) {
 	port := &scriptedPort{replies: map[string]string{"AT\r": "AT\r\r\nOK\r\n"}}
-	role, _ := ClassifyPort(port, fastProbe)
-	if role != RoleModem {
-		t.Fatalf("role=%q, want modem", role)
+	if report := ClassifyPort(port, fastProbe); !report.Modem || report.Role != RoleModem {
+		t.Fatalf("%+v, want modem", report)
 	}
 }
 
 func TestClassifyLeavesASilentPortUnknown(t *testing.T) {
-	role, _ := ClassifyPort(&scriptedPort{}, fastProbe)
-	if role != RoleUnknown {
-		t.Fatalf("role=%q, want unknown", role)
+	if report := ClassifyPort(&scriptedPort{}, fastProbe); report.Role != RoleUnknown {
+		t.Fatalf("%+v, want unknown", report)
 	}
 }
 
@@ -90,11 +116,11 @@ func TestClassifyLeavesASilentPortUnknown(t *testing.T) {
 // result may decide which one is the GPS source.
 func TestSelectRolesPrefersProbedPortsOverPosition(t *testing.T) {
 	gps, obd, modem := SelectRoles([]PortReport{
-		{Device: "/dev/serial/by-id/usb-SimTech-if00-port0", Role: RoleUnknown},
-		{Device: "/dev/serial/by-id/usb-SimTech-if01-port0", Role: RoleUnknown},
-		{Device: "/dev/serial/by-id/usb-SimTech-if02-port0", Role: RoleModem},
-		{Device: "/dev/serial/by-id/usb-SimTech-if03-port0", Role: RoleNMEA},
-		{Device: "/dev/serial/by-id/usb-ScanTool-OBDLink-if00-port0", Role: RoleELM},
+		{Device: "/dev/serial/by-id/usb-SimTech-if00-port0"},
+		{Device: "/dev/serial/by-id/usb-SimTech-if01-port0"},
+		{Device: "/dev/serial/by-id/usb-SimTech-if02-port0", Modem: true},
+		{Device: "/dev/serial/by-id/usb-SimTech-if03-port0", NMEA: true},
+		{Device: "/dev/serial/by-id/usb-ScanTool-OBDLink-if00-port0", ELM: true},
 	})
 	if gps != "/dev/serial/by-id/usb-SimTech-if03-port0" {
 		t.Fatalf("gps=%q, want the interface that actually streams NMEA", gps)
@@ -110,10 +136,31 @@ func TestSelectRolesPrefersProbedPortsOverPosition(t *testing.T) {
 // A module that publishes no NMEA interface still answers position over AT.
 func TestSelectRolesFallsBackToTheModemForPosition(t *testing.T) {
 	gps, _, modem := SelectRoles([]PortReport{
-		{Device: "/dev/ttyUSB3", Role: RoleModem},
-		{Device: "/dev/ttyUSB0", Role: RoleELM},
+		{Device: "/dev/ttyUSB3", Modem: true},
+		{Device: "/dev/ttyUSB0", ELM: true},
 	})
 	if gps != "/dev/ttyUSB3" || modem != "/dev/ttyUSB3" {
 		t.Fatalf("gps=%q modem=%q, want the modem used as the position source", gps, modem)
+	}
+}
+
+// The interface that streams NMEA is frequently the control port too. It must be
+// chosen for both jobs, and its stream is what the position is read from: polling
+// returns whatever the module last stored, while the stream reports a fix as the
+// receiver produces it.
+func TestSelectRolesUsesOnePortForBothJobs(t *testing.T) {
+	reports := []PortReport{
+		{Device: "/dev/ttyUSB0", ELM: true},
+		{Device: "/dev/ttyUSB1", NMEA: true, Modem: true},
+	}
+	gps, obd, modem := SelectRoles(reports)
+	if gps != "/dev/ttyUSB1" || modem != "/dev/ttyUSB1" || obd != "/dev/ttyUSB0" {
+		t.Fatalf("gps=%q obd=%q modem=%q", gps, obd, modem)
+	}
+	if !StreamsNMEA(reports, gps) {
+		t.Fatal("the chosen GPS path streams, so its position must be read as a stream")
+	}
+	if StreamsNMEA(reports, "/dev/ttyUSB0") || StreamsNMEA(reports, "/dev/nothing") {
+		t.Fatal("only a path the sweep saw streaming may be read as a stream")
 	}
 }

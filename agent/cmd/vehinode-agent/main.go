@@ -574,10 +574,14 @@ func commandReplay(arguments []string) error {
 
 // resolvedDevices is which serial path ended up serving which role.
 type resolvedDevices struct {
-	gps     string
-	obd     string
-	modem   string
-	reports []providers.PortReport
+	gps   string
+	obd   string
+	modem string
+	// gpsStreams distinguishes a path that publishes sentences by itself from one
+	// that only answers a position when polled over AT. The same path can be the
+	// modem control port as well, which is the usual arrangement.
+	gpsStreams bool
+	reports    []providers.PortReport
 }
 
 // resolveDevices decides the role of each serial path.
@@ -593,14 +597,7 @@ func resolveDevices(hardware store.Hardware) resolvedDevices {
 		// finishes is what separates "still working" from "hung", both for an
 		// operator running a diagnostic and in the service journal.
 		result.reports = providers.ProbeAll(store.SerialCandidates(), func(report providers.PortReport) {
-			detail := report.Identity
-			if report.Error != "" {
-				detail = report.Error
-			}
-			if detail != "" {
-				detail = ": " + detail
-			}
-			fmt.Fprintf(os.Stderr, "probe %s -> %s%s\n", report.Device, report.Role, detail)
+			fmt.Fprintf(os.Stderr, "probe %s -> %s\n", report.Device, describePort(report))
 		})
 		probedGPS, probedOBD, probedModem := providers.SelectRoles(result.reports)
 		if result.modem == "" {
@@ -625,7 +622,34 @@ func resolveDevices(hardware store.Hardware) resolvedDevices {
 	if result.gps != "" && result.modem == "" {
 		result.modem = modemPath(result.reports, result.gps)
 	}
+	result.gpsStreams = providers.StreamsNMEA(result.reports, result.gps)
 	return result
+}
+
+// describePort names every capability a port has rather than only the one it is
+// filed under, because the useful fact is often the second one: an interface that
+// streams NMEA and also accepts AT is the one that can switch the receiver on.
+func describePort(report providers.PortReport) string {
+	if report.Error != "" {
+		return string(providers.RoleUnknown) + ": " + report.Error
+	}
+	found := []string{}
+	for _, capability := range []struct {
+		present bool
+		name    string
+	}{{report.NMEA, "nmea"}, {report.ELM, "elm"}, {report.Modem, "modem"}} {
+		if capability.present {
+			found = append(found, capability.name)
+		}
+	}
+	if len(found) == 0 {
+		return string(providers.RoleUnknown)
+	}
+	described := strings.Join(found, "+")
+	if report.Identity != "" {
+		described += ": " + report.Identity
+	}
+	return described
 }
 
 // modemPath decides whether the GPS path is itself a modem control port.
@@ -641,12 +665,12 @@ func modemPath(reports []providers.PortReport, device string) string {
 		if report.Device != device {
 			continue
 		}
-		if report.Role == providers.RoleModem {
+		if report.Modem {
 			return device
 		}
 		return ""
 	}
-	if providers.ProbeDevice(device).Role == providers.RoleModem {
+	if providers.ProbeDevice(device).Modem {
 		return device
 	}
 	return ""
@@ -680,7 +704,11 @@ func startPosition(devices resolvedDevices, samplingSeconds int) (agentruntime.P
 				fmt.Fprintln(os.Stderr, "GNSS enable failed:", enableErr)
 			}
 		}
-		if devices.modem == devices.gps {
+		// A port that publishes sentences is read as a stream even when it is also
+		// the control port: streaming reports a fix as the receiver produces it,
+		// while polling reports whatever the module last stored. The control port
+		// is only needed to switch the receiver on, so it is handed back.
+		if !devices.gpsStreams {
 			return modem, modem.Close, nil
 		}
 		modem.Close()

@@ -48,16 +48,18 @@ func TestConfigPrintsLocallyAndOnlyPullsWhenAsked(t *testing.T) {
 func TestResolveReusesTheSweepRatherThanReprobing(t *testing.T) {
 	nmea := "/dev/serial/by-id/usb-SimTech-if01-port0"
 	reports := []providers.PortReport{
-		{Device: "/dev/serial/by-id/usb-OBDLink-if00-port0", Role: providers.RoleELM},
-		{Device: nmea, Role: providers.RoleNMEA},
+		{Device: "/dev/serial/by-id/usb-OBDLink-if00-port0", ELM: true},
+		{Device: nmea, NMEA: true},
 	}
 	if path := modemPath(reports, nmea); path != "" {
-		t.Fatalf("a port the sweep called NMEA is not a modem, got %q", path)
+		t.Fatalf("a port that only streams is not a control port, got %q", path)
 	}
 
-	reports[1].Role = providers.RoleModem
+	// The same interface commonly does both, which is the whole reason the sweep
+	// records capabilities rather than one role.
+	reports[1].Modem = true
 	if path := modemPath(reports, nmea); path != nmea {
-		t.Fatalf("a port the sweep called a modem must be used as one, got %q", path)
+		t.Fatalf("a streaming port that also accepts AT must be used as one, got %q", path)
 	}
 
 	// A path the sweep never saw is still probed; here it does not exist, so the

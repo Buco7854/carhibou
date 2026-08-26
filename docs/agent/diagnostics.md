@@ -149,3 +149,17 @@ The commands now say so themselves when the service is running. Separately, a
 cellular module's USB serial driver dislikes an interface being reopened the moment
 it was closed, so the sweep leaves each one alone briefly and reuses what it already
 learned rather than probing the same path twice.
+
+## Reading the sweep
+
+Each line names every capability the port has, not just the one it is filed under:
+
+```
+probe /dev/serial/by-id/usb-ScanTool...-if00-port0 -> elm: ELM327 v1.3a
+probe /dev/serial/by-id/usb-SimTech...-if01-port0  -> nmea+modem: $GPGGA,...
+```
+
+`nmea+modem` is the interesting one: that interface both publishes sentences and
+accepts `AT`, so it is used as the position source *and* as the control port that
+switches the receiver on. Which interface index does this varies by module and
+firmware, so nothing is assumed from the name — a port is only what it answers to.

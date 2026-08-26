@@ -21,11 +21,33 @@ const (
 )
 
 // PortReport is the outcome of probing one serial path.
+//
+// The capabilities are deliberately not exclusive. A cellular module publishes an
+// interface that streams NMEA and also accepts AT, and recording only the first
+// answer meant such a port was filed as a receiver and never asked whether it
+// could switch that receiver on. Which interface index carries which capability
+// varies by module and firmware, so nothing here may be inferred from the name.
 type PortReport struct {
 	Device   string     `json:"device"`
 	Role     SerialRole `json:"role"`
+	NMEA     bool       `json:"nmea,omitempty"`
+	ELM      bool       `json:"elm,omitempty"`
+	Modem    bool       `json:"modem,omitempty"`
 	Identity string     `json:"identity,omitempty"`
 	Error    string     `json:"error,omitempty"`
+}
+
+// primaryRole is the single label to show for a port that may do several things.
+func primaryRole(report PortReport) SerialRole {
+	switch {
+	case report.ELM:
+		return RoleELM
+	case report.NMEA:
+		return RoleNMEA
+	case report.Modem:
+		return RoleModem
+	}
+	return RoleUnknown
 }
 
 // probeConversation is the minimum a port has to do to be identified. Windows are
@@ -38,28 +60,37 @@ type probeConversation struct {
 
 var defaultConversation = probeConversation{listen: 900 * time.Millisecond, command: 700 * time.Millisecond}
 
-// ClassifyPort identifies one already-open port.
+// ClassifyPort reports everything one already-open port turns out to do.
 //
-// Order matters. Listening first costs nothing on a talkative port and identifies
-// an NMEA stream without writing anything to hardware whose purpose is unknown.
-// Only a silent port is then asked, ELM first because an OBD adapter answers ATI
-// immediately while a modem needs a moment.
-func ClassifyPort(port serial.Port, timing probeConversation) (SerialRole, string) {
+// Listening comes first because it costs nothing on a talkative port and needs no
+// write to hardware whose purpose is unknown. It is not the end of the enquiry: a
+// port that streams NMEA is still asked whether it accepts AT, which is the only
+// way to find the interface that can switch the receiver on.
+//
+// ELM is asked before AT and ends the enquiry, because an OBD adapter answers
+// plain AT too and would otherwise be mistaken for a modem.
+func ClassifyPort(port serial.Port, timing probeConversation) PortReport {
+	report := PortReport{}
 	if sentence, ok := listenForNMEA(port, timing.listen); ok {
-		return RoleNMEA, sentence
+		report.NMEA = true
+		report.Identity = sentence
 	}
 	if identity, ok := ask(port, "ATI", timing.command, func(reply string) bool {
 		upper := strings.ToUpper(reply)
 		return strings.Contains(upper, "ELM") || strings.Contains(upper, "STN") || strings.Contains(upper, "OBD")
 	}); ok {
-		return RoleELM, identity
+		report.ELM = true
+		report.Identity = identity
+		report.Role = primaryRole(report)
+		return report
 	}
-	if identity, ok := ask(port, "AT", timing.command, func(reply string) bool {
+	if _, ok := ask(port, "AT", timing.command, func(reply string) bool {
 		return strings.Contains(strings.ToUpper(reply), "OK")
 	}); ok {
-		return RoleModem, identity
+		report.Modem = true
 	}
-	return RoleUnknown, ""
+	report.Role = primaryRole(report)
+	return report
 }
 
 func listenForNMEA(port serial.Port, window time.Duration) (string, bool) {
@@ -148,8 +179,9 @@ func ProbeDevice(device string) PortReport {
 	if err := port.SetReadTimeout(200 * time.Millisecond); err != nil {
 		return PortReport{Device: device, Role: RoleUnknown, Error: err.Error()}
 	}
-	role, identity := ClassifyPort(port, defaultConversation)
-	return PortReport{Device: device, Role: role, Identity: identity}
+	report := ClassifyPort(port, defaultConversation)
+	report.Device = device
+	return report
 }
 
 // ProbeAll classifies every candidate, sequentially so one core is never shared
@@ -170,32 +202,40 @@ func ProbeAll(devices []string, onReport func(PortReport)) []PortReport {
 	return reports
 }
 
-// SelectRoles picks the GPS and OBD paths from a probe sweep.
+// SelectRoles picks the GPS, OBD and modem paths from a probe sweep.
 //
 // A port publishing NMEA is preferred for GPS because it needs no polling; a modem
-// control port is the fallback, since it can still answer position over AT and can
-// switch the receiver on. An unprobed name hint never overrides a probe result.
+// control port is the fallback, since it can still answer position over AT. The
+// same port may fill both jobs, and often does: the interface that streams NMEA is
+// frequently the one that accepts the command switching that stream on. An
+// unprobed name hint never overrides a probe result.
 func SelectRoles(reports []PortReport) (gps string, obd string, modem string) {
 	ordered := append([]PortReport(nil), reports...)
 	sort.SliceStable(ordered, func(left, right int) bool { return ordered[left].Device < ordered[right].Device })
 	for _, report := range ordered {
-		switch report.Role {
-		case RoleNMEA:
-			if gps == "" {
-				gps = report.Device
-			}
-		case RoleELM:
-			if obd == "" {
-				obd = report.Device
-			}
-		case RoleModem:
-			if modem == "" {
-				modem = report.Device
-			}
+		if report.NMEA && gps == "" {
+			gps = report.Device
+		}
+		if report.ELM && obd == "" {
+			obd = report.Device
+		}
+		if report.Modem && modem == "" {
+			modem = report.Device
 		}
 	}
 	if gps == "" {
 		gps = modem
 	}
 	return gps, obd, modem
+}
+
+// StreamsNMEA reports whether a swept path publishes sentences of its own, which
+// decides whether its position is read as a stream or polled over AT.
+func StreamsNMEA(reports []PortReport, device string) bool {
+	for _, report := range reports {
+		if report.Device == device {
+			return report.NMEA
+		}
+	}
+	return false
 }
