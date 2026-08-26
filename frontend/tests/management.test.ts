@@ -53,11 +53,11 @@ describe('vehicle and dashboard management', () => {
     expect(wrapper.text()).toContain('Parked / stale')
   })
 
-  it('shows newly created vehicles in the tracker enrollment selector', async () => {
+  it('shows newly created vehicles in the agent enrollment selector', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
       if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([]))
       if (url.endsWith(`/vehicles/${vehicle.id}/enrollments`) && options?.method === 'POST') {
-        return Promise.resolve(jsonResponse({ install_command:'install tracker' }, 201))
+        return Promise.resolve(jsonResponse({ install_command:'install agent' }, 201))
       }
       return Promise.resolve(jsonResponse([vehicle]))
     })
@@ -107,7 +107,7 @@ describe('vehicle and dashboard management', () => {
     expect(wrapper.find('input[type="number"][step=".1"]').exists()).toBe(false)
 
     // A profile is offered but nothing is preselected: a vehicle without one still
-    // records position and tracker health.
+    // records position and agent health.
     await wrapper.get('input[required]').setValue('Touring')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
@@ -125,7 +125,7 @@ describe('vehicle and dashboard management', () => {
     expect(second.vehicle_profile).toBe('citroen-c-zero-v1')
   })
 
-  it('sets a tracker cadence at enrollment and edits it afterwards', async () => {
+  it('sets an agent cadence at enrollment and edits it afterwards', async () => {
     const device = { id:'device-1', vehicle_id:'vehicle-1', name:'Pi', credential_version:1, agent_version:'0.1.0', hostname:'pi', hardware:{}, sampling_seconds:5, upload_seconds:5, parked_sampling_seconds:300, parked_upload_seconds:300, online:true, last_seen_at:null, last_config_sync_at:null, config_version:1, revoked_at:null, created_at:'2026-01-01T00:00:00Z' }
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([device]))
@@ -153,7 +153,7 @@ describe('vehicle and dashboard management', () => {
     expect(enrolled.parked_sampling_seconds).toBe(600)
     expect(enrolled.parked_upload_seconds).toBe(600)
 
-    // The same two values are editable once the tracker exists.
+    // The same two values are editable once the agent exists.
     await wrapper.findAll('.device-actions .button')[0]!.trigger('click')
     await flushPromises()
     // The enrollment modal is still mounted, so scope to the settings one.
@@ -318,7 +318,7 @@ describe('vehicle and dashboard management', () => {
     expect(body.layout.preset).toBe('overview-v5')
     // Ordered by the questions somebody opening this has: what is the car doing,
     // how fast, how much is left, where is it. Status comes first because it
-    // carries both the vehicle's state and the tracker's, separately.
+    // carries both the vehicle's state and the agent's, separately.
     expect(body.layout.widgets.map((row: {type:string}) => row.type)).toEqual([
       'vehicle-selector', 'online-status', 'metric-card', 'battery-gauge',
       'position-map', 'charging', 'telemetry-list', 'time-series', 'vehicle-media',

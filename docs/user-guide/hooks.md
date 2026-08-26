@@ -5,7 +5,7 @@ a hook before enabling it.
 
 ## One upload, one run
 
-A tracker uploads samples in batches. Each batch runs your hook **once** and gives it the
+An agent uploads samples in batches. Each batch runs your hook **once** and gives it the
 whole batch, so you decide whether one reading is enough or every row matters:
 
 - `ctx.telemetry` — the newest sample in the batch.
@@ -19,7 +19,7 @@ if soc is not None and soc < 20:
 ```
 
 ```python
-# Or act on every row the tracker just delivered.
+# Or act on every row the agent just delivered.
 for row in ctx.telemetry_batch:
     ctx.log.info("sample", at=row.recorded_at.isoformat(), metrics=dict(row.metrics))
 ```
@@ -31,7 +31,7 @@ the execution history.
 
 Each recipe is a complete hook you can paste into the editor:
 
-- [Forward to Traccar](/recipes/traccar) — push every position the tracker delivered to an
+- [Forward to Traccar](/recipes/traccar) — push every position the agent delivered to an
   external server, iterating the batch so a buffered journey is not reduced to its last
   point.
 - [Gate on arrival](/recipes/gate-on-arrival) — a geofence: detect crossing into a radius

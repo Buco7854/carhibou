@@ -22,7 +22,7 @@ VEHINODE_SESSION_COOKIE_SECURE=true
 
 `VEHINODE_PUBLIC_URL` must be an HTTP(S) origin without credentials, path, query or
 fragment. It is also used to generate agent enrollment URLs, so it must be reachable by
-the vehicle tracker.
+the vehicle agent.
 
 ## Bootstrap the administrator once
 

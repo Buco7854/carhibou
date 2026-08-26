@@ -25,7 +25,7 @@ func TestExplicitHTTPEnrollmentAndBatchTransport(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	enrolled, err := Enroll(server.URL, "one-time-token-value", "tracker", "test", nil, true)
+	enrolled, err := Enroll(server.URL, "one-time-token-value", "agent", "test", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}

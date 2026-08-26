@@ -8,7 +8,7 @@ function withMetrics(metrics: Record<string, unknown>): Vehicle {
 }
 
 describe('telemetry-driven vehicle display', () => {
-  it('uses battery metrics when the tracker reports them', () => {
+  it('uses battery metrics when the agent reports them', () => {
     const current = withMetrics({ 'battery.soc': 72, 'battery.power': -8.4, 'charging.active': false })
     expect(energySummary(current)).toMatchObject({ key: 'battery.soc', value: 72, unit: '%' })
     expect(secondaryReadings(current).map((row) => row.key)).toEqual(['battery.power', 'charging.active'])

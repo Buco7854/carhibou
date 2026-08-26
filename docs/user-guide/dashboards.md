@@ -2,9 +2,9 @@
 
 VehiNode always provides one premade **Overview** built from normal widgets, answering in
 reading order: where the vehicle is, how much energy is left, whether it is charging and
-how fast, what it reports right now, how it has moved, and whether the tracker is healthy.
+how fast, what it reports right now, how it has moved, and whether the agent is healthy.
 Energy, charging and the photo hide themselves on a vehicle that cannot report them, so
-the same preset suits an EV, a fuel vehicle and a car whose tracker only sees standard
+the same preset suits an EV, a fuel vehicle and a car whose agent only sees standard
 OBD-II. Existing accounts that predate the preset receive it without losing their other
 dashboards. Create additional dashboards for another vehicle or purpose and choose which
 one opens by default.
@@ -31,7 +31,7 @@ reusable dashboard to switch all of its live cards together while still supporti
 fixed comparison card.
 
 Data widgets use one consistent **No data yet** state until the selected vehicle reports
-the required metric, position, history or tracker health. Empty maps and charts are not
+the required metric, position, history or agent health. Empty maps and charts are not
 mounted, and telemetry lists omit unavailable readings instead of filling the card with
 dashes.
 

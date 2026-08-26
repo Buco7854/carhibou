@@ -36,7 +36,7 @@ Everything else is a reading: `battery.soc`, `battery.power`, `vehicle.speed`,
 `engine.rpm` and so on. A name outside the set the interface knows still records
 and still charts; it shows as its raw name rather than a translated one.
 
-**A vehicle with no profile is not silent.** It records position and tracker
+**A vehicle with no profile is not silent.** It records position and agent
 health, and, where the vehicle answers standard diagnostic requests, the ten
 readings those carry: `vehicle.speed`, `engine.rpm`, `engine.load`,
 `engine.throttle`, `engine.coolant_temperature`, `engine.intake_temperature`,
@@ -55,10 +55,10 @@ editing a profile opens a focused profile modal, while adding or editing one sig
 a distinct signal modal; page or modal content is never repurposed as an implicit next
 step. Those definitions are validated with the same Pydantic and agent decoder contracts, stored in PostgreSQL,
 and embedded in versioned device configuration. What is embedded is a projection: a
-tracker decodes frames rather than rendering a profile, so it receives the identifier,
+agent decodes frames rather than rendering a profile, so it receives the identifier,
 the signal names, sources, decoders, units and bounds, and nothing else. Names,
 descriptions and display names stay server-side, which halves the configuration a
-tracker downloads. The agent validates the embedded ID and decoder structure before
+agent downloads. The agent validates the embedded ID and decoder structure before
 atomically replacing last-known-good configuration.
 
 Editing or deleting an assigned custom profile increments each affected device's config

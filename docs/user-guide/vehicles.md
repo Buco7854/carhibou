@@ -13,7 +13,7 @@ A vehicle profile is a declarative decoding map from raw CAN frames and bytes to
 metrics such as `battery.soc`. VehiNode ships reviewed built-in definitions and lets each
 owner create profiles on the dedicated **Telemetry profiles** page. Custom profiles remain owner-scoped and
 can be assigned directly from a vehicle card. Saving, changing or deleting a profile
-increments the assigned tracker configuration; the server then sends the complete,
+increments the assigned agent configuration; the server then sends the complete,
 validated definition to the agent as last-known-good configuration.
 
 Only enter CAN identifiers and formulas backed by evidence you trust. VehiNode validates
@@ -23,7 +23,7 @@ and it never invents one.
 Live state shows the latest position, canonical metrics and device health. Online state
 uses reporting freshness rather than assuming every parked vehicle reports rapidly.
 
-Each card pairs the vehicle image with live readings and direct history/tracker actions.
+Each card pairs the vehicle image with live readings and direct history/agent actions.
 It never labels a vehicle electric, combustion or hybrid.
 
 A card leads with an energy level, `battery.soc` or then `fuel.level`, when one is
@@ -53,7 +53,7 @@ which must be backed up together with PostgreSQL.
 ## Vehicle deletion
 
 Delete a vehicle from its garage card. The confirmation explains that deletion is
-permanent: telemetry history, current state, trackers and credentials, pending enrollment
+permanent: telemetry history, current state, agents and credentials, pending enrollment
 tokens, the photo, and vehicle-specific hooks are removed together. Dashboard widgets
 that were pinned to the deleted vehicle are retained and return to following the
 dashboard vehicle selector.

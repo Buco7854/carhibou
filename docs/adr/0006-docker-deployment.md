@@ -18,5 +18,5 @@ maintenance. Compose selects roles but does not duplicate application startup de
 Production needs few services and no Node runtime. The published application image
 targets amd64 only: every extra platform rebuilds the entire image under emulation,
 and the hub is a server workload. Running the hub on an ARM host means building the
-image from the checkout. Agent releases are unaffected, because trackers run the
+image from the checkout. Agent releases are unaffected, because agents run the
 standalone executables of ADR 0007 rather than this image.

@@ -9,7 +9,7 @@ import (
 
 // ActivitySource names the evidence that decided the vehicle's state.
 //
-// It travels with the sample because a tracker that has quietly dropped to its
+// It travels with the sample because an agent that has quietly dropped to its
 // parked cadence looks identical to one whose adapter died, and the difference
 // decides whether anything needs fixing.
 type ActivitySource string
@@ -69,7 +69,7 @@ type ActivityDetector struct {
 func (detector *ActivityDetector) Observe(sample model.Sample, now time.Time) (bool, ActivitySource) {
 	source, found := detector.evidence(sample)
 	// The anchor is the place the vehicle was last seen. It has to be set while
-	// parked too, or a tracker that starts up beside a parked car never has one,
+	// parked too, or an agent that starts up beside a parked car never has one,
 	// and displacement — the only source left for a vehicle with no profile and a
 	// receiver that reports no speed — can never fire. A sample without a fix
 	// leaves the previous anchor alone rather than forgetting it.
@@ -85,7 +85,7 @@ func (detector *ActivityDetector) Observe(sample model.Sample, now time.Time) (b
 		grace = DefaultActivityGrace
 	}
 	// A detector that has never seen evidence starts parked rather than holding
-	// the fast cadence for one grace period every time the tracker restarts.
+	// the fast cadence for one grace period every time the agent restarts.
 	if !detector.lastEvidence.IsZero() && now.Sub(detector.lastEvidence) < grace {
 		return true, SourceGrace
 	}

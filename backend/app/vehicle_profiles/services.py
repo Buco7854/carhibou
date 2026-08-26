@@ -93,14 +93,14 @@ def owned_profile(db: Session, owner_id: str, profile_id: str) -> VehicleProfile
 # The keys a decoder reads. A profile also carries what people need to recognise
 # it in the interface - its name, family, version and per-signal display names and
 # descriptions - and none of that reaches a decoder. Sending it anyway more than
-# doubled the configuration a tracker downloads on every sync and holds in memory
+# doubled the configuration an agent downloads on every sync and holds in memory
 # while parsing, which is worth avoiding on a single-core 512MB board.
 _AGENT_SIGNAL_KEYS = frozenset({"name", "source", "decoder", "unit", "minimum", "maximum"})
 _AGENT_COMPUTED_KEYS = frozenset({"name", "operation", "inputs", "unit", "scale"})
 
 
 def agent_definition(definition: dict[str, object]) -> dict[str, object]:
-    """Project a profile down to the fields a tracker's decoder actually reads."""
+    """Project a profile down to the fields an agent's decoder actually reads."""
 
     signals = definition.get("signals")
     computed = definition.get("computed_metrics")

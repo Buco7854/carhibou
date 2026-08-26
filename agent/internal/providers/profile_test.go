@@ -49,7 +49,7 @@ func TestReadMetricsDoesNotWaitForTheBus(t *testing.T) {
 
 // A failing adapter must be retried on a timer rather than on every sample: on a
 // single core, connecting is several serial exchanges and would crowd out the
-// position samples the tracker can still take.
+// position samples the agent can still take.
 func TestAFailedAdapterIsNotRetriedEverySample(t *testing.T) {
 	provider := NewProfileProvider(NewOBDAdapter("/dev/vehinode-absent"), testDecoder(t))
 	defer provider.Close()
@@ -65,7 +65,7 @@ func TestAFailedAdapterIsNotRetriedEverySample(t *testing.T) {
 	}
 }
 
-// Closing must be safe whether or not a monitor ever started, because a tracker
+// Closing must be safe whether or not a monitor ever started, because an agent
 // shuts down the same way after a good run and after a failed connection.
 func TestClosingIsSafeWithoutAMonitor(t *testing.T) {
 	provider := NewProfileProvider(NewOBDAdapter("/dev/vehinode-absent"), testDecoder(t))

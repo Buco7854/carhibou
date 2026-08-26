@@ -34,7 +34,7 @@ func TestStoredDetectionIsOnlyTrustedWhileTheHardwareMatches(t *testing.T) {
 	}
 
 	// A named device that has gone away invalidates it even when the candidate
-	// list is unchanged, which is what a tracker moved to another socket looks like.
+	// list is unchanged, which is what an agent moved to another socket looks like.
 	if err := os.Remove(other); err != nil {
 		t.Fatal(err)
 	}

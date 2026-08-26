@@ -32,6 +32,6 @@ docker compose up -d app worker
 ```
 
 Verify `/health/ready`, sign in, load a vehicle history, inspect secret masks, run a
-dry-run hook, open an uploaded vehicle photo and confirm that a tracker reconnects.
+dry-run hook, open an uploaded vehicle photo and confirm that an agent reconnects.
 Without the original
 `VEHINODE_MASTER_KEY`, database rows remain intact but hook secrets cannot be decrypted.

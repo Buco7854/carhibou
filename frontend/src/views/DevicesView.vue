@@ -5,7 +5,7 @@ import { api } from '../api/client'
 import type { Vehicle, VehicleProfile } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import CadenceFields from '../components/CadenceFields.vue'
-import { CADENCE_PRESETS, type Cadence } from '../trackerCadence'
+import { CADENCE_PRESETS, type Cadence } from '../agentCadence'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 
@@ -16,7 +16,7 @@ const devices = ref<Device[]>([])
 const vehicles = ref<Vehicle[]>([])
 const enrolling = ref(false)
 const selectedVehicle = ref('')
-const trackerName = ref('Vehicle tracker')
+const agentName = ref('Vehicle agent')
 const enrollmentCadence = ref<Cadence>({ ...CADENCE_PRESETS.find((preset) => preset.key === 'standard')! })
 const profileSignals = ref<Record<string,number>>({})
 const editing = ref<Device|null>(null)
@@ -55,7 +55,7 @@ function openEnrollment() {
 }
 async function createEnrollment() {
   if (!selectedVehicle.value) return
-  const response = await api<{ install_command:string }>(`/vehicles/${selectedVehicle.value}/enrollments`, { method:'POST', body:JSON.stringify({ name:trackerName.value, ...enrollmentCadence.value }) })
+  const response = await api<{ install_command:string }>(`/vehicles/${selectedVehicle.value}/enrollments`, { method:'POST', body:JSON.stringify({ name:agentName.value, ...enrollmentCadence.value }) })
   installCommand.value = response.install_command
 }
 function openSettings(device:Device) {
@@ -112,7 +112,7 @@ onMounted(load)
       <form class="enrollment-panel" @submit.prevent="createEnrollment">
         <div class="enrollment-fields">
           <label class="field"><span>{{ t('devices.vehicle') }}</span><AppSelect v-model="selectedVehicle" searchable :search-placeholder="t('vehicles.search')" :no-results-text="t('vehicles.noMatch')"><option v-for="vehicle in vehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.name }}</option></AppSelect></label>
-          <label class="field"><span>{{ t('devices.name') }}</span><input v-model="trackerName" class="input" /></label>
+          <label class="field"><span>{{ t('devices.name') }}</span><input v-model="agentName" class="input" /></label>
           <CadenceFields v-model="enrollmentCadence" :signal-count="signalCount(selectedVehicle)" />
           <p class="field-hint">{{ t('devices.cadenceHint') }}</p>
         </div>

@@ -3,17 +3,17 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
-import { trackerStatus, vehicleActivity } from '../vehicleDisplay'
+import { agentStatus, vehicleActivity } from '../vehicleDisplay'
 import { useDashboardVehicle } from './dashboardContext'
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const vehicle = useDashboardVehicle(props.widget)
 const { t } = useI18n()
 
-// Two facts, not one. A tracker that has stopped reporting says nothing about
+// Two facts, not one. An agent that has stopped reporting says nothing about
 // where the vehicle is or what it is doing, and showing "parked" in that case was
-// a claim about the vehicle drawn from evidence about the tracker.
-const tracker = computed(() => trackerStatus(vehicle.value))
+// a claim about the vehicle drawn from evidence about the agent.
+const agent = computed(() => agentStatus(vehicle.value))
 const activity = computed(() => vehicleActivity(vehicle.value))
 
 const reportedAt = computed(() => {
@@ -32,8 +32,8 @@ const reportedAt = computed(() => {
           <dd><span :class="['status', { online: activity === 'driving' || activity === 'charging' }]">{{ t(`dashboard.activity.${activity}`) }}</span></dd>
         </div>
         <div>
-          <dt>{{ t('dashboard.trackerStatus') }}</dt>
-          <dd><span :class="['status', { online: tracker === 'online' }]">{{ t(`dashboard.tracker.${tracker}`) }}</span></dd>
+          <dt>{{ t('dashboard.agentStatus') }}</dt>
+          <dd><span :class="['status', { online: agent === 'online' }]">{{ t(`dashboard.agent.${agent}`) }}</span></dd>
         </div>
       </dl>
       <small class="status-time">{{ t('dashboard.lastReport', { at: reportedAt }) }}</small>

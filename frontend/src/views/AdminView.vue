@@ -55,7 +55,7 @@ async function removePerson(account: UserAccount): Promise<void> {
 }
 
 /**
- * Empty every vehicle of readings. The vehicles, trackers, hooks and dashboards
+ * Empty every vehicle of readings. The vehicles, agents, hooks and dashboards
  * are left standing; only what was recorded goes, which is what makes this usable
  * after a period of testing rather than a way to start over.
  */

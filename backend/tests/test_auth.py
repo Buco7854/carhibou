@@ -100,7 +100,7 @@ def test_local_identity_and_device_auth_realms_are_isolated(
     enrollment = client.post(
         f"/api/v1/vehicles/{vehicle['id']}/enrollments",
         headers={"X-CSRF-Token": csrf},
-        json={"name": "Tracker"},
+        json={"name": "Agent"},
     ).json()
     enrolled = client.post(
         "/api/v1/device/enroll",

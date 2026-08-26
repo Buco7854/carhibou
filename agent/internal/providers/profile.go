@@ -11,7 +11,7 @@ import (
 
 // connectRetryInterval throttles reconnection to an adapter that is not
 // answering. Connecting is several serial exchanges; attempting it on every
-// sample means a tracker with an unplugged adapter spends most of its single
+// sample means an agent with an unplugged adapter spends most of its single
 // core timing out, which delays the position samples it could still be taking.
 const connectRetryInterval = 60 * time.Second
 
@@ -55,7 +55,7 @@ func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *Pr
 
 // Status explains why the provider is publishing nothing.
 //
-// Every failure here is recoverable and none of it should stop a tracker
+// Every failure here is recoverable and none of it should stop an agent
 // reporting its position, so ReadMetrics returns what it has rather than an
 // error. That made a permanently disconnected adapter invisible: the vehicle
 // published position and health forever and simply never mentioned CAN.

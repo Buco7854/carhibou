@@ -4,7 +4,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 
-def test_tracker_cadence_is_chosen_at_enrollment_and_editable_afterwards(
+def test_agent_cadence_is_chosen_at_enrollment_and_editable_afterwards(
     registered: tuple[TestClient, str],
 ) -> None:
     client, csrf = registered
@@ -15,7 +15,7 @@ def test_tracker_cadence_is_chosen_at_enrollment_and_editable_afterwards(
         f"/api/v1/vehicles/{vehicle['id']}/enrollments",
         headers=headers,
         json={
-            "name": "Van tracker",
+            "name": "Van agent",
             "sampling_seconds": 30,
             "upload_seconds": 300,
             "parked_sampling_seconds": 120,
@@ -28,11 +28,11 @@ def test_tracker_cadence_is_chosen_at_enrollment_and_editable_afterwards(
         "/api/v1/device/enroll",
         json={"token": enrollment.json()["token"], "agent_version": "test", "hostname": "pi"},
     ).json()
-    # The tracker starts on the cadence it was enrolled with, not on a default it
+    # The agent starts on the cadence it was enrolled with, not on a default it
     # would then have to be corrected away from.
     assert enrolled["config"]["sampling"]["default_seconds"] == 30
     assert enrolled["config"]["upload"]["default_seconds"] == 300
-    # A parked vehicle is worth much less traffic, and the tracker is told both.
+    # A parked vehicle is worth much less traffic, and the agent is told both.
     assert enrolled["config"]["sampling"]["parked_seconds"] == 120
     assert enrolled["config"]["upload"]["parked_seconds"] == 1800
     assert enrolled["config"]["version"] == 1
@@ -40,8 +40,8 @@ def test_tracker_cadence_is_chosen_at_enrollment_and_editable_afterwards(
     device_id = enrolled["device_id"]
     device_headers = {"Authorization": f"Device {enrolled['credential']}"}
 
-    # Renaming is a label the tracker never sees, so it must not look like a new
-    # configuration the tracker has to fetch and re-validate.
+    # Renaming is a label the agent never sees, so it must not look like a new
+    # configuration the agent has to fetch and re-validate.
     renamed = client.put(
         f"/api/v1/devices/{device_id}",
         headers=headers,
@@ -74,7 +74,7 @@ def test_tracker_cadence_is_chosen_at_enrollment_and_editable_afterwards(
     assert config["sampling"]["default_seconds"] == 60
     assert config["upload"]["default_seconds"] == 900
 
-    # Changing only the parked pair is still a configuration the tracker needs.
+    # Changing only the parked pair is still a configuration the agent needs.
     parked = client.put(
         f"/api/v1/devices/{device_id}",
         headers=headers,
@@ -95,7 +95,7 @@ def test_tracker_cadence_is_chosen_at_enrollment_and_editable_afterwards(
     )
 
     # The agent enforces the same bounds, so a value it would reject never leaves
-    # the server as a configuration the tracker silently keeps ignoring.
+    # the server as a configuration the agent silently keeps ignoring.
     rejected = client.put(
         f"/api/v1/devices/{device_id}",
         headers=headers,
@@ -110,7 +110,7 @@ def test_tracker_cadence_is_chosen_at_enrollment_and_editable_afterwards(
     assert rejected.status_code == 422
 
 
-def test_a_tracker_can_be_deleted_and_a_vehicle_emptied(
+def test_a_agent_can_be_deleted_and_a_vehicle_emptied(
     registered: tuple[TestClient, str],
 ) -> None:
     client, csrf = registered
@@ -147,7 +147,7 @@ def test_a_tracker_can_be_deleted_and_a_vehicle_emptied(
     entries = f"/api/v1/vehicles/{vehicle['id']}/history/entries"
     assert client.get(entries).json()["total"] == 1
 
-    # Emptying a vehicle keeps the vehicle and its tracker; only readings go.
+    # Emptying a vehicle keeps the vehicle and its agent; only readings go.
     assert (
         client.delete(f"/api/v1/vehicles/{vehicle['id']}/telemetry", headers=headers).status_code
         == 204
@@ -158,7 +158,7 @@ def test_a_tracker_can_be_deleted_and_a_vehicle_emptied(
     # The vehicle must stop claiming a reading nothing now supports.
     assert client.get(f"/api/v1/vehicles/{vehicle['id']}").json()["state"] is None
 
-    # Deleting the tracker is for hardware that is gone, and leaves nothing behind.
+    # Deleting the agent is for hardware that is gone, and leaves nothing behind.
     removed = client.delete(f"/api/v1/devices/{enrolled['device_id']}", headers=headers)
     assert removed.status_code == 204, removed.text
     assert client.get("/api/v1/devices").json() == []

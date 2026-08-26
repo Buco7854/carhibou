@@ -52,7 +52,7 @@ if [ -r /etc/os-release ]; then
   case "${VERSION_CODENAME:-}" in
     stretch|buster|bullseye)
       echo "Warning: ${PRETTY_NAME:-this OS release} no longer receives normal security support." >&2
-      echo "Re-image with a current Raspberry Pi OS release before using this tracker outside local testing." >&2
+      echo "Re-image with a current Raspberry Pi OS release before using this agent outside local testing." >&2
       ;;
   esac
 fi

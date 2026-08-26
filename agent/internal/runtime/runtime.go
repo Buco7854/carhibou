@@ -31,7 +31,7 @@ type VehicleProvider interface {
 
 // VehicleStatus is implemented by a source that can say why it published no
 // metrics. Every fault reading a vehicle is recoverable and none of them should
-// stop a tracker reporting its position, so ReadMetrics returns what it has
+// stop an agent reporting its position, so ReadMetrics returns what it has
 // rather than an error. Without this a dead adapter is indistinguishable from a
 // vehicle that simply has nothing to report.
 type VehicleStatus interface {
@@ -81,7 +81,7 @@ func (agent *Agent) Collect() (model.Sample, error) {
 	sample := model.NewSample(agent.Sequence+1, position, metrics, health)
 	inUse, source := agent.Activity.Observe(sample, time.Now())
 	agent.InUse = inUse
-	// Published because a tracker that has dropped to its parked cadence is
+	// Published because an agent that has dropped to its parked cadence is
 	// otherwise indistinguishable from one whose hardware stopped answering.
 	sample.Device["vehicle_in_use"] = inUse
 	sample.Device["activity_source"] = string(source)

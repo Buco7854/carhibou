@@ -1,6 +1,6 @@
 # Agent installation
 
-The tracker is a self-contained Go executable for Linux and runs directly under
+The agent is a self-contained Go executable for Linux and runs directly under
 systemd. It does not require Docker, Node, Python, a virtual environment or an OS
 package-manager update. In **Devices**, create an enrollment token and copy the
 generated one-time command:
@@ -34,7 +34,7 @@ sudo vehinode-agent update --version 0.1.1
 
 All four artifacts are built from the same Go source with CGO disabled. SQLite, HTTP,
 profile decoding and serial support are compiled into the executable. There is no
-database daemon or shared runtime on the tracker. Different CPU instruction sets still
+database daemon or shared runtime on the agent. Different CPU instruction sets still
 require different machine-code files, which is why the bootstrap performs architecture
 detection instead of pretending that one physical file can run on every processor.
 
@@ -56,7 +56,7 @@ device credential requires a new one-time enrollment token before reinstalling.
 Raspberry Pi OS Stretch is retired and no longer receives security maintenance. The
 standalone ARMv6 artifact avoids its broken APT repository and can be used for isolated
 local testing, but the installer prints an explicit warning. Re-image with a current
-Raspberry Pi OS release before using the tracker with real credentials or outside a
+Raspberry Pi OS release before using the agent with real credentials or outside a
 trusted test network.
 
 Never modify the command to install a branch or an unversioned “latest” build.

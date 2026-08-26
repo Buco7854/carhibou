@@ -1,7 +1,7 @@
 # Forward to Traccar
 
 Store the complete Traccar OsmAnd endpoint as `traccar_url`, then forward every sample the
-tracker just delivered:
+agent just delivered:
 
 ```python
 if ctx.dry_run:
@@ -25,7 +25,7 @@ for row in ctx.telemetry_batch:
     )
 ```
 
-Iterating matters here: a tracker that buffers offline uploads a whole journey at once, and
+Iterating matters here: an agent that buffers offline uploads a whole journey at once, and
 `ctx.telemetry` alone would forward only its last point. Use `ctx.telemetry` instead when
 you only want the current position.
 

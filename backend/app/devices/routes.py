@@ -100,7 +100,7 @@ def edit_device(
 
 @human_router.delete("/devices/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_device(device_id: str, db: Db, auth: CurrentUserWrite) -> None:
-    """Delete a tracker outright, with the telemetry it recorded.
+    """Delete an agent outright, with the telemetry it recorded.
 
     Revoking is for hardware that exists but must stop reporting; this is for
     hardware that is gone, or that was enrolled by mistake and should leave

@@ -13,7 +13,7 @@ export interface CadencePreset extends Cadence {
 
 /**
  * Sizes measured from the agent's own upload payload rather than guessed: one
- * sample carrying position and tracker health serialises to about 350 bytes,
+ * sample carrying position and agent health serialises to about 350 bytes,
  * and each decoded profile signal adds roughly 25 more. A request costs its
  * JSON envelope, HTTP headers, and the server's acknowledgement of every sample
  * ID it carried, which is a UUID each.
@@ -65,9 +65,9 @@ function windowBytes(
 }
 
 /**
- * Bytes a tracker uploads over thirty days, split between driving and parked.
+ * Bytes an agent uploads over thirty days, split between driving and parked.
  *
- * The tracker is assumed to be powered the whole month, which is the honest
+ * The agent is assumed to be powered the whole month, which is the honest
  * assumption for hardware on permanent power: it samples at its parked cadence
  * whether or not the vehicle moves, and that is most of the bill. Only the hours
  * actually spent driving are charged at the driving cadence.

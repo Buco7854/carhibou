@@ -514,7 +514,7 @@ func explainOBD(result map[string]any, answered bool, frames int) {
 	fmt.Fprintln(os.Stderr, "Switch the ignition on and run this again.")
 }
 
-// commandMonitor prints what the tracker would sample, once per interval, so a
+// commandMonitor prints what the agent would sample, once per interval, so a
 // wiring or antenna problem is visible without waiting for a dashboard round trip.
 func commandMonitor(locations paths, arguments []string) error {
 	if err := requireExclusiveHardware(); err != nil {
@@ -690,7 +690,7 @@ type resolvedDevices struct {
 //
 // An explicit selection is honoured without opening anything. Only "auto" probes,
 // because the USB product name cannot distinguish the five identical interfaces a
-// cellular module publishes, and picking the wrong one leaves the tracker silently
+// cellular module publishes, and picking the wrong one leaves the agent silently
 // without a position.
 func detectionStore(locations paths) store.DetectionStore {
 	return store.DetectionStore{Path: filepath.Join(locations.data, "detection.json")}
@@ -903,7 +903,7 @@ func startPosition(devices resolvedDevices, samplingSeconds int) (agentruntime.P
 // server's current one first.
 //
 // The service syncs on its own schedule, so without this an interval changed in
-// the interface leaves the operator watching a tracker they cannot tell apart
+// the interface leaves the operator watching an agent they cannot tell apart
 // from one that failed to apply it.
 func commandConfig(locations paths, arguments []string) error {
 	flags := flag.NewFlagSet("config", flag.ContinueOnError)

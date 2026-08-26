@@ -159,7 +159,7 @@ func VehicleAnswered(lines []string) bool {
 // Voltage reads the supply at the adapter's connector.
 //
 // It comes from the adapter, not the vehicle, so it answers with the ignition off
-// and is the one measurement that distinguishes a tracker plugged into a car from
+// and is the one measurement that distinguishes an agent plugged into a car from
 // one plugged into nothing. Around 12.4 V is a resting battery; 13.5 V or more
 // means something is charging it.
 func (adapter *OBDAdapter) Voltage() (string, error) {

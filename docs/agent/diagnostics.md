@@ -21,7 +21,7 @@ systemd journal entries.
 
 A USB product name cannot say which port does what. One SIM7600 publishes five interfaces
 under a single identity, and only some answer; picking by name is a guess that leaves the
-tracker silently without a position.
+agent silently without a position.
 
 The service records what it resolved at startup, so the first thing to check needs no
 probing and is safe while telemetry is running:
@@ -69,7 +69,7 @@ receiver on, and an entirely pinned configuration never probes to discover it.
 
 ## Watching live data
 
-`monitor` prints the position and vehicle metrics the tracker would sample, once per
+`monitor` prints the position and vehicle metrics the agent would sample, once per
 interval, so a wiring or antenna fault is visible without waiting for a dashboard round
 trip. Stop the service first so it is not holding the ports:
 
@@ -109,7 +109,7 @@ fix far longer than that records where the vehicle was rather than where it is.
 
 A receiver that answers commands but never produces a fix is almost always an antenna
 problem, not a software one. GPS signals arrive near the noise floor, so keep the antenna
-away from the tracker board itself, and give it sky rather than a metal enclosure.
+away from the agent board itself, and give it sky rather than a metal enclosure.
 
 If cellular service is unavailable, do not delete `queue.sqlite3`. Restore networking
 and let the next upload acknowledge queued UUIDs. Repeated upload is safe because both
@@ -121,7 +121,7 @@ The adapter answers whether or not a vehicle is listening, so a null VIN and an
 empty fault list mean nothing by themselves. The command separates the two:
 
 - `supply_voltage` and `protocol` come from the adapter. Voltage works with the
-  ignition off and is what distinguishes a tracker plugged into a car from one
+  ignition off and is what distinguishes an agent plugged into a car from one
   plugged into nothing: around 12.4 V is a resting battery, 13.5 V or more means
   something is charging it.
 - `answers_requests` is whether the vehicle replied to a standard diagnostic
@@ -145,7 +145,7 @@ to the diagnostic port.
 
 ## The vehicle reports position but no metrics
 
-Position and CAN metrics come from two different pieces of hardware, and a tracker whose
+Position and CAN metrics come from two different pieces of hardware, and an agent whose
 adapter never answers still reports its position and health perfectly. The absence of
 metric columns in **History** is therefore the expected appearance of a dead OBD path,
 not evidence that the vehicle had nothing to say.
@@ -156,7 +156,7 @@ from one that connected and rejected the protocol, and from one that connected b
 no frame the profile maps.
 
 Run `vehinode-agent obd-info` with the service stopped to talk to the adapter directly.
-A reconnection is only attempted once a minute while it keeps failing, so a tracker with
+A reconnection is only attempted once a minute while it keeps failing, so an agent with
 an unplugged adapter still samples its position on schedule.
 
 ## A diagnostic that stops after listing the ports
@@ -193,7 +193,7 @@ the ports out once and stores the answer in `detection.json`, then reuses it.
 
 It is trusted only while the hardware matches: the set of serial paths has to be
 the one the answer was made against, and every device the answer names has to still
-exist. Replugging a tracker into another socket, or a module enumerating its
+exist. Replugging an agent into another socket, or a module enumerating its
 interfaces in a different order, invalidates it by itself. So does failing to open
 what it named — the answer is discarded and the next start works it out again.
 

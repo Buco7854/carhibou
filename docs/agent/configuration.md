@@ -37,9 +37,9 @@ Passive monitoring cannot discover the vehicle's protocol the way a request woul
 so the agent tries the four CAN variants an OBD port can carry until one produces a
 frame, and keeps the common one when none do.
 
-Sampling and upload intervals are set per tracker in **Devices**, at enrollment and
+Sampling and upload intervals are set per agent in **Devices**, at enrollment and
 afterwards. `parked_seconds` is optional: a configuration without it uses one cadence in
-both states. The tracker decides which state it is in, and publishes that decision as
+both states. The agent decides which state it is in, and publishes that decision as
 `vehicle_in_use` alongside the `activity_source` that settled it. Inspect the accepted server configuration with `sudo vehinode-agent config`,
 and fetch the server's current one without waiting for the next sync with
 `sudo vehinode-agent config --pull`. Pulling stores the configuration; the running

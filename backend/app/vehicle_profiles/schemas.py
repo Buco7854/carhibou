@@ -63,7 +63,7 @@ class ComputedMetric(BaseModel):
 
 class ProfileDefinition(BaseModel):
     # Forbidding extras is what keeps a retired field from surviving in a stored
-    # definition and reappearing in the payload every tracker downloads.
+    # definition and reappearing in the payload every agent downloads.
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1, max_length=120)

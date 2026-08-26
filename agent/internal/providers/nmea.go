@@ -164,7 +164,7 @@ func (parser *NMEAAccumulator) Consume(sentence string) (*model.PositionFix, err
 const DefaultFixMaxAge = 10 * time.Second
 
 // maxPending bounds the reassembly buffer so a port emitting noise without any
-// newline cannot grow it without limit on a 512 MB tracker.
+// newline cannot grow it without limit on a 512 MB agent.
 const maxPending = 4096
 
 type NMEAProvider struct {

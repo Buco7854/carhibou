@@ -35,7 +35,7 @@ Suspending is immediate and complete: `is_active` is checked at sign-in, on ever
 authenticated request and on the event stream, so an open session stops working rather
 than surviving until it expires.
 
-Deleting an account deletes what it owned. Vehicles, telemetry, trackers and hooks cascade
+Deleting an account deletes what it owned. Vehicles, telemetry, agents and hooks cascade
 in the database, and the interface says so before asking for confirmation.
 
 ## Administration is a separate page

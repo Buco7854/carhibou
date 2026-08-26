@@ -23,7 +23,7 @@ func TestCommandsRejectNonPositiveDurations(t *testing.T) {
 }
 
 // "config" without --pull must never need credentials or the network, because it
-// is the first thing an operator runs on a tracker that cannot reach the server.
+// is the first thing an operator runs on an agent that cannot reach the server.
 func TestConfigPrintsLocallyAndOnlyPullsWhenAsked(t *testing.T) {
 	locations := paths{config: t.TempDir(), data: t.TempDir()}
 	path := filepath.Join(locations.config, "config.json")

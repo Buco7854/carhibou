@@ -69,7 +69,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await expect(page.getByRole('img', { name: 'No photo for Éclair' })).toBeVisible()
   await expect(page.locator('.vehicle-photo-placeholder .app-icon')).toBeVisible()
   // A vehicle with no telemetry states that plainly instead of drawing an empty
-  // percentage gauge for a reading its tracker may never produce.
+  // percentage gauge for a reading its agent may never produce.
   await expect(page.locator('.vehicle-card', { hasText:'Éclair' }).locator('.charge-reading'))
     .toHaveText('No telemetry reported yet')
   await expect(page.locator('.vehicle-card', { hasText:'Éclair' }).locator('.charge-reading i')).toHaveCount(0)
@@ -116,15 +116,15 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByRole('dialog', { name:'Create profile' }).getByRole('button', { name:'Close' }).click()
 
   await page.getByRole('link', { name: 'Devices' }).click()
-  await page.getByRole('button', { name: 'Add tracker' }).click()
+  await page.getByRole('button', { name: 'Add agent' }).click()
   const enrollmentResponse = page.waitForResponse((response) => response.url().includes('/enrollments') && response.request().method() === 'POST')
-  await page.locator('.enrollment-panel').getByRole('button', { name: 'Add tracker' }).click()
+  await page.locator('.enrollment-panel').getByRole('button', { name: 'Add agent' }).click()
   const enrollment = await (await enrollmentResponse).json() as Enrollment
   await expect(page.locator('.enrollment-panel pre')).toContainText('--token')
   const copyCommand = page.getByRole('button', { name: 'Copy command' })
   await expect(copyCommand).toBeVisible()
   await expect(copyCommand).toHaveText('')
-  await page.getByRole('dialog', { name:'Enroll a tracker' }).getByRole('button', { name:'Close' }).click()
+  await page.getByRole('dialog', { name:'Enroll an agent' }).getByRole('button', { name:'Close' }).click()
 
   const enrolledResponse = await request.post('/api/v1/device/enroll', {
     data: { token: enrollment.token, agent_version: 'e2e-1.0.0', hostname: 'browser-simulator', hardware: { model: 'simulated-pi-zero' } },
@@ -261,7 +261,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await expect(page.getByText('success').first()).toBeVisible()
 
   await page.getByRole('link', { name: 'Devices' }).click()
-  await expect(page.getByRole('heading', { name: 'Vehicle tracker' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Vehicle agent' })).toBeVisible()
   await expect(page.getByText('e2e-1.0.0')).toBeVisible()
 
   await page.setViewportSize({ width: 375, height: 812 })

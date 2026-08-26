@@ -39,7 +39,7 @@ func TestChargingCountsAsInUse(t *testing.T) {
 	}
 }
 
-// Each source has to work on its own, because a tracker may have any subset of
+// Each source has to work on its own, because an agent may have any subset of
 // them: no profile, no adapter, or a receiver that reports no speed field.
 func TestEachSourceStandsAlone(t *testing.T) {
 	now := time.Now()
@@ -96,7 +96,7 @@ func TestGraceHoldsThroughAStopThenReleases(t *testing.T) {
 	}
 }
 
-// A tracker that has just booted has no evidence of anything, and must not spend
+// An agent that has just booted has no evidence of anything, and must not spend
 // its first grace period uploading at the driving cadence on every restart.
 func TestAFreshDetectorStartsParked(t *testing.T) {
 	if active, source := (&ActivityDetector{}).Observe(model.Sample{}, time.Now()); active || source != SourceIdle {
@@ -104,10 +104,10 @@ func TestAFreshDetectorStartsParked(t *testing.T) {
 	}
 }
 
-// A tracker that starts up beside a parked car has no evidence of anything, so
+// An agent that starts up beside a parked car has no evidence of anything, so
 // its only remaining source is that the car later moved. That needs an anchor,
 // which is set from the first fix rather than from the first active sample.
-func TestDisplacementWorksForATrackerThatStartedParked(t *testing.T) {
+func TestDisplacementWorksForAAgentThatStartedParked(t *testing.T) {
 	still := 0.0
 	now := time.Now()
 	detector := &ActivityDetector{Grace: time.Minute}
@@ -115,7 +115,7 @@ func TestDisplacementWorksForATrackerThatStartedParked(t *testing.T) {
 	if active, _ := detector.Observe(at(48.8000, 2.3000, &still), now); active {
 		t.Fatal("a stationary vehicle with no other evidence must start parked")
 	}
-	// Towed, or driven by something this tracker cannot read.
+	// Towed, or driven by something this agent cannot read.
 	if active, source := detector.Observe(at(48.8100, 2.3000, &still), now.Add(time.Hour)); !active || source != SourceMovement {
 		t.Fatalf("movement must be noticed, got active=%v source=%s", active, source)
 	}

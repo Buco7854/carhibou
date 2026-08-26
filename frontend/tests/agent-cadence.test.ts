@@ -5,12 +5,12 @@ import {
   formatDataVolume,
   formatDuration,
   monthlyUploadBytes,
-} from '../src/trackerCadence'
+} from '../src/agentCadence'
 
 const megabytes = (bytes: number) => bytes / 1_000_000
 const preset = (key: string) => CADENCE_PRESETS.find((item) => item.key === key)!
 
-describe('tracker cadence', () => {
+describe('agent cadence', () => {
   it('prices each preset so a metered plan can be matched to one', () => {
     const priced = (key: string) => megabytes(monthlyUploadBytes(preset(key), 6))
     // The presets only earn their place if the cheap ones fit a small plan and
@@ -36,7 +36,7 @@ describe('tracker cadence', () => {
   it('weighs the estimate by how much the vehicle is driven', () => {
     const standard = preset('standard')
     expect(monthlyUploadBytes(standard, 6, 4)).toBeGreaterThan(monthlyUploadBytes(standard, 6, 1))
-    // Never driven still costs the parked cadence, because the tracker is powered.
+    // Never driven still costs the parked cadence, because the agent is powered.
     expect(monthlyUploadBytes(standard, 6, 0)).toBeGreaterThan(0)
     // Out-of-range hours are clamped rather than producing a negative month.
     expect(monthlyUploadBytes(standard, 6, 99)).toBe(monthlyUploadBytes(standard, 6, 24))

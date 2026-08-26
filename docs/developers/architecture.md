@@ -5,7 +5,7 @@ PostgreSQL-backed worker process; both share one schema. The Vue 3 SPA is built 
 and served as static files from the production image. PostgreSQL is the only stateful
 service. The vehicle agent is a separate CGO-free Go executable using an embedded SQLite
 outbox, serial devices and HTTPS. Versioned builds cover Linux ARMv6, ARMv7, ARM64 and
-AMD64 without requiring Python or a package manager on the tracker.
+AMD64 without requiring Python or a package manager on the agent.
 
 Domain modules own their models, schemas, routes and services. Routes validate and
 authorize; services own transactions and domain behavior. Alembic is the only

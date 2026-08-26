@@ -74,7 +74,7 @@ def test_postgres_idempotency_state_and_skip_locked(
     enrollment = postgres_client.post(
         f"/api/v1/vehicles/{vehicle['id']}/enrollments",
         headers=headers,
-        json={"name": "Database tracker"},
+        json={"name": "Database agent"},
     ).json()
     enrolled = postgres_client.post(
         "/api/v1/device/enroll",

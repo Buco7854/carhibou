@@ -88,17 +88,17 @@ const hideWhenEmpty = { settings:{ hide_when_empty:true } }
 /**
  * The premade Overview answers, in reading order: where is the vehicle, how much
  * energy is left, is it charging and how fast, what is it reporting right now, how
- * has it moved, and is the tracker healthy.
+ * has it moved, and is the agent healthy.
  *
  * Energy, charging and the photo hide themselves when a vehicle cannot report them,
- * so the same preset suits an EV, a fuel vehicle and a car whose tracker only sees
+ * so the same preset suits an EV, a fuel vehicle and a car whose agent only sees
  * standard OBD-II.
  */
 function premadeLayout(vehicleId?: string): Dashboard['layout'] {
   void vehicleId
   // Ordered by the questions somebody opening this actually has: what is the car
-  // doing, where is it, how much is left, and is the tracker still reporting. The
-  // status card carries the vehicle's state and the tracker's separately, which is
+  // doing, where is it, how much is left, and is the agent still reporting. The
+  // status card carries the vehicle's state and the agent's separately, which is
   // why it comes first and why nothing else needs to repeat either.
   return { preset:OVERVIEW_PRESET, widgets: [
     widget(clientId('widget'), 'vehicle-selector', undefined, 0, 0, 12, 1),

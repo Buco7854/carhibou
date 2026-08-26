@@ -45,8 +45,8 @@ jobs:
         with:
           context: .
           # The image is the hub, which is published for amd64 only. The agent
-          # binaries it serves are cross-compiled for every supported tracker
-          # architecture inside the build, so arm64 trackers are unaffected.
+          # binaries it serves are cross-compiled for every supported agent
+          # architecture inside the build, so arm64 agents are unaffected.
           # Adding an architecture here re-runs the whole build under QEMU.
           platforms: linux/amd64
           push: true

@@ -126,13 +126,13 @@ const activeFilters = computed(() => filters.value.flatMap((filter) => {
   return query ? [query] : []
 }))
 
-/** Columns the tracker reports about itself rather than about the vehicle. */
+/** Columns the agent reports about itself rather than about the vehicle. */
 function systemColumns(): string[] {
   return (data.value?.device_keys ?? []).map((name) => `device:${name}`)
 }
 
 function loadPreference(): void {
-  // A tracker's own load average and queue depth are not readings from the car,
+  // An agent's own load average and queue depth are not readings from the car,
   // and there are enough of them to bury the ones that are. They stay available,
   // in the column menu, rather than shown by default.
   preference.value = { order: [], hidden: systemColumns() }
@@ -254,7 +254,7 @@ function cell(entry: HistoryEntry, column: TableColumn): string {
 
 // The column set is per vehicle, so a filter on a column the next vehicle does not
 // report would silently return nothing.
-// The tracker's columns are only known once a page has arrived, so a first visit
+// The agent's columns are only known once a page has arrived, so a first visit
 // applies the default the moment they are.
 let hideSystemOnceKnown = true
 watch(() => data.value?.device_keys, (keys) => {

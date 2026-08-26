@@ -18,7 +18,7 @@ type Configuration struct {
 
 // Interval carries the cadence for a vehicle in use and, optionally, a slower
 // one for a parked vehicle. A server that sends no parked value gets the same
-// cadence in both states, which is what every tracker did before this existed.
+// cadence in both states, which is what every agent did before this existed.
 type Interval struct {
 	DefaultSeconds int `json:"default_seconds"`
 	ParkedSeconds  int `json:"parked_seconds,omitempty"`

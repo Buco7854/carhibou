@@ -75,7 +75,7 @@ def remove_vehicle(vehicle_id: str, db: Db, auth: CurrentUserWrite) -> None:
 def clear_vehicle_telemetry(vehicle_id: str, db: Db, auth: CurrentUserWrite) -> None:
     """Delete every reading recorded for this vehicle, keeping the vehicle itself.
 
-    Its trackers, hooks and dashboards survive, so a vehicle full of test data can
+    Its agents, hooks and dashboards survive, so a vehicle full of test data can
     be emptied without being set up again.
     """
 

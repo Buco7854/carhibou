@@ -111,7 +111,7 @@ type Detection struct {
 //
 // Two cheap checks, neither of which opens a port: the set of candidates has to be
 // the one the answer was made against, and every path the answer names has to
-// still exist. A tracker that was replugged into a different socket, or a module
+// still exist. An agent that was replugged into a different socket, or a module
 // that enumerated its interfaces in another order, fails the first; a device that
 // simply went away fails the second.
 func (detection Detection) Usable(candidates []string) bool {

@@ -8,7 +8,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 import VehicleMedia from '../components/VehicleMedia.vue'
-import { chargingState, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber, trackerStatus, vehicleActivity } from '../vehicleDisplay'
+import { chargingState, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber, agentStatus, vehicleActivity } from '../vehicleDisplay'
 
 type VehicleFilter = 'all' | 'online' | 'parked'
 
@@ -239,7 +239,7 @@ onMounted(load)
               <h2>{{ vehicle.name }}</h2>
               <p v-if="[vehicle.manufacturer, vehicle.model, vehicle.year].filter(Boolean).length">{{ [vehicle.manufacturer, vehicle.model, vehicle.year].filter(Boolean).join(' · ') }}</p>
             </div>
-            <span :class="['status',{online:vehicle.state?.online}]">{{ vehicle.state?.online ? t(`dashboard.activity.${vehicleActivity(vehicle)}`) : t(`dashboard.tracker.${trackerStatus(vehicle)}`) }}</span>
+            <span :class="['status',{online:vehicle.state?.online}]">{{ vehicle.state?.online ? t(`dashboard.activity.${vehicleActivity(vehicle)}`) : t(`dashboard.agent.${agentStatus(vehicle)}`) }}</span>
           </header>
 
           <section class="charge-reading">
@@ -262,7 +262,7 @@ onMounted(load)
         <footer>
           <AppSelect class="card-profile-select" compact :model-value="vehicle.vehicle_profile" :aria-label="t('vehicles.profile')" @update:model-value="assignVehicleProfile(vehicle,$event)"><option :value="null">{{ t('vehicles.noProfile') }}</option><option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profileNames[profile.id] }}</option></AppSelect>
           <RouterLink class="link-button" :to="`/vehicles/${vehicle.id}/history`">{{ t('vehicles.history') }}</RouterLink>
-          <RouterLink class="link-button" to="/devices">{{ t('vehicles.tracker') }}</RouterLink>
+          <RouterLink class="link-button" to="/devices">{{ t('vehicles.agent') }}</RouterLink>
           <button class="link-button" type="button" @click="clearTelemetry(vehicle)">{{ t('vehicles.clearData') }}</button>
           <button class="link-button danger" type="button" @click="deleteTarget=vehicle">{{ t('common.delete') }}</button>
         </footer>

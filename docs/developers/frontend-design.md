@@ -78,7 +78,7 @@ and does not need Node or a third-party font service.
 `cd frontend && npm run test:e2e` builds the SPA, migrates a disposable local SQLite
 database, launches the real FastAPI app and worker, and runs Playwright in Chromium;
 CI runs the same journey against PostgreSQL.
-The core journey covers first-account setup, vehicle creation, tracker enrollment,
+The core journey covers first-account setup, vehicle creation, agent enrollment,
 device/human authentication isolation, idempotent telemetry, live state, route
 history, dashboard persistence, hook execution/state, responsive localization,
 theme switching and automated axe checks. Install the browser once with

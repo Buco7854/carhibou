@@ -9,7 +9,7 @@ Node.
 Install Docker Engine with the Docker Compose plugin. Use a hostname and TLS reverse
 proxy before exposing VehiNode to the internet. The published image is amd64; on an ARM
 server, clone the repository, run `docker build -t vehinode .`, and set
-`VEHINODE_IMAGE=vehinode` below. Trackers are unaffected either way — they run a
+`VEHINODE_IMAGE=vehinode` below. Agents are unaffected either way — they run a
 standalone agent executable, not this image.
 
 ## Create the deployment directory
@@ -85,7 +85,7 @@ account exists; VehiNode does not provide general local-user registration.
 1. Sign in and create a vehicle.
 2. Choose a vehicle profile only when it matches the physical vehicle. The C-Zero
    profile is experimental.
-3. Open **Trackers**, choose **Add tracker**, and follow the generated command.
+3. Open **Agents**, choose **Add agent**, and follow the generated command.
 
 Enrollment tokens are short-lived and single-use. The permanent device credential is
 issued directly to the agent and is never embedded in the installer URL.

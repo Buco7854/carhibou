@@ -77,7 +77,7 @@ func (v failingVehicle) ReadMetrics() (map[string]any, error) { return map[strin
 func (v failingVehicle) Close()                               {}
 func (v failingVehicle) Status() string                       { return v.reason }
 
-// A tracker whose adapter never connects still reports position and health, so
+// An agent whose adapter never connects still reports position and health, so
 // without this the only evidence of a dead OBD path was the absence of metrics.
 func TestCollectReportsWhyTheVehicleSourcePublishedNothing(t *testing.T) {
 	agent := newAgent(t, EmptyPosition{})

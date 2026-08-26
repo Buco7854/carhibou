@@ -9,7 +9,7 @@ import {
   formatDuration,
   monthlyUploadBytes,
   type Cadence,
-} from '../trackerCadence'
+} from '../agentCadence'
 
 const props = defineProps<{ signalCount?: number }>()
 const model = defineModel<Cadence>({ required: true })

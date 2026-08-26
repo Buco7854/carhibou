@@ -115,13 +115,13 @@ for (const wheel of WHEELS) {
   }
 }
 
-/** Whether the tracker is reporting. This is about the tracker, not the vehicle. */
-export type TrackerStatus = 'online' | 'stale' | 'never'
+/** Whether the agent is reporting. This is about the agent, not the vehicle. */
+export type AgentStatus = 'online' | 'stale' | 'never'
 
 /** What the vehicle is doing, as far as the last report knows. */
 export type VehicleActivity = 'driving' | 'charging' | 'parked' | 'unknown'
 
-export function trackerStatus(vehicle: Vehicle | null | undefined): TrackerStatus {
+export function agentStatus(vehicle: Vehicle | null | undefined): AgentStatus {
   if (!vehicle?.state) return 'never'
   return vehicle.state.online ? 'online' : 'stale'
 }
@@ -129,10 +129,10 @@ export function trackerStatus(vehicle: Vehicle | null | undefined): TrackerStatu
 /**
  * What the vehicle is doing.
  *
- * Deliberately separate from the tracker's status, which had been standing in for
- * it: a tracker that has stopped reporting was shown as a parked car, which is a
- * claim about the vehicle made from evidence about the tracker. A car towed away
- * with its tracker unplugged is not parked; nobody knows what it is.
+ * Deliberately separate from the agent's status, which had been standing in for
+ * it: an agent that has stopped reporting was shown as a parked car, which is a
+ * claim about the vehicle made from evidence about the agent. A car towed away
+ * with its agent unplugged is not parked; nobody knows what it is.
  */
 export function vehicleActivity(vehicle: Vehicle | null | undefined): VehicleActivity {
   const state = vehicle?.state
@@ -179,14 +179,14 @@ export function energySummary(vehicle: Vehicle | null | undefined): EnergySummar
 /**
  * Metric keys ordered by how universally a vehicle reports them.
  *
- * GNSS speed comes from the tracker itself, so it is the only reading present on
+ * GNSS speed comes from the agent itself, so it is the only reading present on
  * every vehicle. The engine group is standard OBD-II Mode 01 (SAE J1979) and is
  * answered by almost every car built to that standard. Fuel level is in the same
  * standard but is frequently unimplemented. The battery group needs a vehicle
  * profile, because no OBD-II PID exposes traction-battery state.
  *
  * Presentation walks this list and shows only what is actually reported, so a
- * vehicle is never advertised as having a reading its tracker cannot produce.
+ * vehicle is never advertised as having a reading its agent cannot produce.
  */
 const conventionalOrder = [
   'vehicle.speed',

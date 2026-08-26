@@ -35,7 +35,7 @@ public URL. Supply them in `.env`:
 | Setting | Purpose |
 | --- | --- |
 | `VEHINODE_IMAGE` | Exact GHCR release tag; defaults to `latest` |
-| `VEHINODE_PUBLIC_URL` | Browser origin and base for tracker enrollment URLs |
+| `VEHINODE_PUBLIC_URL` | Browser origin and base for agent enrollment URLs |
 | `VEHINODE_SESSION_PEPPER` | Random value of at least 32 characters |
 | `VEHINODE_MASTER_KEY` | URL-safe base64 encoding of exactly 32 random bytes |
 | `POSTGRES_PASSWORD` | Password shared by the app and private PostgreSQL service |

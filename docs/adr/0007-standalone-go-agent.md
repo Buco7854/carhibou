@@ -18,7 +18,7 @@ default requirement.
 
 ## Consequences
 
-- Trackers do not need Python, a virtual environment, compiler toolchain or package-manager
+- Agents do not need Python, a virtual environment, compiler toolchain or package-manager
   update.
 - One physical binary cannot span CPU instruction sets, so releases contain four artifacts
   built from identical source and the bootstrap chooses one.

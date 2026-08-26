@@ -12,7 +12,7 @@ def _seed(client: TestClient, csrf: str) -> str:
     token = client.post(
         f"/api/v1/vehicles/{vehicle['id']}/enrollments",
         headers={"X-CSRF-Token": csrf},
-        json={"name": "Tracker"},
+        json={"name": "Agent"},
     ).json()["token"]
     credential = client.post(
         "/api/v1/device/enroll",

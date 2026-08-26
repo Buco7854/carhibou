@@ -9,7 +9,7 @@ export default defineConfig({
     nav: [
       { text: 'Install', link: '/getting-started/installation' },
       { text: 'Use VehiNode', link: '/user-guide/vehicles' },
-      { text: 'Vehicle tracker', link: '/agent/installation' },
+      { text: 'Vehicle agent', link: '/agent/installation' },
       { text: 'Operate', link: '/operations/deployment' },
       { text: 'Recipes', link: '/recipes/gate-on-arrival' },
     ],
@@ -25,7 +25,7 @@ export default defineConfig({
         text: 'Use VehiNode',
         items: [
           { text: 'Vehicles', link: '/user-guide/vehicles' },
-          { text: 'Trackers', link: '/user-guide/devices' },
+          { text: 'Agents', link: '/user-guide/devices' },
           { text: 'Dashboards', link: '/user-guide/dashboards' },
           { text: 'History', link: '/user-guide/history' },
           { text: 'Hooks', link: '/user-guide/hooks' },
@@ -33,7 +33,7 @@ export default defineConfig({
         ],
       },
       {
-        text: 'Vehicle tracker',
+        text: 'Vehicle agent',
         collapsed: true,
         items: [
           { text: 'Install the agent', link: '/agent/installation' },

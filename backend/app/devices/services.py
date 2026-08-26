@@ -102,11 +102,11 @@ def enroll(db: Session, request: EnrollRequest) -> EnrollResponse:
 
 
 def update_device(device: Device, data: DeviceSettings) -> bool:
-    """Apply tracker settings, reporting whether the tracker has to be told.
+    """Apply agent settings, reporting whether the agent has to be told.
 
-    Renaming is a label change the tracker never sees, so only a cadence change
+    Renaming is a label change the agent never sees, so only a cadence change
     bumps the configuration version. Bumping it for every edit would make each
-    rename look, from the tracker's side, like a configuration it had to fetch
+    rename look, from the agent's side, like a configuration it had to fetch
     and re-validate.
     """
 
@@ -126,11 +126,11 @@ def update_device(device: Device, data: DeviceSettings) -> bool:
 
 
 def delete_device(db: Session, device: Device) -> None:
-    """Remove a tracker and the telemetry it recorded.
+    """Remove an agent and the telemetry it recorded.
 
-    Revoking keeps a tracker's history and stops it reporting; deleting is for
-    hardware that is gone. Telemetry cascades from the device, so what the tracker
-    recorded goes with it, which is the point: a tracker enrolled by mistake should
+    Revoking keeps an agent's history and stops it reporting; deleting is for
+    hardware that is gone. Telemetry cascades from the device, so what the agent
+    recorded goes with it, which is the point: an agent enrolled by mistake should
     leave nothing behind.
     """
 
@@ -140,7 +140,7 @@ def delete_device(db: Session, device: Device) -> None:
 def reset_vehicle_telemetry(db: Session, vehicle_id: str) -> int:
     """Delete every reading recorded for one vehicle, keeping the vehicle.
 
-    Its trackers, hooks and dashboards are untouched, so a vehicle can be emptied
+    Its agents, hooks and dashboards are untouched, so a vehicle can be emptied
     of test data without being set up again. The current-state row goes with the
     readings, or the vehicle would keep showing a reading nothing now supports.
     """

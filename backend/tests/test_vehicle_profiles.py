@@ -57,7 +57,7 @@ def test_owner_profile_reaches_agent_and_updates_config_version(
     enrollment = client.post(
         f"/api/v1/vehicles/{vehicle['id']}/enrollments",
         headers=headers,
-        json={"name": "Pi tracker"},
+        json={"name": "Pi agent"},
     ).json()
     enrolled = client.post(
         "/api/v1/device/enroll",
@@ -69,7 +69,7 @@ def test_owner_profile_reaches_agent_and_updates_config_version(
     assert device["config"]["vehicle_profile"] == profile["id"]
     shipped = device["config"]["vehicle_profile_definition"]
     assert shipped["signals"][0]["decoder"]["scale"] == 0.5
-    # A tracker decodes frames; it never renders a profile. Interface metadata is
+    # An agent decodes frames; it never renders a profile. Interface metadata is
     # kept out of the configuration it downloads and parses on every sync.
     assert set(shipped) == {"id", "signals"}
     assert set(shipped["signals"][0]) == {

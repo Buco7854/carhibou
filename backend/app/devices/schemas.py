@@ -2,9 +2,9 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# One second is the fastest a tracker is asked to work and a day is the slowest
+# One second is the fastest an agent is asked to work and a day is the slowest
 # still worth calling telemetry. The agent enforces the same range, so a value
-# outside it is rejected here rather than by a tracker that then keeps its old
+# outside it is rejected here rather than by an agent that then keeps its old
 # configuration without saying why.
 #
 # The defaults are the interface's "Standard" preset, which uploads as often as
@@ -18,7 +18,7 @@ PARKED_UPLOAD_SECONDS = Field(default=300, ge=1, le=86400)
 
 
 class EnrollmentCreate(BaseModel):
-    name: str = Field(default="Vehicle tracker", min_length=1, max_length=120)
+    name: str = Field(default="Vehicle agent", min_length=1, max_length=120)
     ttl_minutes: int = Field(default=30, ge=5, le=1440)
     sampling_seconds: int = SAMPLING_SECONDS
     upload_seconds: int = UPLOAD_SECONDS
@@ -52,7 +52,7 @@ class EnrollRequest(BaseModel):
 class DeviceConfig(BaseModel):
     version: int
     # Each carries "default_seconds" for a vehicle in use and "parked_seconds"
-    # for one that is not; the tracker decides which state it is in.
+    # for one that is not; the agent decides which state it is in.
     sampling: dict[str, int]
     upload: dict[str, int]
     vehicle_profile: str | None

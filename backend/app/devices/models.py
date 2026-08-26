@@ -24,11 +24,11 @@ class Device(TimestampMixin, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     last_config_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     config_version: Mapped[int] = mapped_column(Integer, default=1)
-    # How often the tracker takes a sample, and how often it drains its queue.
-    # Both are per device because trackers on one account are not alike: a car on
+    # How often the agent takes a sample, and how often it drains its queue.
+    # Both are per device because agents on one account are not alike: a car on
     # a metered connection wants a slower upload than a daily driver.
     #
-    # The parked pair applies while the tracker judges the vehicle out of use.
+    # The parked pair applies while the agent judges the vehicle out of use.
     # Its server_default matches the driving pair so that migrating an existing
     # deployment changes nothing until somebody chooses a slower parked cadence;
     # a device created from now on gets the interface's "Standard" preset.
@@ -54,7 +54,7 @@ class EnrollmentToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Carried from the enrollment form to the device the token creates, so a
-    # tracker starts on the cadence it was enrolled with rather than a default it
+    # agent starts on the cadence it was enrolled with rather than a default it
     # then has to be corrected away from.
     sampling_seconds: Mapped[int] = mapped_column(Integer, default=5, server_default="5")
     upload_seconds: Mapped[int] = mapped_column(Integer, default=5, server_default="30")

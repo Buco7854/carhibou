@@ -33,11 +33,11 @@ Check `docker compose logs worker` and the diagnostics page. A lease-expired exe
 usually means a worker stopped during the job. Review the execution record before using
 manual retry because a hook may already have produced an external side effect.
 
-## A tracker is stale
+## An agent is stale
 
-Compare the tracker's configured upload interval, `last_seen` and queue depth. On the
+Compare the agent's configured upload interval, `last_seen` and queue depth. On the
 Pi, run `vehinode-agent doctor` and inspect the systemd journal. A parked vehicle with a
-slow reporting interval should not be treated the same as a disconnected tracker.
+slow reporting interval should not be treated the same as a disconnected agent.
 
 ## GPS or vehicle data looks wrong
 
