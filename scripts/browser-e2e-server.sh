@@ -2,6 +2,21 @@
 set -eu
 
 PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+E2E_STATE="${TMPDIR:-/tmp}/vehinode-browser-e2e-pids"
+
+# A trap cannot run when the runner kills this script outright, which is how a
+# cancelled or timed-out run ends, so every start clears what the last one left.
+# Without this a worker survived each such run along with its temporary directory,
+# and a surviving worker competes with the live one for the same queue. The names
+# come from a file this script wrote, so nothing else can be caught by it.
+if [ -f "$E2E_STATE" ]; then
+  while read -r stale; do
+    [ -z "$stale" ] || kill "$stale" 2>/dev/null || true
+  done < "$E2E_STATE"
+  rm -f "$E2E_STATE"
+fi
+rm -rf "${TMPDIR:-/tmp}"/vehinode-browser-e2e.??????
+
 E2E_RUNTIME=$(mktemp -d "${TMPDIR:-/tmp}/vehinode-browser-e2e.XXXXXX")
 APP_PID=""
 WORKER_PID=""
@@ -12,6 +27,7 @@ cleanup() {
   [ -z "$APP_PID" ] || wait "$APP_PID" 2>/dev/null || true
   [ -z "$WORKER_PID" ] || wait "$WORKER_PID" 2>/dev/null || true
   rm -rf "$E2E_RUNTIME"
+  rm -f "$E2E_STATE"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -39,4 +55,5 @@ cd "$PROJECT_ROOT"
 WORKER_PID=$!
 "$PYTHON" -m uvicorn backend.app.main:app --host 127.0.0.1 --port 18124 &
 APP_PID=$!
+printf '%s\n%s\n' "$WORKER_PID" "$APP_PID" > "$E2E_STATE"
 wait "$APP_PID"
