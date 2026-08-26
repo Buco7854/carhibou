@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"bufio"
 	"encoding/hex"
 	"fmt"
 	"regexp"
@@ -15,13 +14,27 @@ import (
 
 var compactFrame = regexp.MustCompile(`^([0-9A-Fa-f]{3}|[0-9A-Fa-f]{8})([0-9A-Fa-f]+)$`)
 
+// obdReadPoll is how long one read waits before the deadline is re-checked, and
+// obdCommandWindow is the longest an adapter may take to answer a command.
+const (
+	obdReadPoll      = 200 * time.Millisecond
+	obdCommandWindow = 5 * time.Second
+)
+
 type OBDAdapter struct {
 	device string
 	port   serial.Port
-	reader *bufio.Reader
+	buffer []byte
+	// pending holds bytes read past the end of the previous reply, because a
+	// serial read returns whatever has arrived rather than one whole response.
+	pending string
+	// CommandWindow bounds how long one command may wait for its reply.
+	CommandWindow time.Duration
 }
 
-func NewOBDAdapter(device string) *OBDAdapter { return &OBDAdapter{device: device} }
+func NewOBDAdapter(device string) *OBDAdapter {
+	return &OBDAdapter{device: device, buffer: make([]byte, 512), CommandWindow: obdCommandWindow}
+}
 
 func (adapter *OBDAdapter) Connect() error {
 	adapter.Close()
@@ -29,12 +42,11 @@ func (adapter *OBDAdapter) Connect() error {
 	if err != nil {
 		return err
 	}
-	if err := port.SetReadTimeout(2 * time.Second); err != nil {
+	if err := port.SetReadTimeout(obdReadPoll); err != nil {
 		port.Close()
 		return err
 	}
 	adapter.port = port
-	adapter.reader = bufio.NewReader(port)
 	for _, command := range []string{"ATZ", "ATE0", "ATL0", "ATS1", "ATH1"} {
 		delay := time.Duration(0)
 		if command == "ATZ" {
@@ -53,7 +65,37 @@ func (adapter *OBDAdapter) Close() {
 		adapter.port.Close()
 	}
 	adapter.port = nil
-	adapter.reader = nil
+	adapter.pending = ""
+}
+
+// readUntil collects bytes until the terminator arrives or the window closes.
+//
+// A serial read timeout surfaces as a zero-length read with a nil error, which a
+// bufio.Reader counts as progress and retries a hundred times before reporting
+// one. A silent adapter therefore stalled for a hundred read timeouts per command
+// instead of the one it was configured for, so the window is enforced here.
+func (adapter *OBDAdapter) readUntil(terminator byte, window time.Duration) (string, error) {
+	deadline := time.Now().Add(window)
+	for {
+		if index := strings.IndexByte(adapter.pending, terminator); index >= 0 {
+			response := adapter.pending[:index]
+			adapter.pending = adapter.pending[index+1:]
+			return response, nil
+		}
+		if !time.Now().Before(deadline) {
+			return "", fmt.Errorf("adapter did not answer within %s", window)
+		}
+		count, err := adapter.port.Read(adapter.buffer)
+		if count > 0 {
+			adapter.pending += string(adapter.buffer[:count])
+			if len(adapter.pending) > maxPending {
+				adapter.pending = adapter.pending[len(adapter.pending)-maxPending:]
+			}
+		}
+		if err != nil {
+			return "", err
+		}
+	}
 }
 
 func (adapter *OBDAdapter) Command(command string, delay time.Duration) ([]string, error) {
@@ -63,18 +105,20 @@ func (adapter *OBDAdapter) Command(command string, delay time.Duration) ([]strin
 	if err := adapter.port.ResetInputBuffer(); err != nil {
 		return nil, err
 	}
+	// Bytes buffered from an earlier reply would otherwise be read as this one.
+	adapter.pending = ""
 	if _, err := adapter.port.Write([]byte(strings.TrimSpace(command) + "\r")); err != nil {
 		return nil, err
 	}
 	if delay > 0 {
 		time.Sleep(delay)
 	}
-	response, err := adapter.reader.ReadString('>')
+	response, err := adapter.readUntil('>', adapter.CommandWindow)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", command, err)
 	}
 	lines := []string{}
-	for _, line := range strings.FieldsFunc(strings.ReplaceAll(response, ">", ""), func(r rune) bool { return r == '\r' || r == '\n' }) {
+	for _, line := range strings.FieldsFunc(response, func(r rune) bool { return r == '\r' || r == '\n' }) {
 		line = strings.TrimSpace(line)
 		if line != "" && !strings.EqualFold(line, command) {
 			lines = append(lines, line)
@@ -127,9 +171,11 @@ func (adapter *OBDAdapter) Monitor(duration time.Duration, onFrame func(model.CA
 	}
 	deadline := time.Now().Add(duration)
 	for time.Now().Before(deadline) {
-		line, err := adapter.reader.ReadString('\r')
+		// Reading with the remaining window rather than retrying on error keeps a
+		// silent adapter from spinning the tracker's only core until the deadline.
+		line, err := adapter.readUntil('\r', time.Until(deadline))
 		if err != nil {
-			continue
+			break
 		}
 		line = strings.TrimSpace(line)
 		if line == "" || line == "SEARCHING..." {
@@ -142,7 +188,7 @@ func (adapter *OBDAdapter) Monitor(duration time.Duration, onFrame func(model.CA
 	}
 	_, err := adapter.port.Write([]byte("\r"))
 	if err == nil {
-		_, err = adapter.reader.ReadString('>')
+		_, err = adapter.readUntil('>', adapter.CommandWindow)
 	}
 	return err
 }

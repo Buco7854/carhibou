@@ -58,6 +58,13 @@ func (store HardwareStore) Save(hardware Hardware) error {
 	return WriteJSONAtomic(store.Path, hardware, 0o644)
 }
 
+// SerialCandidates lists each serial device once, preferring its by-id name.
+//
+// A device appears under several paths: /dev/ttyUSB2 is also a /dev/serial/by-id
+// symlink, and a four-interface modem contributes both forms for each interface.
+// Deduplicating by the path they resolve to halves a probe sweep, which is worth
+// having when every candidate costs a couple of seconds on a single core. The
+// by-id name is kept because it survives a reboot reordering the ttyUSB numbers.
 func SerialCandidates() []string {
 	patterns := []string{"/dev/serial/by-id/*", "/dev/ttyUSB*", "/dev/ttyACM*"}
 	seen := map[string]bool{}
@@ -66,8 +73,12 @@ func SerialCandidates() []string {
 		matches, _ := filepath.Glob(pattern)
 		sort.Strings(matches)
 		for _, match := range matches {
-			if !seen[match] {
-				seen[match] = true
+			resolved, err := filepath.EvalSymlinks(match)
+			if err != nil {
+				resolved = match
+			}
+			if !seen[resolved] {
+				seen[resolved] = true
 				values = append(values, match)
 			}
 		}

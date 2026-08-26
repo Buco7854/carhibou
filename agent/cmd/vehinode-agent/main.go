@@ -585,7 +585,19 @@ type resolvedDevices struct {
 func resolveDevices(hardware store.Hardware) resolvedDevices {
 	result := resolvedDevices{gps: hardware.GPS, obd: hardware.OBD, modem: hardware.Modem}
 	if hardware.GPS == store.Auto || hardware.OBD == store.Auto {
-		result.reports = providers.ProbeAll(store.SerialCandidates())
+		// A sweep takes a couple of seconds per port. Reporting each one as it
+		// finishes is what separates "still working" from "hung", both for an
+		// operator running a diagnostic and in the service journal.
+		result.reports = providers.ProbeAll(store.SerialCandidates(), func(report providers.PortReport) {
+			detail := report.Identity
+			if report.Error != "" {
+				detail = report.Error
+			}
+			if detail != "" {
+				detail = ": " + detail
+			}
+			fmt.Fprintf(os.Stderr, "probe %s -> %s%s\n", report.Device, report.Role, detail)
+		})
 		probedGPS, probedOBD, probedModem := providers.SelectRoles(result.reports)
 		if result.modem == "" {
 			result.modem = probedModem

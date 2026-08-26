@@ -142,10 +142,18 @@ func ProbeDevice(device string) PortReport {
 
 // ProbeAll classifies every candidate, sequentially so one core is never shared
 // between several open serial ports.
-func ProbeAll(devices []string) []PortReport {
+//
+// A sweep is seconds of work per port with nothing to show for it, so onReport is
+// called as each one finishes. A diagnostic command that prints nothing while it
+// works is indistinguishable from one that has hung.
+func ProbeAll(devices []string, onReport func(PortReport)) []PortReport {
 	reports := make([]PortReport, 0, len(devices))
 	for _, device := range devices {
-		reports = append(reports, ProbeDevice(device))
+		report := ProbeDevice(device)
+		if onReport != nil {
+			onReport(report)
+		}
+		reports = append(reports, report)
 	}
 	return reports
 }
