@@ -2,10 +2,27 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# One second is the fastest a tracker is asked to work and a day is the slowest
+# still worth calling telemetry. The agent enforces the same range, so a value
+# outside it is rejected here rather than by a tracker that then keeps its old
+# configuration without saying why.
+SAMPLING_SECONDS = Field(default=5, ge=1, le=86400)
+UPLOAD_SECONDS = Field(default=30, ge=1, le=86400)
+
 
 class EnrollmentCreate(BaseModel):
     name: str = Field(default="Vehicle tracker", min_length=1, max_length=120)
     ttl_minutes: int = Field(default=30, ge=5, le=1440)
+    sampling_seconds: int = SAMPLING_SECONDS
+    upload_seconds: int = UPLOAD_SECONDS
+
+
+class DeviceSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    sampling_seconds: int = SAMPLING_SECONDS
+    upload_seconds: int = UPLOAD_SECONDS
 
 
 class EnrollmentCreated(BaseModel):
@@ -51,6 +68,8 @@ class DeviceResponse(BaseModel):
     agent_version: str | None
     hostname: str | None
     hardware: dict[str, object]
+    sampling_seconds: int
+    upload_seconds: int
     online: bool
     last_seen_at: datetime | None
     last_config_sync_at: datetime | None

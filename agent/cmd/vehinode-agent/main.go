@@ -69,7 +69,7 @@ func execute(arguments []string) error {
 	case "logs":
 		return runAttached("journalctl", "-u", agentsystem.ServiceName, "-n", "200", "--no-pager")
 	case "config":
-		return printFile(filepath.Join(locations.config, "config.json"))
+		return commandConfig(locations, arguments)
 	case "devices":
 		return commandDevices(locations, arguments)
 	case "gps-info":
@@ -123,7 +123,7 @@ Commands:
   status        Show credentials and queued telemetry
   doctor        Show installation diagnostics; --probe identifies each serial port
   logs          Show recent service logs
-  config        Print the accepted last-known-good configuration
+  config        Print the accepted configuration; --pull fetches it from the server now
   devices       Show device choices; use "devices set" to change them
   gps-info      Enable the receiver and print position fixes
   obd-info      Read adapter identity, VIN, and diagnostic codes
@@ -658,6 +658,50 @@ func startPosition(devices resolvedDevices, samplingSeconds int) (agentruntime.P
 		provider.MaxAge = window
 	}
 	return provider, provider.Close, nil
+}
+
+// commandConfig prints the accepted configuration, and with --pull fetches the
+// server's current one first.
+//
+// The service syncs on its own schedule, so without this an interval changed in
+// the interface leaves the operator watching a tracker they cannot tell apart
+// from one that failed to apply it.
+func commandConfig(locations paths, arguments []string) error {
+	flags := flag.NewFlagSet("config", flag.ContinueOnError)
+	pull := flags.Bool("pull", false, "fetch the server configuration before printing")
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	path := filepath.Join(locations.config, "config.json")
+	if !*pull {
+		return printFile(path)
+	}
+	credentials, err := loadCredentials(locations)
+	if err != nil {
+		return err
+	}
+	api, err := client.New(credentials.ServerURL, credentials.Credential, version, credentials.AllowInsecureHTTP)
+	if err != nil {
+		return err
+	}
+	fetched, err := api.FetchConfiguration()
+	if err != nil {
+		return err
+	}
+	// InstallIfNewer refuses a rollback and keeps the current file when the
+	// version is unchanged, so pulling repeatedly is safe and says which it did.
+	installed, err := (store.ConfigurationStore{Path: path}).InstallIfNewer(fetched)
+	if err != nil {
+		return err
+	}
+	printJSON(installed)
+	if installed.Version == fetched.Version {
+		fmt.Fprintf(os.Stderr, "Configuration version %d is current.\n", installed.Version)
+	}
+	// The running service holds its own copy in memory and reloads on its next
+	// sync, so say so rather than implying the change already took effect.
+	fmt.Fprintln(os.Stderr, "Apply it now with: sudo systemctl restart vehinode-agent")
+	return nil
 }
 
 func commandRun(locations paths, arguments []string) error {

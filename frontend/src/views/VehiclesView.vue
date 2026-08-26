@@ -13,6 +13,7 @@ type VehicleFilter = 'all' | 'online' | 'parked'
 
 interface VehicleForm {
   name: string
+  profileId: string | null
 }
 
 const vehicles = ref<Vehicle[]>([])
@@ -26,7 +27,7 @@ const photoBusyId = ref('')
 const photoNotice = ref<{ kind: 'error' | 'success'; message: string } | null>(null)
 const search = ref('')
 const filter = ref<VehicleFilter>('all')
-const emptyForm = (): VehicleForm => ({ name: '' })
+const emptyForm = (): VehicleForm => ({ name: '', profileId: null })
 const form = ref<VehicleForm>(emptyForm())
 const photoTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const maxPhotoBytes = 25 * 1024 * 1024
@@ -92,7 +93,7 @@ async function load(): Promise<void> {
 }
 async function create(): Promise<void> {
   error.value = ''
-  const payload = { name: form.value.name.trim() }
+  const payload = { name: form.value.name.trim(), vehicle_profile: form.value.profileId }
   try { await api('/vehicles', { method: 'POST', body: JSON.stringify(payload) }); showForm.value = false; form.value = emptyForm(); await load() }
   catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
 }
@@ -184,6 +185,13 @@ onMounted(load)
       <form class="stack-form" @submit.prevent="create">
         <p class="field-hint">{{ t('vehicles.createHint') }}</p>
         <label class="field"><span>{{ t('vehicles.name') }}</span><input v-model="form.name" class="input" required autofocus /></label>
+        <label class="field"><span>{{ t('vehicles.profile') }}</span>
+          <AppSelect v-model="form.profileId" :aria-label="t('vehicles.profile')">
+            <option :value="null">{{ t('vehicles.noProfile') }}</option>
+            <option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
+          </AppSelect>
+          <small class="field-hint">{{ t('vehicles.profileHint') }}</small>
+        </label>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <div class="form-actions"><button class="button">{{ t('vehicles.create') }}</button><button class="button ghost" type="button" @click="showForm=false">{{ t('common.cancel') }}</button></div>
       </form>

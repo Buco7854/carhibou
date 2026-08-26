@@ -26,7 +26,11 @@ whose `id` must exactly match `vehicle_profile`; that definition is persisted in
 last-known-good file. The standalone executable therefore does not need a separately
 installed profile package.
 
-Inspect the accepted server configuration with `sudo vehinode-agent config`. Hardware is
+Sampling and upload intervals are set per tracker in **Devices**, at enrollment and
+afterwards. Inspect the accepted server configuration with `sudo vehinode-agent config`,
+and fetch the server's current one without waiting for the next sync with
+`sudo vehinode-agent config --pull`. Pulling stores the configuration; the running
+service reloads it at its next sync or immediately on restart. Hardware is
 host-local rather than server configuration: the server cannot reliably know which Linux
 serial path belongs to a modem or an OBD adapter. Inspect discovery and the current saved
 selection with:

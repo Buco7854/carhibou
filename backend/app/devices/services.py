@@ -9,7 +9,13 @@ from backend.app.branding import APP_VERSION
 from backend.app.common.settings import get_settings
 from backend.app.common.time import as_utc, utcnow
 from backend.app.devices.models import Device, EnrollmentToken
-from backend.app.devices.schemas import DeviceConfig, EnrollRequest, EnrollResponse
+from backend.app.devices.schemas import (
+    DeviceConfig,
+    DeviceSettings,
+    EnrollmentCreate,
+    EnrollRequest,
+    EnrollResponse,
+)
 from backend.app.vehicle_profiles.services import profile_definition
 from backend.app.vehicles.models import Vehicle
 
@@ -21,8 +27,8 @@ class EnrollmentError(Exception):
 def device_config(db: Session, device: Device, vehicle: Vehicle) -> DeviceConfig:
     return DeviceConfig(
         version=device.config_version,
-        sampling={"default_seconds": 5},
-        upload={"default_seconds": 30},
+        sampling={"default_seconds": device.sampling_seconds},
+        upload={"default_seconds": device.upload_seconds},
         vehicle_profile=vehicle.vehicle_profile,
         vehicle_profile_definition=profile_definition(
             db, vehicle.owner_id, vehicle.vehicle_profile
@@ -31,16 +37,18 @@ def device_config(db: Session, device: Device, vehicle: Vehicle) -> DeviceConfig
 
 
 def create_enrollment(
-    db: Session, vehicle: Vehicle, name: str, ttl_minutes: int
+    db: Session, vehicle: Vehicle, data: EnrollmentCreate
 ) -> tuple[str, EnrollmentToken]:
     raw = new_opaque_token("venroll")
     now = utcnow()
     model = EnrollmentToken(
         token_hash=hash_token(raw),
         vehicle_id=vehicle.id,
-        intended_name=name,
+        intended_name=data.name,
         created_at=now,
-        expires_at=now + timedelta(minutes=ttl_minutes),
+        expires_at=now + timedelta(minutes=data.ttl_minutes),
+        sampling_seconds=data.sampling_seconds,
+        upload_seconds=data.upload_seconds,
     )
     db.add(model)
     db.flush()
@@ -67,6 +75,8 @@ def enroll(db: Session, request: EnrollRequest) -> EnrollResponse:
         agent_version=request.agent_version,
         hostname=request.hostname,
         hardware=request.hardware,
+        sampling_seconds=token.sampling_seconds,
+        upload_seconds=token.upload_seconds,
     )
     token.used_at = now
     db.add(device)
@@ -77,6 +87,27 @@ def enroll(db: Session, request: EnrollRequest) -> EnrollResponse:
         credential=credential,
         config=device_config(db, device, vehicle),
     )
+
+
+def update_device(device: Device, data: DeviceSettings) -> bool:
+    """Apply tracker settings, reporting whether the tracker has to be told.
+
+    Renaming is a label change the tracker never sees, so only a cadence change
+    bumps the configuration version. Bumping it for every edit would make each
+    rename look, from the tracker's side, like a configuration it had to fetch
+    and re-validate.
+    """
+
+    device.name = data.name
+    changed = (
+        device.sampling_seconds != data.sampling_seconds
+        or device.upload_seconds != data.upload_seconds
+    )
+    device.sampling_seconds = data.sampling_seconds
+    device.upload_seconds = data.upload_seconds
+    if changed:
+        device.config_version += 1
+    return changed
 
 
 def rotate_credential(device: Device) -> str:

@@ -93,9 +93,9 @@ describe('vehicle and dashboard management', () => {
     expect(wrapper.get('.vehicle-card').text()).toContain('Niveau de carburant')
   })
 
-  it('creates vehicles from a name without asking for telemetry or optional specifications', async () => {
+  it('creates vehicles from a name and an optional profile, without optional specifications', async () => {
     const fetchMock = vi.fn().mockImplementation((_url: string, options?: RequestInit) => {
-      if (_url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([]))
+      if (_url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([{ id:'citroen-c-zero-v1', name:'C-Zero', description:'', built_in:true, definition:{ id:'citroen-c-zero-v1', name:'C-Zero', version:1, signals:[] }, created_at:null, updated_at:null }]))
       if (options?.method === 'POST') return Promise.resolve(jsonResponse(vehicle, 201))
       return Promise.resolve(jsonResponse([]))
     })
@@ -105,15 +105,57 @@ describe('vehicle and dashboard management', () => {
     await wrapper.get('.header-actions .button:not(.secondary)').trigger('click')
     expect(wrapper.text()).not.toContain('Propulsion')
     expect(wrapper.find('input[type="number"][step=".1"]').exists()).toBe(false)
-    expect(wrapper.get('[role="dialog"]').text()).not.toContain('Telemetry profile')
+
+    // A profile is offered but nothing is preselected: a vehicle without one still
+    // records position and tracker health.
     await wrapper.get('input[required]').setValue('Touring')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
-    const createCall = fetchMock.mock.calls.find((call) => call[1]?.method === 'POST')
-    const body = JSON.parse(createCall?.[1]?.body as string)
-    expect(body).not.toHaveProperty('propulsion_type')
-    expect(body).not.toHaveProperty('battery_nominal_capacity_kwh')
-    expect(body).not.toHaveProperty('vehicle_profile')
+    const first = JSON.parse(fetchMock.mock.calls.find((call) => call[1]?.method === 'POST')?.[1]?.body as string)
+    expect(first).not.toHaveProperty('propulsion_type')
+    expect(first).not.toHaveProperty('battery_nominal_capacity_kwh')
+    expect(first.vehicle_profile).toBeNull()
+
+    await wrapper.get('.header-actions .button:not(.secondary)').trigger('click')
+    await wrapper.get('input[required]').setValue('Second')
+    wrapper.findAllComponents(AppSelect)[0]!.vm.$emit('update:modelValue', 'citroen-c-zero-v1')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    const second = JSON.parse(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST').at(-1)?.[1]?.body as string)
+    expect(second.vehicle_profile).toBe('citroen-c-zero-v1')
+  })
+
+  it('sets a tracker cadence at enrollment and edits it afterwards', async () => {
+    const device = { id:'device-1', vehicle_id:'vehicle-1', name:'Pi', credential_version:1, agent_version:'0.1.0', hostname:'pi', hardware:{}, sampling_seconds:5, upload_seconds:30, online:true, last_seen_at:null, last_config_sync_at:null, config_version:1, revoked_at:null, created_at:'2026-01-01T00:00:00Z' }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([device]))
+      if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
+      if (url.includes('/enrollments')) return Promise.resolve(jsonResponse({ install_command:'curl ...' }, 201))
+      return Promise.resolve(jsonResponse(device))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(DevicesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
+    await flushPromises()
+
+    await wrapper.get('.header-actions .button').trigger('click')
+    await wrapper.findAll('.enrollment-fields input[type="number"]')[1]!.setValue('300')
+    await wrapper.get('.enrollment-panel').trigger('submit')
+    await flushPromises()
+    const enrolled = JSON.parse(fetchMock.mock.calls.find((call) => String(call[0]).includes('/enrollments'))?.[1]?.body as string)
+    expect(enrolled.sampling_seconds).toBe(5)
+    expect(enrolled.upload_seconds).toBe(300)
+
+    // The same two values are editable once the tracker exists.
+    await wrapper.findAll('.device-actions .button')[0]!.trigger('click')
+    await flushPromises()
+    // The enrollment modal is still mounted, so scope to the settings one.
+    const settings = wrapper.findAll('[role="dialog"]').at(-1)!
+    await settings.findAll('.cadence-fields input')[0]!.setValue('60')
+    await settings.get('form').trigger('submit')
+    await flushPromises()
+    const saved = fetchMock.mock.calls.find((call) => call[1]?.method === 'PUT')
+    expect(String(saved?.[0])).toContain('/devices/device-1')
+    expect(JSON.parse(saved?.[1]?.body as string).sampling_seconds).toBe(60)
   })
 
   it('uploads and removes a vehicle photo through the media controls', async () => {
