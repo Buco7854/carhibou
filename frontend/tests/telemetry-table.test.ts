@@ -116,6 +116,29 @@ describe('telemetry table', () => {
     expect(lastRequest(fetchMock).getAll('filter')).toEqual(['metric:battery.soc||80|'])
   })
 
+  it('keeps the canonical name reachable behind the friendly label', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
+      vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0,
+      metric_keys: ['battery.soc', 'battery.current'], device_keys: ['mobile_signal'], entries,
+    }))))
+    const wrapper = mountTable()
+    await flushPromises()
+
+    // A profile, a hook and a filter are all written against the canonical name,
+    // so a label that replaced it entirely would hide what the column is.
+    const header = wrapper.findAll('thead th button').find((button) => button.text().includes('Battery level'))!
+    expect(header.attributes('title')).toContain('battery.soc')
+
+    // Where a note exists it explains something the label cannot. "Pack current"
+    // cannot say which way round the sign runs; the note has to.
+    const current = wrapper.findAll('thead th button').find((button) => button.text().includes('Pack current'))!
+    expect(current.attributes('title')).toContain('battery.current')
+    expect(current.attributes('title')).toContain('charging')
+
+    const device = wrapper.findAll('thead th button').find((button) => button.text().includes('Mobile signal'))!
+    expect(device.attributes('title')).toContain('mobile_signal')
+  })
+
   it('closes the column menu when the page is clicked elsewhere', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
       vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0,

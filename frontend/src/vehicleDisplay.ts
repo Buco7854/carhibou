@@ -28,6 +28,18 @@ const metricDefinitions: Record<string, MetricDefinition> = {
   'battery.power': {
     key: 'battery.power', labelKey: 'metrics.batteryPower', unit: 'kW', icon: 'charging', decimals: 1, kind: 'number',
   },
+  'battery.current': {
+    key: 'battery.current', labelKey: 'metrics.packCurrent', unit: 'A', icon: 'battery', decimals: 1, kind: 'number',
+  },
+  'vehicle.odometer': {
+    key: 'vehicle.odometer', labelKey: 'metrics.odometer', unit: 'km', icon: 'vehicle', decimals: 0, kind: 'number',
+  },
+  'charging.voltage': {
+    key: 'charging.voltage', labelKey: 'metrics.chargerVoltage', unit: 'V', icon: 'charging', decimals: 0, kind: 'number',
+  },
+  'charging.current': {
+    key: 'charging.current', labelKey: 'metrics.chargerCurrent', unit: 'A', icon: 'charging', decimals: 1, kind: 'number',
+  },
   'battery.pack_voltage': {
     key: 'battery.pack_voltage', labelKey: 'metrics.packVoltage', unit: 'V', icon: 'battery', decimals: 1, kind: 'number',
   },

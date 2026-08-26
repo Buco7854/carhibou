@@ -10,6 +10,10 @@ import AppSelect from './AppSelect.vue'
 interface TableColumn {
   key: string
   label: string
+  // The canonical name behind the label. A friendly label is what makes a table
+  // readable and the canonical name is what a profile, a hook and a filter are
+  // all written against, so the column carries both rather than choosing.
+  canonical: string
   numeric: boolean
   unit: string
   decimals: number
@@ -21,7 +25,7 @@ interface ColumnPreference {
 }
 
 const props = defineProps<{ vehicleId: string; days: number }>()
-const { t } = useI18n()
+const { t, te } = useI18n()
 
 const FIXED: Array<{ key: string; labelKey: string; unit: string; decimals: number }> = [
   { key: 'recorded_at', labelKey: 'history.columns.recordedAt', unit: '', decimals: 0 },
@@ -69,6 +73,7 @@ const allColumns = computed<TableColumn[]>(() => {
   const columns: TableColumn[] = FIXED.map((column) => ({
     key: column.key,
     label: t(column.labelKey),
+    canonical: column.key,
     numeric: column.key !== 'recorded_at',
     unit: column.unit,
     decimals: column.decimals,
@@ -78,13 +83,14 @@ const allColumns = computed<TableColumn[]>(() => {
     columns.push({
       key: `metric:${name}`,
       label: definition.labelKey ? metricLabel(definition, t) : name,
+      canonical: name,
       numeric: true,
       unit: definition.unit,
       decimals: definition.decimals,
     })
   }
   for (const name of data.value?.device_keys ?? []) {
-    columns.push({ key: `device:${name}`, label: humanize(name), numeric: true, unit: '', decimals: 1 })
+    columns.push({ key: `device:${name}`, label: humanize(name), canonical: name, numeric: true, unit: '', decimals: 1 })
   }
   return columns
 })
@@ -156,6 +162,16 @@ function moveColumn(key: string, offsetBy: -1 | 1): void {
 function resetColumns(): void {
   preference.value = { order: [], hidden: [] }
   localStorage.removeItem(storageKey.value)
+}
+
+/** What a label stands for: the canonical name, and a note where one exists.
+ *
+ * The lookup key has its dots removed because vue-i18n reads a dot as a step into
+ * a nested message, so a canonical name cannot be a key as it stands.
+ */
+function columnHint(column: TableColumn): string {
+  const path = `metricNotes.${column.canonical.replaceAll('.', '_')}`
+  return te(path) ? `${column.canonical} — ${t(path)}` : column.canonical
 }
 
 function sortBy(key: string): void {
@@ -261,7 +277,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
           </div>
           <ul>
             <li v-for="(column, index) in orderedColumns" :key="column.key">
-              <label>
+              <label :title="columnHint(column)">
                 <input type="checkbox" :checked="!preference.hidden.includes(column.key)" @change="toggleColumn(column.key)" />
                 <span>{{ column.label }}</span>
               </label>
@@ -300,7 +316,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
         <thead>
           <tr>
             <th v-for="column in visibleColumns" :key="column.key" :aria-sort="sort === column.key ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'">
-              <button type="button" @click="sortBy(column.key)">
+              <button type="button" :title="columnHint(column)" @click="sortBy(column.key)">
                 <span>{{ column.label }}<em v-if="column.unit"> ({{ column.unit }})</em></span>
                 <AppIcon v-if="sort === column.key" :name="direction === 'asc' ? 'chevron-up' : 'chevron-down'" :size="13" />
               </button>
