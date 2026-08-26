@@ -70,3 +70,33 @@ func TestCollectOmitsFixAgeWithoutAPosition(t *testing.T) {
 		t.Fatal("no position means there is no fix age to report")
 	}
 }
+
+type failingVehicle struct{ reason string }
+
+func (v failingVehicle) ReadMetrics() (map[string]any, error) { return map[string]any{}, nil }
+func (v failingVehicle) Close()                               {}
+func (v failingVehicle) Status() string                       { return v.reason }
+
+// A tracker whose adapter never connects still reports position and health, so
+// without this the only evidence of a dead OBD path was the absence of metrics.
+func TestCollectReportsWhyTheVehicleSourcePublishedNothing(t *testing.T) {
+	agent := newAgent(t, EmptyPosition{})
+	agent.Vehicle = failingVehicle{reason: "adapter did not connect: no such file"}
+
+	sample, err := agent.Collect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := sample.Device["vehicle_source_error"]; got != "adapter did not connect: no such file" {
+		t.Fatalf("expected the failure in device health, got %v", got)
+	}
+
+	agent.Vehicle = failingVehicle{}
+	healthy, err := agent.Collect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, present := healthy.Device["vehicle_source_error"]; present {
+		t.Fatal("a working source must not add an error field")
+	}
+}

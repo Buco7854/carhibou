@@ -29,6 +29,15 @@ type VehicleProvider interface {
 	Close()
 }
 
+// VehicleStatus is implemented by a source that can say why it published no
+// metrics. Every fault reading a vehicle is recoverable and none of them should
+// stop a tracker reporting its position, so ReadMetrics returns what it has
+// rather than an error. Without this a dead adapter is indistinguishable from a
+// vehicle that simply has nothing to report.
+type VehicleStatus interface {
+	Status() string
+}
+
 type EmptyPosition struct{}
 
 func (EmptyPosition) Read() (*model.PositionFix, error) { return nil, nil }
@@ -56,7 +65,14 @@ func (agent *Agent) Collect() (model.Sample, error) {
 	// published its fix slightly earlier. Reporting that gap keeps a repeated
 	// position distinguishable from a freshly measured one.
 	if aged, ok := agent.Position.(AgedPosition); ok && position != nil {
-		health["gps_fix_age_seconds"] = float64(aged.Age()/time.Millisecond) / 1000
+		// One decimal is the useful precision for a staleness figure; the rest is
+		// noise that widens every column showing it.
+		health["gps_fix_age_seconds"] = float64(aged.Age()/(100*time.Millisecond)) / 10
+	}
+	if reporter, ok := agent.Vehicle.(VehicleStatus); ok {
+		if status := reporter.Status(); status != "" {
+			health["vehicle_source_error"] = status
+		}
 	}
 	sample := model.NewSample(agent.Sequence+1, position, metrics, health)
 	agent.Sequence++

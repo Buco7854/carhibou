@@ -375,21 +375,34 @@ func bytesAB(data []byte) (float64, error) {
 type StandardOBDProvider struct {
 	adapter   *OBDAdapter
 	connected bool
+	failure   string
+	nextTry   time.Time
 }
 
 func NewStandardOBDProvider(adapter *OBDAdapter) *StandardOBDProvider {
 	return &StandardOBDProvider{adapter: adapter}
 }
+
+// Status explains why the provider is publishing nothing. See ProfileProvider.
+func (provider *StandardOBDProvider) Status() string { return provider.failure }
+
 func (provider *StandardOBDProvider) ReadMetrics() (map[string]any, error) {
 	if !provider.connected {
+		if time.Now().Before(provider.nextTry) {
+			return map[string]any{}, nil
+		}
+		provider.nextTry = time.Now().Add(connectRetryInterval)
 		if err := provider.adapter.Connect(); err != nil {
+			provider.failure = "adapter did not connect: " + err.Error()
 			return map[string]any{}, nil
 		}
 		if err := provider.adapter.SelectProtocol("0"); err != nil {
 			provider.adapter.Close()
+			provider.failure = "adapter rejected automatic protocol search: " + err.Error()
 			return map[string]any{}, nil
 		}
 		provider.connected = true
+		provider.failure = ""
 	}
 	metrics := map[string]any{}
 	for pid, definition := range StandardPIDs {
@@ -397,6 +410,7 @@ func (provider *StandardOBDProvider) ReadMetrics() (map[string]any, error) {
 		if err != nil {
 			provider.adapter.Close()
 			provider.connected = false
+			provider.failure = "adapter stopped answering: " + err.Error()
 			return metrics, nil
 		}
 		data := ParseOBDResponse(1, pid, lines)

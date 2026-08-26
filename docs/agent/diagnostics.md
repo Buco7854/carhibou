@@ -114,3 +114,19 @@ away from the tracker board itself, and give it sky rather than a metal enclosur
 If cellular service is unavailable, do not delete `queue.sqlite3`. Restore networking
 and let the next upload acknowledge queued UUIDs. Repeated upload is safe because both
 SQLite and PostgreSQL preserve the stable sample ID.
+
+## The vehicle reports position but no metrics
+
+Position and CAN metrics come from two different pieces of hardware, and a tracker whose
+adapter never answers still reports its position and health perfectly. The absence of
+metric columns in **History** is therefore the expected appearance of a dead OBD path,
+not evidence that the vehicle had nothing to say.
+
+The agent publishes `vehicle_source_error` in device health when it knows why it read
+nothing, so check that column first. It distinguishes an adapter that never connected
+from one that connected and rejected the protocol, and from one that connected but saw
+no frame the profile maps.
+
+Run `vehinode-agent obd-info` with the service stopped to talk to the adapter directly.
+A reconnection is only attempted once a minute while it keeps failing, so a tracker with
+an unplugged adapter still samples its position on schedule.
