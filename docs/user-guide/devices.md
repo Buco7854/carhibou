@@ -9,22 +9,28 @@ the driving rate for that is what makes a fast cadence unaffordable. The tracker
 which pair is in force and reports the decision as `vehicle_in_use`, with
 `activity_source` naming the evidence.
 
-| Preset   | Driving   | Parked      | Roughly, six signals, driven 1 h/day |
-| -------- | --------- | ----------- | ------------------------------------ |
-| Live     | 1 s / 1 s | 15 s / 60 s | 267 MB / month                       |
-| Standard | 5 s / 5 s | 30 s / 5 m  | 80 MB / month                        |
-| Saver    | 15 s      | 60 s / 10 m | 35 MB / month                        |
-| Minimal  | 60 s      | 5 m / 30 m  | 8 MB / month                         |
+Presets are starting points; every field stays editable.
 
-Any field can also be set directly. The figure beside them is calculated from the
-tracker's actual upload payload and the number of signals its profile decodes, weighed
-by how many hours a day you say the vehicle is driven, so a metered plan can be matched
-to a cadence before the tracker is installed rather than after the bill arrives.
+| Preset   | Driving      | Parked        | Six signals, driven 1 h/day |
+| -------- | ------------ | ------------- | --------------------------- |
+| Live     | 1 s / 5 s    | 15 s / 5 min  | 172 MB / month              |
+| Standard | 5 s / 1 min  | 1 min / 15 min | 38 MB / month              |
+| Saver    | 15 s / 15 min | 10 min / 30 min | 7 MB / month             |
+| Minimal  | 1 min / 15 min | 15 min / 1 h | 3 MB / month               |
 
-Sampling dominates it. Uploading less often only saves per-request overhead and costs
-nothing in data, because samples are queued on the tracker until the server acknowledges
-them. The estimate assumes the tracker is powered all month; one that only has power
-while the vehicle runs uses far less.
+Each pair is *sample / upload*. The figure beside them is calculated from the tracker's
+actual upload payload and the number of signals its profile decodes, weighed by how many
+hours a day you say the vehicle is driven, so a metered plan can be matched to a cadence
+before the tracker is installed rather than after the bill arrives. It assumes the
+tracker is powered all month; one that only has power while the vehicle runs uses far
+less.
+
+**Upload far less often than you sample.** Every request carries a fixed overhead that
+only disappears once samples are batched, so uploading as often as you sample roughly
+doubles the traffic for nothing. At one-second sampling, moving the upload from one
+second to five saves nearly half the data; past about thirty seconds there is almost
+nothing left to save. Beyond that point a longer interval costs freshness rather than
+data, which is why the interface shows how far behind the dashboard will run.
 
 ## How the tracker knows it is parked
 

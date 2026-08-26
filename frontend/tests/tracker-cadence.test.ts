@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { CADENCE_PRESETS, formatDataVolume, monthlyUploadBytes } from '../src/trackerCadence'
+import {
+  CADENCE_PRESETS,
+  drivingDelaySeconds,
+  formatDataVolume,
+  formatDuration,
+  monthlyUploadBytes,
+} from '../src/trackerCadence'
 
 const megabytes = (bytes: number) => bytes / 1_000_000
 const preset = (key: string) => CADENCE_PRESETS.find((item) => item.key === key)!
@@ -10,9 +16,9 @@ describe('tracker cadence', () => {
     // The presets only earn their place if the cheap ones fit a small plan and
     // the expensive one visibly does not.
     expect(priced('live')).toBeGreaterThan(100)
-    expect(priced('standard')).toBeGreaterThan(50)
-    expect(priced('saver')).toBeLessThan(50)
-    expect(priced('minimal')).toBeLessThan(10)
+    expect(priced('standard')).toBeLessThan(50)
+    expect(priced('saver')).toBeLessThan(10)
+    expect(priced('minimal')).toBeLessThan(5)
     expect(CADENCE_PRESETS.map((item) => priced(item.key))).toEqual(
       [...CADENCE_PRESETS.map((item) => priced(item.key))].sort((left, right) => right - left),
     )
@@ -36,11 +42,30 @@ describe('tracker cadence', () => {
     expect(monthlyUploadBytes(standard, 6, -5)).toBe(monthlyUploadBytes(standard, 6, 0))
   })
 
+  it('never uploads as often as it samples, which is the expensive mistake', () => {
+    for (const preset of CADENCE_PRESETS) {
+      expect(preset.upload_seconds).toBeGreaterThan(preset.sampling_seconds)
+      expect(preset.parked_upload_seconds).toBeGreaterThan(preset.parked_sampling_seconds)
+    }
+    // Batching is where the saving is, and it saturates: the first step is worth
+    // far more than every later one put together.
+    const at = (upload: number) => monthlyUploadBytes(
+      { sampling_seconds: 1, upload_seconds: upload, parked_sampling_seconds: 1, parked_upload_seconds: upload }, 6,
+    )
+    expect(at(1) - at(5)).toBeGreaterThan((at(5) - at(300)) * 3)
+  })
+
+  it('reports how stale a long upload interval leaves the dashboard', () => {
+    expect(drivingDelaySeconds({ sampling_seconds: 15, upload_seconds: 900, parked_sampling_seconds: 600, parked_upload_seconds: 1800 })).toBe(900)
+    expect(formatDuration(900, 'en')).toContain('15')
+    expect(formatDuration(45, 'en')).toContain('45')
+  })
+
   it('charges for signals and for requests', () => {
     const saver = preset('saver')
     expect(monthlyUploadBytes(saver, 20)).toBeGreaterThan(monthlyUploadBytes(saver, 0))
-    const batched = { ...saver, upload_seconds: 600, parked_upload_seconds: 3600 }
-    expect(monthlyUploadBytes(batched)).toBeLessThan(monthlyUploadBytes(saver))
+    const chatty = { ...saver, upload_seconds: saver.sampling_seconds, parked_upload_seconds: saver.parked_sampling_seconds }
+    expect(monthlyUploadBytes(chatty)).toBeGreaterThan(monthlyUploadBytes(saver))
   })
 
   it('stops batching beyond the agent limit of 500 samples per request', () => {

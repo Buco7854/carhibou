@@ -28,16 +28,22 @@ const MAX_SAMPLES_PER_REQUEST = 500
 const SECONDS_PER_MONTH = 30 * 24 * 60 * 60
 
 /**
- * Driving cadences people actually ask for, each with a parked cadence chosen so
- * that a vehicle sitting on a driveway does not spend the plan that the driving
- * cadence was chosen for. A vehicle is parked far more of the month than it is
- * driven, so the parked pair dominates the bill.
+ * Starting points, not a menu: every field stays editable.
+ *
+ * Two things shape them. A vehicle is parked for most of the month, so the
+ * parked pair dominates the bill however fast the driving pair is. And uploading
+ * as often as you sample doubles the cost for nothing, because each request
+ * carries a fixed overhead that only disappears once samples are batched: at
+ * one-second sampling, moving the upload from one second to five saves nearly
+ * half the traffic, and past about thirty seconds there is almost nothing left
+ * to save. So the upload interval is always the slower of the pair, and beyond
+ * that point it buys freshness rather than data.
  */
 export const CADENCE_PRESETS: CadencePreset[] = [
-  { key: 'live', sampling_seconds: 1, upload_seconds: 1, parked_sampling_seconds: 15, parked_upload_seconds: 60 },
-  { key: 'standard', sampling_seconds: 5, upload_seconds: 5, parked_sampling_seconds: 30, parked_upload_seconds: 300 },
-  { key: 'saver', sampling_seconds: 15, upload_seconds: 15, parked_sampling_seconds: 60, parked_upload_seconds: 600 },
-  { key: 'minimal', sampling_seconds: 60, upload_seconds: 60, parked_sampling_seconds: 300, parked_upload_seconds: 1800 },
+  { key: 'live', sampling_seconds: 1, upload_seconds: 5, parked_sampling_seconds: 15, parked_upload_seconds: 300 },
+  { key: 'standard', sampling_seconds: 5, upload_seconds: 60, parked_sampling_seconds: 60, parked_upload_seconds: 900 },
+  { key: 'saver', sampling_seconds: 15, upload_seconds: 900, parked_sampling_seconds: 600, parked_upload_seconds: 1800 },
+  { key: 'minimal', sampling_seconds: 60, upload_seconds: 900, parked_sampling_seconds: 900, parked_upload_seconds: 3600 },
 ]
 
 /** Hours a day the vehicle is in use, which the estimate is weighted by. */
@@ -89,4 +95,24 @@ export function formatDataVolume(bytes: number, locale: string): string {
   }
   const digits = megabytes < 10 ? 1 : 0
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: digits }).format(megabytes)} MB`
+}
+
+/**
+ * How far behind the server can be while the vehicle is driven.
+ *
+ * This is what a long upload interval actually costs, and it is worth showing
+ * beside the data figure: past about thirty seconds the interval stops saving
+ * data and only trades away freshness.
+ */
+export function drivingDelaySeconds(cadence: Cadence): number {
+  return Math.max(0, cadence.upload_seconds)
+}
+
+export function formatDuration(seconds: number, locale: string): string {
+  const format = (value: number, unit: Intl.RelativeTimeFormatUnit) =>
+    new Intl.NumberFormat(locale, { maximumFractionDigits: value < 10 ? 1 : 0 }).format(value) +
+    ' ' + new Intl.DisplayNames([locale], { type: 'dateTimeField' }).of(unit)
+  if (seconds >= 3600) return format(seconds / 3600, 'hour')
+  if (seconds >= 60) return format(seconds / 60, 'minute')
+  return format(seconds, 'second')
 }

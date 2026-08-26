@@ -7,13 +7,14 @@ from pydantic import BaseModel, ConfigDict, Field
 # outside it is rejected here rather than by a tracker that then keeps its old
 # configuration without saying why.
 #
-# The defaults are the interface's "Standard" preset. A minute between uploads
-# rather than thirty seconds halves the request count at no cost in data, since
-# samples are queued until they are acknowledged either way.
+# The defaults are the interface's "Standard" preset. Uploading far less often
+# than sampling is close to free: each request carries a fixed overhead that
+# disappears once samples are batched, and the queue holds them until the server
+# acknowledges them either way. The only cost is how far behind the server runs.
 SAMPLING_SECONDS = Field(default=5, ge=1, le=86400)
-UPLOAD_SECONDS = Field(default=5, ge=1, le=86400)
-PARKED_SAMPLING_SECONDS = Field(default=30, ge=1, le=86400)
-PARKED_UPLOAD_SECONDS = Field(default=300, ge=1, le=86400)
+UPLOAD_SECONDS = Field(default=60, ge=1, le=86400)
+PARKED_SAMPLING_SECONDS = Field(default=60, ge=1, le=86400)
+PARKED_UPLOAD_SECONDS = Field(default=900, ge=1, le=86400)
 
 
 class EnrollmentCreate(BaseModel):

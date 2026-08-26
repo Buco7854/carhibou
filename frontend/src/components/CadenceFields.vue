@@ -4,7 +4,9 @@ import { useI18n } from 'vue-i18n'
 import {
   CADENCE_PRESETS,
   DEFAULT_DRIVING_HOURS,
+  drivingDelaySeconds,
   formatDataVolume,
+  formatDuration,
   monthlyUploadBytes,
   type Cadence,
 } from '../trackerCadence'
@@ -25,6 +27,7 @@ const estimate = computed(() => formatDataVolume(
   monthlyUploadBytes(model.value, props.signalCount ?? 0, drivingHours.value),
   locale.value,
 ))
+const delay = computed(() => formatDuration(drivingDelaySeconds(model.value), locale.value))
 
 const fields = [
   { key: 'sampling_seconds', labelKey: 'devices.samplingSeconds' },
@@ -79,10 +82,12 @@ function apply(preset: Cadence): void {
     </div>
 
     <p class="field-hint">{{ t('devices.parkedHint') }}</p>
+    <p class="field-hint">{{ t('devices.uploadHint') }}</p>
 
     <div class="cadence-estimate">
       <strong>{{ estimate }}</strong>
       <span>{{ t('devices.estimateHint') }}</span>
+      <span class="cadence-delay">{{ t('devices.delayHint', { delay }) }}</span>
       <label class="driving-hours">
         <input v-model.number="drivingHours" class="input" type="number" min="0" max="24" step="0.5" :aria-label="t('devices.drivingHours')" />
         <span>{{ t('devices.drivingHours') }}</span>
@@ -105,6 +110,7 @@ function apply(preset: Cadence): void {
 .cadence-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .cadence-estimate{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;color:var(--muted);font-size:12px}
 .cadence-estimate strong{color:var(--text);font-size:14px;font-variant-numeric:tabular-nums}
+.cadence-delay{padding-left:10px;border-left:1px solid var(--line)}
 .driving-hours{display:flex;align-items:center;gap:6px;margin-left:auto}
 .driving-hours .input{width:64px;min-height:28px;padding:3px 7px;font-size:12px}
 </style>
