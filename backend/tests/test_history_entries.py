@@ -67,14 +67,26 @@ def test_entries_sort_and_filter_on_profile_defined_metrics(
     ascending = client.get(url, params={"sort": "metric:battery.soc", "direction": "asc"}).json()
     assert [row["metrics"]["battery.soc"] for row in ascending["entries"]] == [30, 60, 90]
 
-    ranged = client.get(url, params={"column": "metric:battery.soc", "minimum": 50}).json()
+    # A filter is "column|minimum|maximum|present"; the column key already contains
+    # a colon, so the segments are separated by a pipe.
+    ranged = client.get(url, params={"filter": "metric:battery.soc|50||"}).json()
     assert ranged["total"] == 2
     assert all(row["metrics"]["battery.soc"] >= 50 for row in ranged["entries"])
 
-    sparse = client.get(
-        url, params={"column": "metric:custom.oil_pressure", "present": True}
-    ).json()
+    sparse = client.get(url, params={"filter": "metric:custom.oil_pressure|||1"}).json()
     assert sparse["total"] == 1
+
+    # Several filters narrow the same result set together: only the third row is
+    # both above 50% charge and above 15 km/h.
+    combined = client.get(
+        url, params=[("filter", "metric:battery.soc|50||"), ("filter", "speed|15||")]
+    ).json()
+    assert combined["total"] == 1
+    assert combined["entries"][0]["metrics"]["battery.soc"] == 60
+
+    assert client.get(url, params={"filter": "|50||"}).status_code == 400
+    assert client.get(url, params={"filter": "speed|not-a-number||"}).status_code == 400
+    assert client.get(url, params={"filter": "drop table|1||"}).status_code == 400
 
     # Booleans are not numbers, so they sort last instead of breaking the query.
     boolean = client.get(url, params={"sort": "metric:charging.active"}).json()

@@ -145,9 +145,12 @@ onMounted(load)
 
     <div class="hooks-layout">
       <aside class="hooks-rail">
-        <section class="rail-group">
+        <!-- With no hooks the panel beside this one already says so, and a rail
+             group repeating it under an empty heading reads as a second, broken
+             list rather than as the same message. -->
+        <section v-if="hooks.length" class="rail-group">
           <h2 class="rail-title">{{ t('hooks.yours') }}</h2>
-          <div v-if="hooks.length" class="hook-list">
+          <div class="hook-list">
             <button v-for="hook in hooks" :key="hook.id" :class="{ active:selectedId===hook.id }" @click="select(hook.id)">
               <strong>{{ hook.name }}</strong>
               <small>
@@ -156,7 +159,6 @@ onMounted(load)
               </small>
             </button>
           </div>
-          <p v-else class="rail-note">{{ t('hooks.empty') }}</p>
         </section>
 
         <section class="rail-group">

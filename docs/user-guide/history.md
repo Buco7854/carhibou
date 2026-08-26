@@ -17,7 +17,8 @@ what you see is exactly what was stored.
 
 - **Sort** by clicking any header. Metric columns sort numerically; values that are not
   numbers (booleans, text) sort last rather than failing the query.
-- **Filter** on one numeric column with a minimum, a maximum, or both. *Only rows
+- **Filter** on any number of numeric columns at once with a minimum, a maximum, or
+  both; the filters narrow the same result set together. *Only rows
   reporting it* hides rows where that signal is absent, which is useful for a signal that
   a profile decodes intermittently.
 - **Columns** lets you hide columns and reorder them. The choice is remembered per vehicle

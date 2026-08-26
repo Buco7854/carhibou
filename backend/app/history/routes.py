@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, NamedTuple
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import Float, case, func, select
@@ -161,6 +161,47 @@ def history(
     )
 
 
+class _EntryFilter(NamedTuple):
+    column: str
+    minimum: float | None
+    maximum: float | None
+    present: bool
+
+
+def _parse_filter(raw: str) -> _EntryFilter:
+    """Decode one ``column|minimum|maximum|present`` filter.
+
+    The separator is a pipe rather than a colon because a column key already
+    contains one: a metric column is addressed as ``metric:battery.soc``. Any
+    segment may be empty, so a lower bound alone is ``metric:battery.soc|20||``.
+    """
+
+    parts = raw.split("|")
+    if len(parts) > 4:
+        raise HTTPException(status_code=400, detail=f"malformed filter: {raw}")
+    parts += [""] * (4 - len(parts))
+    column, minimum, maximum, present = (part.strip() for part in parts)
+    if not column:
+        raise HTTPException(status_code=400, detail="filter is missing its column")
+
+    def bound(text: str, name: str) -> float | None:
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=f"filter {name} is not a number: {text}"
+            ) from None
+
+    return _EntryFilter(
+        column=column,
+        minimum=bound(minimum, "minimum"),
+        maximum=bound(maximum, "maximum"),
+        present=present.lower() in {"1", "true", "yes"},
+    )
+
+
 @router.get("/entries", response_model=HistoryEntriesResponse)
 def history_entries(
     vehicle_id: str,
@@ -172,10 +213,7 @@ def history_entries(
     offset: int = Query(default=0, ge=0),
     sort: str = Query(default="recorded_at", max_length=140),
     direction: Literal["asc", "desc"] = "desc",
-    column: str | None = Query(default=None, max_length=140),
-    minimum: float | None = None,
-    maximum: float | None = None,
-    present: bool = False,
+    filters: Annotated[list[str] | None, Query(alias="filter", max_length=12)] = None,
 ) -> HistoryEntriesResponse:
     if not owned_vehicle(db, auth.user.id, vehicle_id):
         raise HTTPException(status_code=404, detail="vehicle not found")
@@ -193,16 +231,20 @@ def history_entries(
         Telemetry.recorded_at >= resolved_start,
         Telemetry.recorded_at <= resolved_end,
     ]
-    if column is not None:
-        filtered = _sortable(column, dialect)
+    # Several filters narrow the same result set, so they combine with AND.
+    for raw in filters or []:
+        entry_filter = _parse_filter(raw)
+        filtered = _sortable(entry_filter.column, dialect)
         if filtered is None:
-            raise HTTPException(status_code=400, detail=f"unknown filter column: {column}")
-        if present:
+            raise HTTPException(
+                status_code=400, detail=f"unknown filter column: {entry_filter.column}"
+            )
+        if entry_filter.present:
             where.append(filtered.is_not(None))
-        if minimum is not None:
-            where.append(filtered >= minimum)
-        if maximum is not None:
-            where.append(filtered <= maximum)
+        if entry_filter.minimum is not None:
+            where.append(filtered >= entry_filter.minimum)
+        if entry_filter.maximum is not None:
+            where.append(filtered <= entry_filter.maximum)
 
     total = db.scalar(select(func.count(Telemetry.id)).where(*where)) or 0
     ordering = order_column.desc() if direction == "desc" else order_column.asc()

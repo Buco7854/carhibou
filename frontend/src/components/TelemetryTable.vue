@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { HistoryEntries, HistoryEntry } from '../api/types'
@@ -42,11 +42,18 @@ const sort = ref('recorded_at')
 const direction = ref<'asc' | 'desc'>('desc')
 const limit = ref(50)
 const offset = ref(0)
-const filterColumn = ref('')
-const filterMin = ref('')
-const filterMax = ref('')
-const filterPresent = ref(false)
+interface EntryFilter {
+  id: number
+  column: string
+  minimum: string
+  maximum: string
+  present: boolean
+}
+
+const filters = ref<EntryFilter[]>([])
 const columnsOpen = ref(false)
+const columnsTools = ref<HTMLElement>()
+let nextFilterId = 1
 const preference = ref<ColumnPreference>({ order: [], hidden: [] })
 let request = 0
 
@@ -101,9 +108,17 @@ const filterable = computed(() => orderedColumns.value.filter((column) => column
 const total = computed(() => data.value?.total ?? 0)
 const rangeStart = computed(() => (total.value ? offset.value + 1 : 0))
 const rangeEnd = computed(() => Math.min(offset.value + limit.value, total.value))
-const filterActive = computed(() =>
-  Boolean(filterColumn.value) && (filterPresent.value || filterMin.value !== '' || filterMax.value !== ''),
-)
+/** A filter with a column but no bound yet narrows nothing, so it is not sent. */
+function filterQuery(filter: EntryFilter): string | null {
+  if (!filter.column) return null
+  if (!filter.present && filter.minimum === '' && filter.maximum === '') return null
+  return `${filter.column}|${filter.minimum}|${filter.maximum}|${filter.present ? '1' : ''}`
+}
+
+const activeFilters = computed(() => filters.value.flatMap((filter) => {
+  const query = filterQuery(filter)
+  return query ? [query] : []
+}))
 
 function loadPreference(): void {
   preference.value = { order: [], hidden: [] }
@@ -152,11 +167,25 @@ function sortBy(key: string): void {
   offset.value = 0
 }
 
-function clearFilter(): void {
-  filterColumn.value = ''
-  filterMin.value = ''
-  filterMax.value = ''
-  filterPresent.value = false
+function addFilter(): void {
+  const used = new Set(filters.value.map((filter) => filter.column))
+  const next = filterable.value.find((column) => !used.has(column.key))
+  filters.value.push({
+    id: nextFilterId++,
+    column: next?.key ?? '',
+    minimum: '',
+    maximum: '',
+    present: false,
+  })
+}
+
+function removeFilter(id: number): void {
+  filters.value = filters.value.filter((filter) => filter.id !== id)
+  offset.value = 0
+}
+
+function clearFilters(): void {
+  filters.value = []
   offset.value = 0
 }
 
@@ -172,12 +201,7 @@ async function load(): Promise<void> {
     sort: sort.value,
     direction: direction.value,
   })
-  if (filterActive.value) {
-    params.set('column', filterColumn.value)
-    if (filterPresent.value) params.set('present', 'true')
-    if (filterMin.value !== '') params.set('minimum', filterMin.value)
-    if (filterMax.value !== '') params.set('maximum', filterMax.value)
-  }
+  for (const filter of activeFilters.value) params.append('filter', filter)
   try {
     const result = await api<HistoryEntries>(`/vehicles/${props.vehicleId}/history/entries?${params}`)
     if (current === request) data.value = result
@@ -203,9 +227,19 @@ function cell(entry: HistoryEntry, column: TableColumn): string {
   return String(raw)
 }
 
-watch(() => props.vehicleId, () => { loadPreference(); offset.value = 0 }, { immediate: true })
+// The column set is per vehicle, so a filter on a column the next vehicle does not
+// report would silently return nothing.
+watch(() => props.vehicleId, () => { loadPreference(); filters.value = []; offset.value = 0 }, { immediate: true })
 watch(() => props.days, () => { offset.value = 0 })
-watch([() => props.vehicleId, () => props.days, sort, direction, limit, offset, filterColumn, filterMin, filterMax, filterPresent], load, { immediate: true })
+watch(activeFilters, () => { offset.value = 0 })
+watch([() => props.vehicleId, () => props.days, sort, direction, limit, offset, activeFilters], load, { immediate: true })
+
+function closeColumns(event: PointerEvent): void {
+  if (!columnsTools.value?.contains(event.target as Node)) columnsOpen.value = false
+}
+
+document.addEventListener('pointerdown', closeColumns, true)
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, true))
 </script>
 
 <template>
@@ -215,7 +249,7 @@ watch([() => props.vehicleId, () => props.days, sort, direction, limit, offset, 
         <h2>{{ t('history.entries') }}</h2>
         <p>{{ total ? t('history.entryRange', { from: rangeStart, to: rangeEnd, total }) : t('history.noEntries') }}</p>
       </div>
-      <div class="entries-tools" @keydown.esc="columnsOpen = false">
+      <div ref="columnsTools" class="entries-tools" @keydown.esc="columnsOpen = false">
         <button class="button secondary" type="button" aria-haspopup="true" :aria-expanded="columnsOpen" @click="columnsOpen = !columnsOpen">
           <AppIcon name="columns" :size="15" />
           {{ t('history.columnsButton') }}<span v-if="hiddenCount"> · {{ hiddenCount }}</span>
@@ -240,18 +274,23 @@ watch([() => props.vehicleId, () => props.days, sort, direction, limit, offset, 
     </header>
 
     <div class="entries-filter">
-      <label class="field inline"><span>{{ t('history.filterColumn') }}</span>
-        <AppSelect v-model="filterColumn" compact :aria-label="t('history.filterColumn')">
-          <option value="">{{ t('history.noFilter') }}</option>
-          <option v-for="column in filterable" :key="column.key" :value="column.key">{{ column.label }}</option>
-        </AppSelect>
-      </label>
-      <template v-if="filterColumn">
-        <label class="field inline"><span>{{ t('history.minimum') }}</span><input v-model="filterMin" class="input" type="number" step="any" inputmode="decimal" /></label>
-        <label class="field inline"><span>{{ t('history.maximum') }}</span><input v-model="filterMax" class="input" type="number" step="any" inputmode="decimal" /></label>
-        <label class="check"><input v-model="filterPresent" type="checkbox" /><span>{{ t('history.onlyReported') }}</span></label>
-        <button class="link-button" type="button" @click="clearFilter">{{ t('history.clear') }}</button>
-      </template>
+      <div v-for="filter in filters" :key="filter.id" class="filter-row">
+        <label class="field inline filter-column"><span>{{ t('history.filterColumn') }}</span>
+          <AppSelect v-model="filter.column" searchable :search-placeholder="t('common.search')" :no-results-text="t('common.noResults')" :aria-label="t('history.filterColumn')">
+            <option v-for="column in filterable" :key="column.key" :value="column.key">{{ column.label }}</option>
+          </AppSelect>
+        </label>
+        <label class="field inline"><span>{{ t('history.minimum') }}</span><input v-model="filter.minimum" class="input" type="number" step="any" inputmode="decimal" /></label>
+        <label class="field inline"><span>{{ t('history.maximum') }}</span><input v-model="filter.maximum" class="input" type="number" step="any" inputmode="decimal" /></label>
+        <label class="check"><input v-model="filter.present" type="checkbox" /><span>{{ t('history.onlyReported') }}</span></label>
+        <button class="icon-button remove-filter" type="button" :aria-label="t('history.removeFilter')" @click="removeFilter(filter.id)"><AppIcon name="close" :size="15" /></button>
+      </div>
+      <div class="filter-actions">
+        <button class="button secondary" type="button" :disabled="!filterable.length" @click="addFilter">
+          <AppIcon name="plus" :size="15" />{{ t('history.addFilter') }}
+        </button>
+        <button v-if="filters.length" class="link-button" type="button" @click="clearFilters">{{ t('history.clear') }}</button>
+      </div>
     </div>
 
     <p v-if="error" class="entries-note error" role="alert">{{ error }}</p>
@@ -307,13 +346,19 @@ watch([() => props.vehicleId, () => props.days, sort, direction, limit, offset, 
 .columns-menu input{width:13px;height:13px;flex:none;accent-color:var(--accent)}
 .columns-menu .icon-button{width:24px;height:24px}
 
-.entries-filter{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px 14px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.entries-filter{display:grid;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.filter-row{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px 14px}
 .field.inline{gap:4px}
 .field.inline>span{color:var(--muted);font-size:12px;font-weight:400}
+/* Metric names are long and a truncated one is unusable as a filter label, so the
+   column select is sized to read rather than to fit its shortest option. */
+.filter-column{min-width:220px;flex:1 1 220px;max-width:320px}
 .entries-filter .input{width:110px;min-height:30px;padding:4px 8px;font-size:12px}
 .check{display:flex;align-items:center;gap:7px;padding-bottom:6px;font-size:12px;cursor:pointer}
 .check input{width:13px;height:13px;accent-color:var(--accent)}
-.entries-filter .link-button{padding-bottom:7px;font-size:12px}
+.remove-filter{width:30px;height:30px;flex:none}
+.filter-actions{display:flex;align-items:center;gap:12px}
+.entries-filter .link-button{font-size:12px}
 
 .table-wrap{max-height:560px;overflow:auto}
 .entries-table{font-variant-numeric:tabular-nums}

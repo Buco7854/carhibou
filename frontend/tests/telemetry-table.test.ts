@@ -75,13 +75,71 @@ describe('telemetry table', () => {
     await flushPromises()
     expect(lastRequest(fetchMock).get('direction')).toBe('desc')
 
+    await wrapper.find('.filter-actions button').trigger('click')
+    await flushPromises()
     wrapper.findAllComponents(AppSelect)[0]!.vm.$emit('update:modelValue', 'metric:battery.soc')
     await flushPromises()
     await wrapper.find('.entries-filter input[type="number"]').setValue('80')
     await flushPromises()
-    const params = lastRequest(fetchMock)
-    expect(params.get('column')).toBe('metric:battery.soc')
-    expect(params.get('minimum')).toBe('80')
+    expect(lastRequest(fetchMock).getAll('filter')).toEqual(['metric:battery.soc|80||'])
+  })
+
+  it('combines several filters in one request', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
+      vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0,
+      metric_keys: ['battery.soc'], device_keys: [], entries,
+    })))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mountTable()
+    await flushPromises()
+
+    // A filter that narrows nothing yet is not sent, so each one only appears
+    // once it carries a bound.
+    await wrapper.find('.filter-actions button').trigger('click')
+    await flushPromises()
+    expect(lastRequest(fetchMock).getAll('filter')).toEqual([])
+
+    await wrapper.findAll('.entries-filter input[type="number"]')[0]!.setValue('10')
+    await flushPromises()
+    await wrapper.find('.filter-actions button').trigger('click')
+    await flushPromises()
+    wrapper.findAllComponents(AppSelect)[1]!.vm.$emit('update:modelValue', 'metric:battery.soc')
+    await flushPromises()
+    await wrapper.findAll('.entries-filter input[type="number"]')[3]!.setValue('80')
+    await flushPromises()
+
+    expect(lastRequest(fetchMock).getAll('filter')).toEqual(['speed|10||', 'metric:battery.soc||80|'])
+
+    // Removing one leaves the other in place.
+    await wrapper.findAll('.remove-filter')[0]!.trigger('click')
+    await flushPromises()
+    expect(lastRequest(fetchMock).getAll('filter')).toEqual(['metric:battery.soc||80|'])
+  })
+
+  it('closes the column menu when the page is clicked elsewhere', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
+      vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0,
+      metric_keys: [], device_keys: [], entries,
+    }))))
+    const wrapper = mount(TelemetryTable, {
+      props: { vehicleId: 'vehicle-1', days: 1 },
+      global: { plugins: [i18n], stubs: { Teleport: true } },
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    await wrapper.find('.entries-tools button').trigger('click')
+    expect(wrapper.find('.columns-menu').exists()).toBe(true)
+
+    // Clicking inside the menu keeps it open; only a click outside dismisses it.
+    document.querySelector('.columns-menu')!.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await flushPromises()
+    expect(wrapper.find('.columns-menu').exists()).toBe(true)
+
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await flushPromises()
+    expect(wrapper.find('.columns-menu').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('remembers hidden and reordered columns per vehicle', async () => {
