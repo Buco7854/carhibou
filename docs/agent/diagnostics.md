@@ -165,15 +165,22 @@ Every command that has to find hardware prints one line per port as it probes it
 then opens what it selected. Stopping right after the last of those lines means the
 selected port could not be reopened.
 
-Two things cause that. The service holds the ports it uses, and root is exempt from
-the exclusive-access flag that would otherwise refuse a second open, so the command
-and the service end up splitting one stream. Stop it first:
+The service holds the ports it uses, and root is exempt from the exclusive-access
+flag that would otherwise refuse a second open, so the command and the service both
+succeed and then split one byte stream. Every hardware command therefore refuses
+while the service is running:
 
 ```sh
 sudo systemctl stop vehinode-agent
+sudo vehinode-agent obd-info
+sudo systemctl start vehinode-agent
 ```
 
-The commands now say so themselves when the service is running. Separately, a
+This was a warning until it proved not to be enough. Across two runs seconds apart
+the same OBD adapter identified itself and then timed out, while a modem interface
+did the reverse — arbitrary rather than merely incomplete, and arbitrary readings
+get acted on. `--force` before the command reads anyway, for anyone who has a
+reason to accept that. Separately, a
 cellular module's USB serial driver dislikes an interface being reopened the moment
 it was closed, so the sweep leaves each one alone briefly and reuses what it already
 learned rather than probing the same path twice.

@@ -97,6 +97,9 @@ func globalArguments(arguments []string) (paths, []string, error) {
 	locations := paths{config: agentsystem.ConfigDir, data: agentsystem.DataDir}
 	for len(arguments) > 0 {
 		switch arguments[0] {
+		case "--force":
+			forceHardware = true
+			arguments = arguments[1:]
 		case "--config-dir", "--data-dir":
 			if len(arguments) < 2 {
 				return locations, nil, fmt.Errorf("%s requires a value", arguments[0])
@@ -115,7 +118,7 @@ func globalArguments(arguments []string) (paths, []string, error) {
 }
 
 func usage() {
-	fmt.Print(`Usage: vehinode-agent [--config-dir PATH] [--data-dir PATH] COMMAND
+	fmt.Print(`Usage: vehinode-agent [--config-dir PATH] [--data-dir PATH] [--force] COMMAND
 
 Commands:
   install       Enroll this host and install its systemd service
@@ -133,6 +136,9 @@ Commands:
   can-record    Record CAN frames to a portable JSONL capture
   replay-can    Replay a capture, optionally through a profile
   version       Print build version and target
+
+--force lets a hardware command run while the service holds the ports. The reading
+cannot be trusted when it does, because both processes read the same stream.
 `)
 }
 
@@ -255,6 +261,9 @@ func commandDoctor(locations paths, probe bool) error {
 	} else {
 		result["hardware_selection"] = hardware
 		if probe {
+			if err := requireExclusiveHardware(); err != nil {
+				return err
+			}
 			// Opening every port is the only way to tell identical USB names apart.
 			// The service must be stopped first, or it still holds them.
 			devices := resolveDevices(hardware, locations, true)
@@ -328,7 +337,9 @@ func commandDevices(locations paths, arguments []string) error {
 }
 
 func commandGPS(locations paths, arguments []string) error {
-	warnIfServiceHoldsPorts()
+	if err := requireExclusiveHardware(); err != nil {
+		return err
+	}
 	flags := flag.NewFlagSet("gps-info", flag.ContinueOnError)
 	device := flags.String("device", "", "serial device")
 	seconds := flags.Int("seconds", 10, "read duration in seconds")
@@ -377,7 +388,9 @@ func commandGPS(locations paths, arguments []string) error {
 }
 
 func commandOBD(locations paths, arguments []string) error {
-	warnIfServiceHoldsPorts()
+	if err := requireExclusiveHardware(); err != nil {
+		return err
+	}
 	flags := flag.NewFlagSet("obd-info", flag.ContinueOnError)
 	device := flags.String("device", "", "serial device")
 	if err := flags.Parse(arguments); err != nil {
@@ -504,7 +517,9 @@ func explainOBD(result map[string]any, answered bool, frames int) {
 // commandMonitor prints what the tracker would sample, once per interval, so a
 // wiring or antenna problem is visible without waiting for a dashboard round trip.
 func commandMonitor(locations paths, arguments []string) error {
-	warnIfServiceHoldsPorts()
+	if err := requireExclusiveHardware(); err != nil {
+		return err
+	}
 	flags := flag.NewFlagSet("monitor", flag.ContinueOnError)
 	seconds := flags.Int("interval", 2, "seconds between reads")
 	count := flags.Int("count", 0, "number of reads, or zero to run until interrupted")
@@ -817,14 +832,33 @@ func modemPath(reports []providers.PortReport, device string) string {
 	return ""
 }
 
-// warnIfServiceHoldsPorts says so before a diagnostic opens hardware the service
-// is already using, because root is exempt from the exclusive-access flag that
-// would otherwise refuse the second open, and the two readers then split the
-// stream between them.
-func warnIfServiceHoldsPorts() {
-	if agentsystem.ServiceRunning() {
-		fmt.Fprintf(os.Stderr, "Warning: %s is running and holds these ports. Stop it first for a clean reading:\n  sudo systemctl stop vehinode-agent\n", agentsystem.ServiceName)
+// forceHardware runs a hardware command anyway, for an operator who has a reason
+// to accept a reading they cannot trust.
+var forceHardware bool
+
+// requireExclusiveHardware refuses to touch hardware the service is holding.
+//
+// This was a warning, which was not enough. Root is exempt from the exclusive
+// access flag that would otherwise refuse the second open, so both processes
+// succeed and then split one byte stream between them. The result is not degraded
+// but arbitrary: across two runs seconds apart the same adapter identified itself,
+// then timed out, while a modem interface did the reverse. A reading nobody can
+// trust is worse than no reading, because it gets acted on.
+func requireExclusiveHardware() error {
+	if forceHardware || !agentsystem.ServiceRunning() {
+		return nil
 	}
+	return fmt.Errorf(`%s is running and holds the serial ports.
+
+Both processes would read the same stream and neither would get all of it, so the
+result would be arbitrary rather than merely incomplete. Stop the service, take the
+reading, then start it again:
+
+  sudo systemctl stop vehinode-agent
+  sudo vehinode-agent %s
+  sudo systemctl start vehinode-agent
+
+Pass --force before the command to read anyway`, agentsystem.ServiceName, strings.Join(os.Args[1:], " "))
 }
 
 // startPosition prepares the GPS source, switching the receiver on first.

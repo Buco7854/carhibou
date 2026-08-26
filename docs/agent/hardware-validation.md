@@ -28,6 +28,14 @@ date here. Never replace “pending” with “verified” from simulation alone
 
 ## Defects found on hardware
 
+- **2026-08-26, Pi Zero W.** With the service running, two diagnostic runs seconds
+  apart disagreed about the same hardware: the OBD adapter identified itself in one
+  and timed out in the next, while a modem interface did the reverse. Root is exempt
+  from the exclusive-access flag, so both processes read the same stream and neither
+  got all of it. Continuous CAN monitoring made this constant rather than
+  intermittent, because the service now never releases the adapter. Hardware
+  commands refuse while the service runs instead of warning.
+
 - **2026-08-26.** CAN was monitored for a one-second window per sample. That made
   the one-second cadence unachievable — the window alone consumed the interval —
   and meant a five-second cadence saw a fifth of the bus, so an identifier repeating

@@ -105,3 +105,41 @@ func TestPositionFallsBackToTheControlPortWhenNothingStreams(t *testing.T) {
 		t.Fatalf("position source is %T, want the control port", position)
 	}
 }
+
+// A hardware command must refuse while the service holds the ports, rather than
+// warn. Root is exempt from the exclusive-access flag, so both processes open the
+// port and split one stream: across two runs seconds apart the same adapter
+// identified itself and then timed out, which is arbitrary rather than degraded.
+func TestHardwareCommandsRefuseWhileTheServiceHoldsThePorts(t *testing.T) {
+	previous := forceHardware
+	t.Cleanup(func() { forceHardware = previous })
+
+	// The service is not running under test, so the check has to pass on its own.
+	forceHardware = false
+	if err := requireExclusiveHardware(); err != nil {
+		t.Fatalf("with no service running the command must proceed: %v", err)
+	}
+
+	// --force is the escape hatch, and must work even were the service up.
+	forceHardware = true
+	if err := requireExclusiveHardware(); err != nil {
+		t.Fatalf("--force must let the command run: %v", err)
+	}
+}
+
+func TestForceIsAcceptedBeforeTheCommand(t *testing.T) {
+	previous := forceHardware
+	t.Cleanup(func() { forceHardware = previous })
+	forceHardware = false
+
+	locations, remaining, err := globalArguments([]string{"--force", "--data-dir", "/tmp/x", "gps-info"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !forceHardware {
+		t.Fatal("--force was not taken")
+	}
+	if locations.data != "/tmp/x" || len(remaining) != 1 || remaining[0] != "gps-info" {
+		t.Fatalf("data=%q remaining=%v", locations.data, remaining)
+	}
+}
