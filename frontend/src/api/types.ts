@@ -36,7 +36,6 @@ export type ProfileDataType = 'uint8' | 'uint16' | 'uint32' | 'int8' | 'int16' |
 export interface VehicleProfileSignal {
   name: string
   display_name?: string
-  description?: string
   source: { type: 'can'; can_id: number }
   decoder: {
     byte_offset: number
@@ -50,8 +49,6 @@ export interface VehicleProfileSignal {
   unit?: string | null
   minimum?: number | null
   maximum?: number | null
-  references?: string[]
-  notes?: string
 }
 
 export interface VehicleProfile {
@@ -62,7 +59,6 @@ export interface VehicleProfile {
   definition: {
     id: string
     name: string
-    family?: string
     version: number
     description?: string
     signals: VehicleProfileSignal[]

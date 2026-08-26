@@ -38,7 +38,7 @@ def test_experimental_c_zero_profile_decodes_documented_starting_points() -> Non
     decoder = VehicleProfileDecoder.from_path(profile_path())
     soc = decoder.decode(CANFrame(1, 0x374, bytes.fromhex("9600000000000000")))
     assert {value.name: value.value for value in soc}["battery.soc"] == 70
-    assert all(value.status == "experimental" for value in soc)
+    assert {value.name: value.unit for value in soc}["battery.soc"] == "%"
 
     battery = decoder.decode(CANFrame(2, 0x373, bytes.fromhex("000080640CE40000")))
     values = {value.name: value.value for value in battery}

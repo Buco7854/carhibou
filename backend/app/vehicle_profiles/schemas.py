@@ -27,25 +27,23 @@ class ProfileDecoder(BaseModel):
     enum: dict[str, str] | None = None
 
 
-class ProfileSignalWrite(BaseModel):
+class ProfileSignal(BaseModel):
+    """One mapping from a CAN frame to a canonical metric.
+
+    A profile carries what decoding needs and the label the interface shows for
+    it, and nothing else. Evidence statuses, source URLs, per-signal prose and a
+    vehicle family were all carried here once and read by nothing.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120, pattern=r"^[a-z][a-z0-9_.-]*$")
     display_name: str = Field(default="", max_length=120)
-    description: str = Field(default="", max_length=1000)
     source: ProfileSource
     decoder: ProfileDecoder
     unit: str | None = Field(default=None, max_length=40)
     minimum: float | None = None
     maximum: float | None = None
-
-
-class ProfileSignal(ProfileSignalWrite):
-    model_config = ConfigDict(extra="allow")
-
-    status: Literal["verified", "experimental", "unknown", "deprecated"] = "unknown"
-    references: Annotated[list[str], Field(max_length=20)] = Field(default_factory=list)
-    notes: str = Field(default="", max_length=1000)
 
 
 class ComputedMetric(BaseModel):
@@ -57,15 +55,15 @@ class ComputedMetric(BaseModel):
     # Converts the raw product into the declared unit, e.g. volts times amps to kilowatts.
     scale: float = Field(default=1, gt=-1e6, lt=1e6)
     unit: str | None = Field(default=None, max_length=40)
-    status: Literal["verified", "experimental", "unknown", "deprecated"] = "experimental"
 
 
 class ProfileDefinition(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    # Forbidding extras is what keeps a retired field from surviving in a stored
+    # definition and reappearing in the payload every tracker downloads.
+    model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=120)
-    family: str = Field(default="custom", max_length=120)
     version: int = Field(default=1, ge=1, le=1_000_000)
     description: str = Field(default="", max_length=1000)
     signals: Annotated[list[ProfileSignal], Field(min_length=1, max_length=100)]
@@ -77,8 +75,7 @@ class ProfileDefinition(BaseModel):
 class VehicleProfileWrite(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=1000)
-    family: str = Field(default="custom", max_length=120)
-    signals: Annotated[list[ProfileSignalWrite], Field(min_length=1, max_length=100)]
+    signals: Annotated[list[ProfileSignal], Field(min_length=1, max_length=100)]
     computed_metrics: Annotated[list[ComputedMetric], Field(max_length=50)] = Field(
         default_factory=list
     )

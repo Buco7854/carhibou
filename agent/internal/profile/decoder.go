@@ -30,7 +30,6 @@ type Signal struct {
 	Source  Source   `json:"source" yaml:"source"`
 	Decoder Decoder  `json:"decoder" yaml:"decoder"`
 	Unit    string   `json:"unit,omitempty" yaml:"unit,omitempty"`
-	Status  string   `json:"status" yaml:"status"`
 	Minimum *float64 `json:"minimum,omitempty" yaml:"minimum,omitempty"`
 	Maximum *float64 `json:"maximum,omitempty" yaml:"maximum,omitempty"`
 }
@@ -117,9 +116,6 @@ func New(definition Definition) (*DecoderEngine, error) {
 func validateSignal(signal Signal) error {
 	if signal.Name == "" || signal.Source.Type != "can" || signal.Source.CANID < 0 || signal.Source.CANID > 0x1fffffff {
 		return fmt.Errorf("invalid CAN signal %q", signal.Name)
-	}
-	if signal.Status != "verified" && signal.Status != "experimental" && signal.Status != "unknown" && signal.Status != "deprecated" {
-		return fmt.Errorf("invalid signal status for %q", signal.Name)
 	}
 	if _, ok := integerTypes[signal.Decoder.DataType]; !ok && signal.Decoder.DataType != "bytes" && signal.Decoder.DataType != "boolean" {
 		return fmt.Errorf("unsupported decoder type %q", signal.Decoder.DataType)

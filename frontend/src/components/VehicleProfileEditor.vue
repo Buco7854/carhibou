@@ -121,7 +121,7 @@ async function save(): Promise<void> {
   try {
     await api(editing.value ? `/vehicle-profiles/${props.profile!.id}` : '/vehicle-profiles', {
       method: editing.value ? 'PUT' : 'POST',
-      body: JSON.stringify({ name: form.value.name.trim(), description: form.value.description.trim(), family: 'custom', signals, computed_metrics: [] }),
+      body: JSON.stringify({ name: form.value.name.trim(), description: form.value.description.trim(), signals, computed_metrics: [] }),
     })
     emit('saved')
     emit('close')

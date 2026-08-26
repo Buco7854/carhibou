@@ -6,7 +6,6 @@ import yaml
 
 from agent.vehicle_agent.models import CANFrame
 
-ALLOWED_STATUS = {"verified", "experimental", "unknown", "deprecated"}
 INTEGER_TYPES: dict[str, tuple[int, bool]] = {
     "uint8": (1, False),
     "uint16": (2, False),
@@ -26,7 +25,6 @@ class DecodedSignal:
     name: str
     value: object
     unit: str | None
-    status: str
 
 
 class VehicleProfileDecoder:
@@ -50,11 +48,9 @@ class VehicleProfileDecoder:
 
     @staticmethod
     def _validate_signal(signal: dict[str, Any]) -> None:
-        required = {"name", "source", "decoder", "status"}
+        required = {"name", "source", "decoder"}
         if not required.issubset(signal):
             raise ProfileError(f"signal is missing keys: {required - set(signal)}")
-        if signal["status"] not in ALLOWED_STATUS:
-            raise ProfileError(f"invalid evidence status for {signal['name']}")
         source = signal["source"]
         if source.get("type") != "can" or not isinstance(source.get("can_id"), int):
             raise ProfileError("v1 profile signal source must be a numeric CAN ID")
@@ -120,9 +116,7 @@ class VehicleProfileDecoder:
             except ProfileError:
                 continue
             current[signal["name"]] = value
-            decoded.append(
-                DecodedSignal(signal["name"], value, signal.get("unit"), signal["status"])
-            )
+            decoded.append(DecodedSignal(signal["name"], value, signal.get("unit")))
         for computed in self.computed:
             inputs = computed.get("inputs", [])
             if computed.get("operation") == "multiply" and all(name in current for name in inputs):
@@ -131,12 +125,5 @@ class VehicleProfileDecoder:
                     continue
                 value = float(left) * float(right) * float(computed.get("scale", 1))
                 current[computed["name"]] = value
-                decoded.append(
-                    DecodedSignal(
-                        computed["name"],
-                        value,
-                        computed.get("unit"),
-                        computed.get("status", "experimental"),
-                    )
-                )
+                decoded.append(DecodedSignal(computed["name"], value, computed.get("unit")))
         return decoded

@@ -8,7 +8,6 @@ def profile_payload(*, scale: float = 0.5) -> dict[str, object]:
     return {
         "name": "My documented EV",
         "description": "Signals verified against my own vehicle",
-        "family": "owner-ev",
         "signals": [
             {
                 "name": "battery.soc",
@@ -45,7 +44,7 @@ def test_owner_profile_reaches_agent_and_updates_config_version(
     profile = created.json()
     assert profile["built_in"] is False
     assert profile["definition"]["id"] == profile["id"]
-    assert profile["definition"]["signals"][0]["status"] == "unknown"
+    assert profile["definition"]["signals"][0]["display_name"] == "Battery level"
 
     vehicle = client.post("/api/v1/vehicles", headers=headers, json={"name": "Owner EV"}).json()
     assigned = client.put(
@@ -68,7 +67,19 @@ def test_owner_profile_reaches_agent_and_updates_config_version(
     device = enrolled.json()
     assert device["config"]["version"] == 1
     assert device["config"]["vehicle_profile"] == profile["id"]
-    assert device["config"]["vehicle_profile_definition"]["signals"][0]["decoder"]["scale"] == 0.5
+    shipped = device["config"]["vehicle_profile_definition"]
+    assert shipped["signals"][0]["decoder"]["scale"] == 0.5
+    # A tracker decodes frames; it never renders a profile. Interface metadata is
+    # kept out of the configuration it downloads and parses on every sync.
+    assert set(shipped) == {"id", "signals"}
+    assert set(shipped["signals"][0]) == {
+        "name",
+        "source",
+        "decoder",
+        "unit",
+        "minimum",
+        "maximum",
+    }
 
     updated = client.put(
         f"/api/v1/vehicle-profiles/{profile['id']}",

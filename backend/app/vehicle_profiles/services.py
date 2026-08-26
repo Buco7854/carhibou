@@ -40,7 +40,6 @@ def _definition(profile_id: str, data: VehicleProfileWrite) -> dict[str, object]
     definition = ProfileDefinition(
         id=profile_id,
         name=data.name,
-        family=data.family,
         version=1,
         description=data.description,
         signals=[signal.model_dump(exclude_none=True) for signal in data.signals],
@@ -91,6 +90,35 @@ def owned_profile(db: Session, owner_id: str, profile_id: str) -> VehicleProfile
     )
 
 
+# The keys a decoder reads. A profile also carries what people need to recognise
+# it in the interface - its name, family, version and per-signal display names and
+# descriptions - and none of that reaches a decoder. Sending it anyway more than
+# doubled the configuration a tracker downloads on every sync and holds in memory
+# while parsing, which is worth avoiding on a single-core 512MB board.
+_AGENT_SIGNAL_KEYS = frozenset({"name", "source", "decoder", "unit", "minimum", "maximum"})
+_AGENT_COMPUTED_KEYS = frozenset({"name", "operation", "inputs", "unit", "scale"})
+
+
+def agent_definition(definition: dict[str, object]) -> dict[str, object]:
+    """Project a profile down to the fields a tracker's decoder actually reads."""
+
+    signals = definition.get("signals")
+    computed = definition.get("computed_metrics")
+    projected: dict[str, object] = {
+        "id": definition["id"],
+        "signals": [
+            {key: value for key, value in signal.items() if key in _AGENT_SIGNAL_KEYS}
+            for signal in (signals if isinstance(signals, list) else [])
+        ],
+    }
+    if isinstance(computed, list) and computed:
+        projected["computed_metrics"] = [
+            {key: value for key, value in metric.items() if key in _AGENT_COMPUTED_KEYS}
+            for metric in computed
+        ]
+    return projected
+
+
 def profile_definition(
     db: Session, owner_id: str, profile_id: str | None
 ) -> dict[str, object] | None:
@@ -98,9 +126,9 @@ def profile_definition(
         return None
     built_in = built_in_definitions().get(profile_id)
     if built_in:
-        return deepcopy(built_in)
+        return agent_definition(built_in)
     profile = owned_profile(db, owner_id, profile_id)
-    return deepcopy(profile.definition) if profile else None
+    return agent_definition(profile.definition) if profile else None
 
 
 def create_profile(db: Session, owner_id: str, data: VehicleProfileWrite) -> VehicleProfile:
