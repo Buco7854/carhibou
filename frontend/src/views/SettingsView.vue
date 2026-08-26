@@ -1,96 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { api } from '../api/client'
 import { auth, logout } from '../api/auth'
-import type { BrowserSession, Diagnostics, UserAccount } from '../api/types'
-import AppIcon from '../components/AppIcon.vue'
-import AppModal from '../components/AppModal.vue'
+import type { BrowserSession } from '../api/types'
 import AppSelect from '../components/AppSelect.vue'
 import { persistLocale } from '../i18n'
 import { setTheme, themeMode } from '../theme'
 
 const { locale, t } = useI18n()
 const router = useRouter()
-const diagnostics = ref<Diagnostics | null>(null)
 const sessions = ref<BrowserSession[]>([])
 const currentPassword = ref('')
 const newPassword = ref('')
 const accountMessage = ref('')
 const accountError = ref('')
-const people = ref<UserAccount[]>([])
-const peopleError = ref('')
-const creating = ref(false)
-const saving = ref(false)
-const emptyPerson = () => ({ email: '', display_name: '', password: '', is_admin: false })
-const person = ref(emptyPerson())
-const isAdmin = computed(() => Boolean(auth.user?.permissions['system.admin']))
 
-const clearing = ref(false)
-const dataMessage = ref('')
-const dataError = ref('')
-
-/**
- * Empty every vehicle of readings. The vehicles, trackers, hooks and dashboards
- * are left standing; only what was recorded goes, which is what makes this usable
- * after a period of testing rather than a way to start over.
- */
-async function clearAllTelemetry(): Promise<void> {
-  if (!confirm(t('settings.clearAllConfirm'))) return
-  clearing.value = true
-  dataMessage.value = ''
-  dataError.value = ''
-  try {
-    await api('/vehicles/telemetry', { method: 'DELETE' })
-    dataMessage.value = t('settings.clearAllDone')
-  } catch (reason) {
-    dataError.value = reason instanceof Error ? reason.message : t('common.error')
-  } finally {
-    clearing.value = false
-  }
-}
-
-async function loadPeople(): Promise<void> {
-  if (!isAdmin.value) return
-  people.value = await api<UserAccount[]>('/users')
-}
-
-async function createPerson(): Promise<void> {
-  peopleError.value = ''
-  saving.value = true
-  try {
-    await api<UserAccount>('/users', { method: 'POST', body: JSON.stringify(person.value) })
-    creating.value = false
-    person.value = emptyPerson()
-    await loadPeople()
-  } catch (reason) {
-    peopleError.value = reason instanceof Error ? reason.message : t('common.error')
-  } finally {
-    saving.value = false
-  }
-}
-
-async function updatePerson(account: UserAccount, changes: Partial<UserAccount>): Promise<void> {
-  peopleError.value = ''
-  try {
-    await api<UserAccount>(`/users/${account.id}`, { method: 'PATCH', body: JSON.stringify(changes) })
-    await loadPeople()
-  } catch (reason) {
-    peopleError.value = reason instanceof Error ? reason.message : t('common.error')
-  }
-}
-
-async function removePerson(account: UserAccount): Promise<void> {
-  if (!window.confirm(t('settings.deleteUserConfirm', { name: account.display_name }))) return
-  peopleError.value = ''
-  try {
-    await api<void>(`/users/${account.id}`, { method: 'DELETE' })
-    await loadPeople()
-  } catch (reason) {
-    peopleError.value = reason instanceof Error ? reason.message : t('common.error')
-  }
-}
 
 function changeLocale(value: string | number | null): void {
   if (value !== 'en' && value !== 'fr') return
@@ -123,10 +49,6 @@ async function signOut(): Promise<void> {
 
 onMounted(async () => {
   sessions.value = await api<BrowserSession[]>('/auth/sessions')
-  await loadPeople()
-  if (auth.user?.permissions['system.admin']) {
-    try { diagnostics.value = await api<Diagnostics>('/system/diagnostics') } catch { /* health remains visible through direct endpoint */ }
-  }
 })
 </script>
 
@@ -178,64 +100,6 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section v-if="isAdmin" class="settings-block">
-      <div class="settings-label"><h2>{{ t('settings.users') }}</h2><p>{{ t('settings.usersHint') }}</p></div>
-      <div class="settings-body">
-        <p v-if="peopleError" class="error" role="alert">{{ peopleError }}</p>
-        <ul class="people-list">
-          <li v-for="account in people" :key="account.id">
-            <div class="person">
-              <strong>{{ account.display_name }}<span v-if="account.id === auth.user?.id"> · {{ t('settings.you') }}</span></strong>
-              <small>{{ account.email }}</small>
-            </div>
-            <span v-if="account.is_admin" class="person-tag">{{ t('settings.administrator') }}</span>
-            <span :class="['status', { online: account.is_active }]">{{ account.is_active ? t('settings.activeAccount') : t('settings.inactiveAccount') }}</span>
-            <div class="person-actions">
-              <button class="link-button" type="button" @click="updatePerson(account, { is_admin: !account.is_admin })">{{ account.is_admin ? t('settings.revokeAdmin') : t('settings.makeAdmin') }}</button>
-              <button class="link-button" type="button" @click="updatePerson(account, { is_active: !account.is_active })">{{ account.is_active ? t('settings.suspend') : t('settings.restore') }}</button>
-              <button class="link-button danger" type="button" @click="removePerson(account)">{{ t('common.delete') }}</button>
-            </div>
-          </li>
-        </ul>
-        <button class="button secondary" type="button" @click="creating = true"><AppIcon name="plus" :size="15" />{{ t('settings.addUser') }}</button>
-      </div>
-    </section>
-
-    <AppModal :open="creating" :title="t('settings.addUser')" @close="creating = false">
-      <form class="person-form" @submit.prevent="createPerson">
-        <label class="field"><span>{{ t('auth.displayName') }}</span><input v-model="person.display_name" class="input" required autofocus /></label>
-        <label class="field"><span>{{ t('auth.email') }}</span><input v-model="person.email" class="input" type="email" required /></label>
-        <label class="field"><span>{{ t('auth.password') }}</span><input v-model="person.password" class="input" type="password" minlength="12" required /></label>
-        <label class="check"><input v-model="person.is_admin" type="checkbox" /><span>{{ t('settings.administrator') }}</span></label>
-        <p v-if="peopleError" class="error" role="alert">{{ peopleError }}</p>
-        <div class="form-actions"><button class="button" :disabled="saving">{{ t('settings.createUser') }}</button><button class="button ghost" type="button" @click="creating = false">{{ t('common.cancel') }}</button></div>
-      </form>
-    </AppModal>
-
-    <section class="settings-block">
-      <div class="settings-label"><h2>{{ t('settings.data') }}</h2></div>
-      <div class="settings-body">
-        <p class="field-hint">{{ t('settings.clearAllHint') }}</p>
-        <p v-if="dataMessage" class="saved-note" role="status">{{ dataMessage }}</p>
-        <p v-if="dataError" class="error" role="alert">{{ dataError }}</p>
-        <button class="button danger" type="button" :disabled="clearing" @click="clearAllTelemetry">{{ t('settings.clearAll') }}</button>
-      </div>
-    </section>
-
-    <section v-if="diagnostics" class="settings-block">
-      <div class="settings-label"><h2>{{ t('settings.diagnostics') }}</h2></div>
-      <div class="settings-body">
-        <dl class="diagnostics-grid">
-          <div><dt>{{ t('settings.version') }}</dt><dd class="mono">{{ diagnostics.version }}</dd></div>
-          <div><dt>{{ t('settings.database') }}</dt><dd class="mono">{{ diagnostics.database }}</dd></div>
-          <div><dt>{{ t('settings.workers') }}</dt><dd class="mono">{{ diagnostics.workers.length }}</dd></div>
-          <div><dt>{{ t('settings.pendingJobs') }}</dt><dd class="mono">{{ diagnostics.pending_jobs }}</dd></div>
-          <div><dt>{{ t('settings.failedJobs') }}</dt><dd class="mono">{{ diagnostics.failed_jobs }}</dd></div>
-          <div><dt>{{ t('settings.hookFailures') }}</dt><dd class="mono">{{ diagnostics.hook_failures }}</dd></div>
-          <div><dt>{{ t('settings.staleDevices') }}</dt><dd class="mono">{{ diagnostics.stale_devices }}</dd></div>
-        </dl>
-      </div>
-    </section>
   </div>
 </template>
 

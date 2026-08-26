@@ -37,3 +37,10 @@ than surviving until it expires.
 
 Deleting an account deletes what it owned. Vehicles, telemetry, trackers and hooks cascade
 in the database, and the interface says so before asking for confirmation.
+
+## Administration is a separate page
+
+Managing people, clearing recorded data and reading system health are not
+preferences, and sat beside them only because both were called settings. They are
+their own page now, reachable and routable only by an administrator, so an ordinary
+account sees a settings page that is entirely about itself.

@@ -12,6 +12,7 @@ import { resolvedTheme, setTheme } from './theme'
 
 const router = useRouter()
 const { locale, t } = useI18n()
+const isAdmin = computed(() => Boolean(auth.user?.permissions['system.admin']))
 const initials = computed(() => auth.user?.display_name.slice(0, 2).toUpperCase() ?? '')
 
 function changeLocale(value: string | number | null): void {
@@ -47,6 +48,7 @@ async function signOut() {
         <RouterLink to="/devices" :title="t('nav.devices')"><AppIcon name="devices" :size="17" /><span class="nav-label">{{ t('nav.devices') }}</span></RouterLink>
         <span class="nav-divider" />
         <RouterLink to="/settings" :title="t('nav.settings')"><AppIcon name="settings" :size="17" /><span class="nav-label">{{ t('nav.settings') }}</span></RouterLink>
+        <RouterLink v-if="isAdmin" to="/admin" :title="t('admin.title')"><AppIcon name="profile" :size="17" /><span class="nav-label">{{ t('admin.title') }}</span></RouterLink>
       </nav>
 
       <div class="sidebar-foot">

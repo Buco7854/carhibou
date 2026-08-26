@@ -14,6 +14,7 @@ const router = createRouter({
     { path: '/hooks', name: 'hooks', component: () => import('../views/HooksView.vue') },
     { path: '/devices', name: 'devices', component: () => import('../views/DevicesView.vue') },
     { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
+    { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
   ],
 })
 
@@ -21,6 +22,9 @@ router.beforeEach(async (to) => {
   if (!auth.ready) await loadUser()
   if (!to.meta.public && !auth.user) return { name: 'login', query: { next: to.fullPath } }
   if (to.name === 'login' && auth.user) return { name: 'dashboards' }
+  // Administration is a different job from preferences, so it is a different page
+  // and one an ordinary account has no route into.
+  if (to.meta.admin && !auth.user?.permissions['system.admin']) return { name: 'settings' }
   return true
 })
 
