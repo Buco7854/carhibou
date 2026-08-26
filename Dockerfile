@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1.7
 ARG VEHINODE_VERSION=0.1.0
 
-FROM node:22.23.2-bookworm-slim AS frontend-build
+FROM --platform=$BUILDPLATFORM node:22.23.2-bookworm-slim AS frontend-build
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM golang:1.26.6-bookworm AS agent-build
+FROM --platform=$BUILDPLATFORM golang:1.26.6-bookworm AS agent-build
 ARG VEHINODE_VERSION
 WORKDIR /src/agent
 COPY agent/go.mod agent/go.sum ./
@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     sh build-release.sh "$VEHINODE_VERSION" /out
 
-FROM python:3.13.15-slim-bookworm AS wheel-build
+FROM --platform=$BUILDPLATFORM python:3.13.15-slim-bookworm AS wheel-build
 WORKDIR /src
 RUN --mount=type=cache,target=/root/.cache/pip pip install build==1.3.0 setuptools==80.9.0
 COPY pyproject.toml README.md ./

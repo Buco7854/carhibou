@@ -7,7 +7,10 @@ Node.
 ## Before you start
 
 Install Docker Engine with the Docker Compose plugin. Use a hostname and TLS reverse
-proxy before exposing VehiNode to the internet.
+proxy before exposing VehiNode to the internet. The published image is amd64; on an ARM
+server, clone the repository, run `docker build -t vehinode .`, and set
+`VEHINODE_IMAGE=vehinode` below. Trackers are unaffected either way — they run a
+standalone agent executable, not this image.
 
 ## Create the deployment directory
 
