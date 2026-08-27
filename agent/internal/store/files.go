@@ -27,7 +27,7 @@ func WriteJSONAtomic(path string, value any, mode os.FileMode) error {
 		return err
 	}
 	content = append(content, '\n')
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".vehinode-*")
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".carhibou-*")
 	if err != nil {
 		return err
 	}

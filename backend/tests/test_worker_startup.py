@@ -10,8 +10,8 @@ def test_worker_entrypoint_loads_complete_model_registry(tmp_path: Path) -> None
     database = tmp_path / "worker-startup.sqlite3"
     environment = {
         **os.environ,
-        "VEHINODE_DATABASE_URL": f"sqlite:///{database}",
-        "VEHINODE_LOG_LEVEL": "WARNING",
+        "CARHIBOU_DATABASE_URL": f"sqlite:///{database}",
+        "CARHIBOU_LOG_LEVEL": "WARNING",
     }
     migration = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],

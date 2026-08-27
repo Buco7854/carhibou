@@ -15,9 +15,9 @@ fi
 "$RUFF" format --check backend agent
 "$MYPY" backend agent
 "$PYTHON" -m pytest backend/tests agent/tests
-VEHINODE_DATABASE_URL=sqlite:////tmp/vehinode-migration-check.sqlite3 "$PYTHON" -m alembic upgrade head
-VEHINODE_DATABASE_URL=sqlite:////tmp/vehinode-migration-check.sqlite3 "$PYTHON" -m alembic check
-VEHINODE_DATABASE_URL=sqlite:////tmp/vehinode-migration-check.sqlite3 "$PYTHON" -m alembic downgrade base
+CARHIBOU_DATABASE_URL=sqlite:////tmp/carhibou-migration-check.sqlite3 "$PYTHON" -m alembic upgrade head
+CARHIBOU_DATABASE_URL=sqlite:////tmp/carhibou-migration-check.sqlite3 "$PYTHON" -m alembic check
+CARHIBOU_DATABASE_URL=sqlite:////tmp/carhibou-migration-check.sqlite3 "$PYTHON" -m alembic downgrade base
 "$PYTHON" -m build --wheel --no-isolation
 
 (cd agent && test -z "$(gofmt -l cmd internal)" && go vet ./... && go test ./...)

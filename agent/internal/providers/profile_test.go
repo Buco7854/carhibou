@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Buco7854/vehinode/agent/internal/profile"
+	"github.com/Buco7854/carhibou/agent/internal/profile"
 )
 
 const oneSignal = `{"id":"t","signals":[{"name":"battery.soc","source":{"type":"can","can_id":884},
@@ -25,7 +25,7 @@ func testDecoder(t *testing.T) *profile.DecoderEngine {
 // duration — making a one-second cadence impossible — and saw only the fraction
 // of the bus that fell inside it.
 func TestReadMetricsDoesNotWaitForTheBus(t *testing.T) {
-	provider := NewProfileProvider(NewOBDAdapter("/dev/vehinode-absent"), testDecoder(t))
+	provider := NewProfileProvider(NewOBDAdapter("/dev/carhibou-absent"), testDecoder(t))
 	defer provider.Close()
 
 	started := time.Now()
@@ -51,7 +51,7 @@ func TestReadMetricsDoesNotWaitForTheBus(t *testing.T) {
 // single core, connecting is several serial exchanges and would crowd out the
 // position samples the agent can still take.
 func TestAFailedAdapterIsNotRetriedEverySample(t *testing.T) {
-	provider := NewProfileProvider(NewOBDAdapter("/dev/vehinode-absent"), testDecoder(t))
+	provider := NewProfileProvider(NewOBDAdapter("/dev/carhibou-absent"), testDecoder(t))
 	defer provider.Close()
 
 	provider.ReadMetrics()
@@ -68,7 +68,7 @@ func TestAFailedAdapterIsNotRetriedEverySample(t *testing.T) {
 // Closing must be safe whether or not a monitor ever started, because an agent
 // shuts down the same way after a good run and after a failed connection.
 func TestClosingIsSafeWithoutAMonitor(t *testing.T) {
-	provider := NewProfileProvider(NewOBDAdapter("/dev/vehinode-absent"), testDecoder(t))
+	provider := NewProfileProvider(NewOBDAdapter("/dev/carhibou-absent"), testDecoder(t))
 	provider.Close()
 	provider.Close()
 }

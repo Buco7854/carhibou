@@ -7,19 +7,19 @@ from typing import Any
 
 from backend.app.hooks.context import CappedWriter, HookContext
 
-RESULT_MARKER = "VEHINODE_RESULT="
+RESULT_MARKER = "CARHIBOU_RESULT="
 
 
 def execute(data: dict[str, Any]) -> dict[str, Any]:
     records: list[dict[str, object]] = []
     context = HookContext(data, records)
     writer = CappedWriter(int(data.get("log_limit", 64_000)))
-    source = "def __vehinode_hook(ctx):\n" + textwrap.indent(data["source"], "    ")
-    namespace: dict[str, Any] = {"__name__": "__vehinode_hook__"}
+    source = "def __carhibou_hook(ctx):\n" + textwrap.indent(data["source"], "    ")
+    namespace: dict[str, Any] = {"__name__": "__carhibou_hook__"}
     try:
         with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):  # type: ignore[type-var]
-            exec(compile(source, "<vehinode-hook>", "exec"), namespace)
-            namespace["__vehinode_hook"](context)
+            exec(compile(source, "<carhibou-hook>", "exec"), namespace)
+            namespace["__carhibou_hook"](context)
         if writer.value:
             records.append(
                 {

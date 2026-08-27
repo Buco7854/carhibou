@@ -15,7 +15,7 @@ const ONE_PIXEL_PNG = Buffer.from(
 
 async function csrfToken(page: Page): Promise<string> {
   const cookies = await page.context().cookies()
-  const csrf = cookies.find((cookie) => cookie.name === 'vehinode_csrf')?.value
+  const csrf = cookies.find((cookie) => cookie.name === 'carhibou_csrf')?.value
   if (!csrf) throw new Error('browser session has no CSRF cookie')
   return csrf
 }
@@ -39,7 +39,7 @@ async function waitForExecutions(page: Page, hookId: string, count: number): Pro
 
 test('complete browser journey from bootstrapped admin to persistent hook state', async ({ page, request }) => {
   await page.goto('/login')
-  await expect(page.getByRole('heading', { name: 'Sign in to VehiNode' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sign in to Carhibou' })).toBeVisible()
   await expect(page.getByText('Open-source software · operated by you')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Create the initial administrator' })).toHaveCount(0)
   const loginAccessibility = await new AxeBuilder({ page }).analyze()
@@ -159,7 +159,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.locator('.sidebar').getByRole('link', { name: 'Dashboards', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
   await expect(page.locator('[data-widget-type="battery-gauge"] .energy-value')).toHaveText('77')
-  await expect(page.locator('.vehinode-position-marker')).toBeVisible()
+  await expect(page.locator('.carhibou-position-marker')).toBeVisible()
   const initialDashboardAccessibility = await new AxeBuilder({ page }).analyze()
   expect(initialDashboardAccessibility.violations).toEqual([])
 
@@ -291,7 +291,7 @@ test('mobile login keeps language, theme, keyboard access and reflow', async ({ 
     Object.defineProperty(navigator, 'languages', { configurable:true, get:() => ['fr-FR', 'en-US'] })
   })
   await page.goto('/login')
-  await expect(page.getByRole('heading', { name: 'Connectez-vous à VehiNode' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Connectez-vous à Carhibou' })).toBeVisible()
 
   await page.keyboard.press('Tab')
   const language = page.locator('.login-utilities [role="combobox"]')
@@ -300,7 +300,7 @@ test('mobile login keeps language, theme, keyboard access and reflow', async ({ 
   await page.getByRole('option', { name: 'EN' }).click()
   await language.click()
   await page.getByRole('option', { name: 'FR' }).click()
-  await expect(page.getByRole('heading', { name: 'Connectez-vous à VehiNode' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Connectez-vous à Carhibou' })).toBeVisible()
   await page.getByTitle('Thème').click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   const dimensions = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, viewport: window.innerWidth }))

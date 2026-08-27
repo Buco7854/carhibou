@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/Buco7854/vehinode/agent/internal/model"
+	"github.com/Buco7854/carhibou/agent/internal/model"
 	"go.yaml.in/yaml/v3"
 )
 

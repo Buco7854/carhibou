@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Buco7854/vehinode/agent/internal/model"
-	"github.com/Buco7854/vehinode/agent/internal/store"
+	"github.com/Buco7854/carhibou/agent/internal/model"
+	"github.com/Buco7854/carhibou/agent/internal/store"
 )
 
 type agedPosition struct {

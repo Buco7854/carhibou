@@ -1,1 +1,1 @@
-"""VehiNode modular monolith application."""
+"""Carhibou modular monolith application."""

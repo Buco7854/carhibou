@@ -7,7 +7,7 @@ from typing import Any, TextIO
 from agent.vehicle_agent.models import CANFrame
 from agent.vehicle_agent.providers.obdlink import parse_can_frame
 
-CAPTURE_FORMAT = "vehinode-can-jsonl"
+CAPTURE_FORMAT = "carhibou-can-jsonl"
 CAPTURE_VERSION = 1
 
 

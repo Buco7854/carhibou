@@ -30,7 +30,7 @@ def _settings(**updates: object) -> Settings:
     return Settings(_env_file=None).model_copy(
         update={
             "oidc_issuer": "https://identity.example.com",
-            "oidc_client_id": "vehinode",
+            "oidc_client_id": "carhibou",
             **updates,
         }
     )
@@ -46,14 +46,14 @@ def _oidc_identity(user: User, subject: str) -> AuthenticationIdentity:
 
 
 def test_oidc_environment_variables_are_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VEHINODE_OIDC_ISSUER", "https://login.example.com")
-    monkeypatch.setenv("VEHINODE_OIDC_CLIENT_ID", "client-id")
-    monkeypatch.setenv("VEHINODE_OIDC_CLIENT_SECRET", "client-secret")
-    monkeypatch.setenv("VEHINODE_OIDC_SCOPES", "openid email custom")
-    monkeypatch.setenv("VEHINODE_OIDC_GROUP_CLAIM", "roles")
-    monkeypatch.setenv("VEHINODE_OIDC_ADMIN_GROUP", "administrators")
-    monkeypatch.setenv("VEHINODE_OIDC_AUTO_PROVISION", "false")
-    monkeypatch.setenv("VEHINODE_OIDC_DISPLAY_NAME", "Corporate SSO")
+    monkeypatch.setenv("CARHIBOU_OIDC_ISSUER", "https://login.example.com")
+    monkeypatch.setenv("CARHIBOU_OIDC_CLIENT_ID", "client-id")
+    monkeypatch.setenv("CARHIBOU_OIDC_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("CARHIBOU_OIDC_SCOPES", "openid email custom")
+    monkeypatch.setenv("CARHIBOU_OIDC_GROUP_CLAIM", "roles")
+    monkeypatch.setenv("CARHIBOU_OIDC_ADMIN_GROUP", "administrators")
+    monkeypatch.setenv("CARHIBOU_OIDC_AUTO_PROVISION", "false")
+    monkeypatch.setenv("CARHIBOU_OIDC_DISPLAY_NAME", "Corporate SSO")
 
     settings = Settings(_env_file=None)
 
@@ -90,7 +90,7 @@ def test_authlib_exchange_requires_configured_issuer_and_audience(
     assert claims["sub"] == "validated-subject"
     assert boundary.claims_options == {
         "iss": {"values": ["https://identity.example.com"]},
-        "aud": {"values": ["vehinode"]},
+        "aud": {"values": ["carhibou"]},
     }
 
 
@@ -243,8 +243,8 @@ def test_admin_group_promotes_on_each_login(db_factory: sessionmaker[Session]) -
 
         authenticate_oidc_claims(
             db,
-            {"sub": "admin-subject", "roles": ["drivers", "vehinode-admins"]},
-            _settings(oidc_group_claim="roles", oidc_admin_group="vehinode-admins"),
+            {"sub": "admin-subject", "roles": ["drivers", "carhibou-admins"]},
+            _settings(oidc_group_claim="roles", oidc_admin_group="carhibou-admins"),
         )
 
         assert is_admin(user)
@@ -268,7 +268,7 @@ def test_last_admin_group_demotion_is_skipped_and_logged(
             authenticate_oidc_claims(
                 db,
                 {"sub": "last-admin", "groups": ["drivers"]},
-                _settings(oidc_admin_group="vehinode-admins"),
+                _settings(oidc_admin_group="carhibou-admins"),
             )
 
         assert is_admin(user)
@@ -314,8 +314,8 @@ def test_oidc_callback_provisions_user_and_creates_normal_browser_session(
 
     assert callback.status_code == 302
     assert callback.headers["location"] == "http://testserver/"
-    assert "vehinode_session" in client.cookies
-    assert "vehinode_csrf" in client.cookies
+    assert "carhibou_session" in client.cookies
+    assert "carhibou_csrf" in client.cookies
     me = client.get("/api/v1/auth/me")
     assert me.status_code == 200
     assert me.json()["email"] == "callback@example.com"
@@ -323,7 +323,7 @@ def test_oidc_callback_provisions_user_and_creates_normal_browser_session(
     assert (
         client.post(
             "/api/v1/auth/logout",
-            headers={"X-CSRF-Token": client.cookies["vehinode_csrf"]},
+            headers={"X-CSRF-Token": client.cookies["carhibou_csrf"]},
         ).status_code
         == 204
     )

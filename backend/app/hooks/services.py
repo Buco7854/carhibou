@@ -17,9 +17,9 @@ class HookValidationError(Exception):
 
 
 def validate_source(source: str) -> None:
-    wrapped = "def __vehinode_hook(ctx):\n" + textwrap.indent(source, "    ")
+    wrapped = "def __carhibou_hook(ctx):\n" + textwrap.indent(source, "    ")
     try:
-        compile(wrapped, "<vehinode-hook>", "exec")
+        compile(wrapped, "<carhibou-hook>", "exec")
     except SyntaxError as exc:
         raise HookValidationError(f"line {max(1, (exc.lineno or 2) - 1)}: {exc.msg}") from exc
 

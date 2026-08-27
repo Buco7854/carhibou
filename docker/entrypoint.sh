@@ -13,7 +13,7 @@ case "$role" in
       --host 0.0.0.0 \
       --port 8000 \
       --proxy-headers \
-      --forwarded-allow-ips="${VEHINODE_FORWARDED_ALLOW_IPS:-*}" \
+      --forwarded-allow-ips="${CARHIBOU_FORWARDED_ALLOW_IPS:-*}" \
       "$@"
     ;;
   worker)

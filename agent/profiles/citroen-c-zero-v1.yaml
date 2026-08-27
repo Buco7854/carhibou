@@ -192,7 +192,7 @@ signals:
     minimum: -50
     maximum: 150
 computed_metrics:
-  # Volts times amps gives watts; scale to the kilowatts every VehiNode surface expects.
+  # Volts times amps gives watts; scale to the kilowatts every Carhibou surface expects.
   - name: battery.power
     operation: multiply
     inputs: [battery.pack_voltage, battery.current]

@@ -8,12 +8,12 @@ esac
 mkdir -p "$DESTINATION"
 chmod 0700 "$DESTINATION"
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
-OUTPUT="$DESTINATION/vehinode-$TIMESTAMP.dump"
+OUTPUT="$DESTINATION/carhibou-$TIMESTAMP.dump"
 umask 077
-docker compose exec -T postgres pg_dump --username vehinode --format custom vehinode > "$OUTPUT"
+docker compose exec -T postgres pg_dump --username carhibou --format custom carhibou > "$OUTPUT"
 if [ ! -s "$OUTPUT" ]; then
   echo "Backup is empty" >&2
   exit 1
 fi
 echo "Database backup created: $OUTPUT"
-echo "Back up .env and VEHINODE_MASTER_KEY separately in encrypted storage."
+echo "Back up .env and CARHIBOU_MASTER_KEY separately in encrypted storage."

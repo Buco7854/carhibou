@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Buco7854/vehinode/agent/internal/model"
+	"github.com/Buco7854/carhibou/agent/internal/model"
 	"go.bug.st/serial"
 )
 

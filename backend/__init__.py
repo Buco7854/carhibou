@@ -1,1 +1,1 @@
-"""VehiNode server package."""
+"""Carhibou server package."""

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Buco7854/vehinode/agent/internal/model"
-	"github.com/Buco7854/vehinode/agent/internal/store"
+	"github.com/Buco7854/carhibou/agent/internal/model"
+	"github.com/Buco7854/carhibou/agent/internal/store"
 )
 
 type Client struct {
@@ -163,7 +163,7 @@ func (client *Client) request(method, path string, body, destination any, authen
 }
 
 func (client *Client) headers(request *http.Request, authenticated bool) {
-	request.Header.Set("User-Agent", fmt.Sprintf("VehiNode-Agent/%s (%s/%s)", client.version, runtime.GOOS, runtime.GOARCH))
+	request.Header.Set("User-Agent", fmt.Sprintf("Carhibou-Agent/%s (%s/%s)", client.version, runtime.GOOS, runtime.GOARCH))
 	if authenticated {
 		request.Header.Set("Authorization", "Device "+client.credential)
 	}

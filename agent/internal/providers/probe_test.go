@@ -173,8 +173,8 @@ func TestProbeAbandonsAPortThatNeverAnswers(t *testing.T) {
 	// A path that cannot be opened stands in for one that never returns: both must
 	// produce a report rather than nothing.
 	started := time.Now()
-	report := ProbeDevice("/dev/vehinode-nonexistent-port")
-	if report.Device != "/dev/vehinode-nonexistent-port" || report.Error == "" {
+	report := ProbeDevice("/dev/carhibou-nonexistent-port")
+	if report.Device != "/dev/carhibou-nonexistent-port" || report.Error == "" {
 		t.Fatalf("%+v, want a report naming the failure", report)
 	}
 	if report.NMEA || report.ELM || report.Modem {
@@ -190,7 +190,7 @@ func TestProbeAbandonsAPortThatNeverAnswers(t *testing.T) {
 func TestSweepReportsEveryCandidateEvenWhenOneFails(t *testing.T) {
 	seen := []string{}
 	reports := ProbeAll(
-		[]string{"/dev/vehinode-missing-a", "/dev/vehinode-missing-b"},
+		[]string{"/dev/carhibou-missing-a", "/dev/carhibou-missing-b"},
 		func(report PortReport) { seen = append(seen, report.Device) },
 	)
 	if len(reports) != 2 || len(seen) != 2 {

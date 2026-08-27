@@ -35,7 +35,7 @@ class HTTPSBatchTransport:
             headers={
                 "Authorization": f"Device {self.credential}",
                 "Content-Type": "application/json",
-                "User-Agent": f"VehiNode-Agent/{__version__}",
+                "User-Agent": f"Carhibou-Agent/{__version__}",
             },
         )
         try:
@@ -55,7 +55,7 @@ class HTTPSBatchTransport:
             method="GET",
             headers={
                 "Authorization": f"Device {self.credential}",
-                "User-Agent": f"VehiNode-Agent/{__version__}",
+                "User-Agent": f"Carhibou-Agent/{__version__}",
             },
         )
         try:

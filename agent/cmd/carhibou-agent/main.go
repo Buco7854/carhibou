@@ -18,14 +18,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Buco7854/vehinode/agent/internal/capture"
-	"github.com/Buco7854/vehinode/agent/internal/client"
-	"github.com/Buco7854/vehinode/agent/internal/model"
-	"github.com/Buco7854/vehinode/agent/internal/profile"
-	"github.com/Buco7854/vehinode/agent/internal/providers"
-	agentruntime "github.com/Buco7854/vehinode/agent/internal/runtime"
-	"github.com/Buco7854/vehinode/agent/internal/store"
-	agentsystem "github.com/Buco7854/vehinode/agent/internal/system"
+	"github.com/Buco7854/carhibou/agent/internal/capture"
+	"github.com/Buco7854/carhibou/agent/internal/client"
+	"github.com/Buco7854/carhibou/agent/internal/model"
+	"github.com/Buco7854/carhibou/agent/internal/profile"
+	"github.com/Buco7854/carhibou/agent/internal/providers"
+	agentruntime "github.com/Buco7854/carhibou/agent/internal/runtime"
+	"github.com/Buco7854/carhibou/agent/internal/store"
+	agentsystem "github.com/Buco7854/carhibou/agent/internal/system"
 )
 
 var (
@@ -54,7 +54,7 @@ func execute(arguments []string) error {
 	command, arguments := remaining[0], remaining[1:]
 	switch command {
 	case "version", "--version":
-		fmt.Printf("VehiNode agent %s (%s)\n", version, buildTarget)
+		fmt.Printf("Carhibou agent %s (%s)\n", version, buildTarget)
 		return nil
 	case "install":
 		return commandInstall(locations, arguments)
@@ -118,7 +118,7 @@ func globalArguments(arguments []string) (paths, []string, error) {
 }
 
 func usage() {
-	fmt.Print(`Usage: vehinode-agent [--config-dir PATH] [--data-dir PATH] [--force] COMMAND
+	fmt.Print(`Usage: carhibou-agent [--config-dir PATH] [--data-dir PATH] [--force] COMMAND
 
 Commands:
   install       Enroll this host and install its systemd service
@@ -144,7 +144,7 @@ cannot be trusted when it does, because both processes read the same stream.
 
 func commandInstall(locations paths, arguments []string) error {
 	flags := flag.NewFlagSet("install", flag.ContinueOnError)
-	server := flags.String("server", "", "VehiNode server origin")
+	server := flags.String("server", "", "Carhibou server origin")
 	token := flags.String("token", "", "one-time enrollment token")
 	allowHTTP := flags.Bool("allow-insecure-http", false, "allow clear-text HTTP")
 	updateOnly := flags.Bool("update-only", false, "refresh service without enrollment")
@@ -190,7 +190,7 @@ func commandInstall(locations paths, arguments []string) error {
 	if err := agentsystem.InstallService(); err != nil {
 		return err
 	}
-	fmt.Printf("VehiNode agent %s installed. Run: sudo vehinode-agent doctor\n", version)
+	fmt.Printf("Carhibou agent %s installed. Run: sudo carhibou-agent doctor\n", version)
 	return nil
 }
 
@@ -218,7 +218,7 @@ func commandUpdate(locations paths, arguments []string) error {
 	if err := agentsystem.Update(api, *requested, target); err != nil {
 		return err
 	}
-	fmt.Printf("VehiNode agent updated to %s\n", *requested)
+	fmt.Printf("Carhibou agent updated to %s\n", *requested)
 	return nil
 }
 
@@ -243,7 +243,7 @@ func commandStatus(locations paths) error {
 		return err
 	}
 	installed := fileExists(credentials)
-	fmt.Printf("VehiNode agent %s\nCredentials: %s\nQueued telemetry: %d\n", version, map[bool]string{true: "installed", false: "missing"}[installed], depth)
+	fmt.Printf("Carhibou agent %s\nCredentials: %s\nQueued telemetry: %d\n", version, map[bool]string{true: "installed", false: "missing"}[installed], depth)
 	if !installed {
 		return fmt.Errorf("credentials are missing")
 	}
@@ -320,7 +320,7 @@ func commandDevices(locations paths, arguments []string) error {
 			return err
 		}
 		printJSON(hardware)
-		fmt.Println("Saved. Restart with: sudo systemctl restart vehinode-agent")
+		fmt.Println("Saved. Restart with: sudo systemctl restart carhibou-agent")
 		return nil
 	}
 	if len(arguments) > 0 {
@@ -361,7 +361,7 @@ func commandGPS(locations paths, arguments []string) error {
 		}
 	}
 	if devices.gps == "" {
-		return fmt.Errorf("no GPS serial device found; run 'vehinode-agent doctor --probe'")
+		return fmt.Errorf("no GPS serial device found; run 'carhibou-agent doctor --probe'")
 	}
 	fmt.Fprintf(os.Stderr, "Reading %s for %ds\n", devices.gps, *seconds)
 	position, closePosition, err := startPosition(devices, 1)
@@ -404,7 +404,7 @@ func commandOBD(locations paths, arguments []string) error {
 		*device = resolveDevices(hardware, locations, true).obd
 	}
 	if *device == "" {
-		return fmt.Errorf("no OBD adapter found; run 'vehinode-agent doctor --probe'")
+		return fmt.Errorf("no OBD adapter found; run 'carhibou-agent doctor --probe'")
 	}
 	fmt.Fprintln(os.Stderr, "Connecting to", *device)
 	adapter := providers.NewOBDAdapter(*device)
@@ -608,7 +608,7 @@ func commandRecord(locations paths, arguments []string) error {
 		*device = resolveDevices(hardware, locations, true).obd
 	}
 	if *device == "" {
-		return fmt.Errorf("no OBD adapter found; run 'vehinode-agent doctor --probe'")
+		return fmt.Errorf("no OBD adapter found; run 'carhibou-agent doctor --probe'")
 	}
 	adapter := providers.NewOBDAdapter(*device)
 	if err := adapter.Connect(); err != nil {
@@ -854,9 +854,9 @@ Both processes would read the same stream and neither would get all of it, so th
 result would be arbitrary rather than merely incomplete. Stop the service, take the
 reading, then start it again:
 
-  sudo systemctl stop vehinode-agent
-  sudo vehinode-agent %s
-  sudo systemctl start vehinode-agent
+  sudo systemctl stop carhibou-agent
+  sudo carhibou-agent %s
+  sudo systemctl start carhibou-agent
 
 Pass --force before the command to read anyway`, agentsystem.ServiceName, strings.Join(os.Args[1:], " "))
 }
@@ -939,7 +939,7 @@ func commandConfig(locations paths, arguments []string) error {
 	}
 	// The running service holds its own copy in memory and reloads on its next
 	// sync, so say so rather than implying the change already took effect.
-	fmt.Fprintln(os.Stderr, "Apply it now with: sudo systemctl restart vehinode-agent")
+	fmt.Fprintln(os.Stderr, "Apply it now with: sudo systemctl restart carhibou-agent")
 	return nil
 }
 

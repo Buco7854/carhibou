@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Buco7854/vehinode/agent/internal/model"
+	"github.com/Buco7854/carhibou/agent/internal/model"
 )
 
-const Format = "vehinode-can-jsonl"
+const Format = "carhibou-can-jsonl"
 const Version = 1
 
 type Recorder struct{ output io.Writer }

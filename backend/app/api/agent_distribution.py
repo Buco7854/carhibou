@@ -20,7 +20,7 @@ def agent_release(version: str, filename: str) -> FileResponse:
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise HTTPException(status_code=404, detail="release not found")
     expected = {
-        f"vehinode-agent-{version}-{target}"
+        f"carhibou-agent-{version}-{target}"
         for target in ("linux-amd64", "linux-arm64", "linux-armv7", "linux-armv6")
     }
     if filename.removesuffix(".sha256") not in expected:

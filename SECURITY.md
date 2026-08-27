@@ -1,4 +1,4 @@
-# VehiNode security policy
+# Carhibou security policy
 
 Report suspected vulnerabilities privately to the repository security contact. Do not
 open a public issue containing credentials, exploit details, personal location history,
@@ -6,11 +6,11 @@ or decrypted telemetry.
 
 ## Security model
 
-VehiNode is designed for a trusted self-hosted household or organization, not mutually
+Carhibou is designed for a trusted self-hosted household or organization, not mutually
 untrusted SaaS tenants.
 
 **Users with permission to modify Python hooks have privileged code-execution
-capability in the VehiNode hook execution environment.** Child processes, timeouts,
+capability in the Carhibou hook execution environment.** Child processes, timeouts,
 memory limits and output caps contain mistakes and crashes; they are not a hostile-code
 sandbox. Give `hooks.manage_code` only to administrators. Run the worker on networks
 that privileged hooks are intentionally allowed to reach.
@@ -33,12 +33,12 @@ that privileged hooks are intentionally allowed to reach.
   installer URL. Revoke a tracker after suspected credential theft.
 - TLS is mandatory outside localhost. A stolen active device credential can impersonate
   that tracker and submit telemetry until revoked; it cannot read account data.
-- Hook secrets use Fernet authenticated encryption under `VEHINODE_MASTER_KEY`. Values
+- Hook secrets use Fernet authenticated encryption under `CARHIBOU_MASTER_KEY`. Values
   are write-only in the API/UI and centrally redacted from hook logs/errors. Arbitrary
   privileged code can still deliberately exfiltrate secrets it is allowed to read.
 - The master key is not stored in PostgreSQL. Losing it makes secrets unrecoverable;
   losing database plus key backups exposes them. Back up and restrict both separately.
-- Vue escapes interpolation by default. VehiNode does not render telemetry or hook logs
+- Vue escapes interpolation by default. Carhibou does not render telemetry or hook logs
   as HTML. Content Security Policy can be tightened at the reverse proxy; map tiles are
   the only default browser request to a third-party host.
 - API payloads and batch sizes are bounded. Validation rejects invalid GPS coordinates,
@@ -62,10 +62,10 @@ that privileged hooks are intentionally allowed to reach.
 ## Deployment checklist
 
 1. Provide unique session pepper, PostgreSQL password and Fernet master key.
-2. Serve only through trusted TLS and set `VEHINODE_SESSION_COOKIE_SECURE=true`.
+2. Serve only through trusted TLS and set `CARHIBOU_SESSION_COOKIE_SECURE=true`.
 3. Restrict host/database ports and do not mount the Docker socket.
 4. Keep the database, vehicle media, master key and environment configuration in
    encrypted backups.
 5. Review hook administrators, active browser sessions and tracker inventory regularly.
-6. Remove `VEHINODE_BOOTSTRAP_ADMIN_*` after provisioning the first administrator.
+6. Remove `CARHIBOU_BOOTSTRAP_ADMIN_*` after provisioning the first administrator.
 7. Apply released security upgrades after testing backups and migrations.

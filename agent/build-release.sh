@@ -9,12 +9,12 @@ build() {
   target=$1
   architecture=$2
   arm_version=$3
-  output="$OUTPUT_DIR/vehinode-agent-$VERSION-$target"
+  output="$OUTPUT_DIR/carhibou-agent-$VERSION-$target"
   echo "Building $target"
   CGO_ENABLED=0 GOOS=linux GOARCH="$architecture" GOARM="$arm_version" \
     go build -trimpath -buildvcs=false \
     -ldflags "-s -w -X main.version=$VERSION -X main.buildTarget=$target" \
-    -o "$output" ./cmd/vehinode-agent
+    -o "$output" ./cmd/carhibou-agent
   (cd "$OUTPUT_DIR" && sha256sum "$(basename "$output")") > "$output.sha256"
 }
 

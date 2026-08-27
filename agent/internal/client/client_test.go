@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Buco7854/vehinode/agent/internal/model"
+	"github.com/Buco7854/carhibou/agent/internal/model"
 )
 
 func TestExplicitHTTPEnrollmentAndBatchTransport(t *testing.T) {

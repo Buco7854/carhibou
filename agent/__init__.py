@@ -1,1 +1,1 @@
-"""VehiNode Raspberry Pi agent package."""
+"""Carhibou Raspberry Pi agent package."""

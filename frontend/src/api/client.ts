@@ -22,7 +22,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const method = (options.method ?? 'GET').toUpperCase()
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-    const csrf = cookie('vehinode_csrf')
+    const csrf = cookie('carhibou_csrf')
     if (csrf) headers.set('X-CSRF-Token', csrf)
   }
   const response = await fetch(`/api/v1${path}`, {

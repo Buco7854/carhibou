@@ -190,7 +190,7 @@ describe('telemetry table', () => {
     await accuracy.findAll('button')[0]!.trigger('click')
     await flushPromises()
 
-    const stored = JSON.parse(localStorage.getItem('vehinode.history-columns.vehicle-1') ?? '{}')
+    const stored = JSON.parse(localStorage.getItem('carhibou.history-columns.vehicle-1') ?? '{}')
     expect(stored.hidden).toContain('longitude')
     expect(stored.order.indexOf('accuracy')).toBeLessThan(stored.order.indexOf('heading'))
 

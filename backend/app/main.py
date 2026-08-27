@@ -81,7 +81,7 @@ app = FastAPI(
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_pepper,
-    session_cookie="vehinode_oidc",
+    session_cookie="carhibou_oidc",
     max_age=600,
     same_site="lax",
     https_only=settings.session_cookie_secure,

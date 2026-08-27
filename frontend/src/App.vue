@@ -35,7 +35,7 @@ async function signOut() {
   <RouterView v-if="!auth.user" />
   <div v-else class="app-shell">
     <aside class="sidebar">
-      <RouterLink class="brand" to="/" aria-label="VehiNode">
+      <RouterLink class="brand" to="/" aria-label="Carhibou">
         <BrandMark :size="24" />
         <strong>{{ APP_NAME }}</strong>
       </RouterLink>

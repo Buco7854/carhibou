@@ -5,7 +5,7 @@
 #    pip-compile --extra=backend --output-file=requirements-backend.lock --strip-extras pyproject.toml
 #
 alembic==1.19.1
-    # via vehinode (pyproject.toml)
+    # via carhibou (pyproject.toml)
 annotated-doc==0.0.5
     # via fastapi
 annotated-types==0.8.0
@@ -16,11 +16,11 @@ anyio==4.14.2
     #   starlette
     #   watchfiles
 argon2-cffi==25.1.0
-    # via vehinode (pyproject.toml)
+    # via carhibou (pyproject.toml)
 argon2-cffi-bindings==26.1.0
     # via argon2-cffi
 authlib==1.7.2
-    # via vehinode (pyproject.toml)
+    # via carhibou (pyproject.toml)
 certifi==2026.7.22
     # via
     #   httpcore
@@ -34,13 +34,13 @@ click==8.4.2
 cryptography==46.0.7
     # via
     #   authlib
-    #   vehinode (pyproject.toml)
+    #   carhibou (pyproject.toml)
 dnspython==2.8.0
     # via email-validator
 email-validator==2.3.0
-    # via vehinode (pyproject.toml)
+    # via carhibou (pyproject.toml)
 fastapi==0.141.1
-    # via vehinode (pyproject.toml)
+    # via carhibou (pyproject.toml)
 greenlet==3.5.5
     # via sqlalchemy
 h11==0.16.0
@@ -52,24 +52,24 @@ httpcore==1.0.9
 httptools==0.8.0
     # via uvicorn
 httpx==0.28.1
-    # via vehinode (pyproject.toml)
+    # via carhibou (pyproject.toml)
 idna==3.19
     # via
     #   anyio
     #   email-validator
     #   httpx
 itsdangerous==2.2.0
-    # via vehinode (pyproject.toml)
+    # via carhibou (pyproject.toml)
 joserfc==1.7.4
     # via
     #   authlib
-    #   vehinode (pyproject.toml)
+    #   carhibou (pyproject.toml)
 mako==1.4.1
     # via alembic
 markupsafe==3.0.3
     # via mako
 psycopg==3.3.4
-    # via vehinode (pyproject.toml)
+    # via carhibou (pyproject.toml)
 psycopg-binary==3.3.4
     # via psycopg
 pycparser==3.0
@@ -81,9 +81,9 @@ pydantic==2.13.4
 pydantic-core==2.46.4
     # via pydantic
 pydantic-settings==2.15.0
-    # via vehinode (pyproject.toml)
+    # via carhibou (pyproject.toml)
 pyserial==3.5
-    # via vehinode (pyproject.toml)
+    # via carhibou (pyproject.toml)
 python-dotenv==1.2.3
     # via
     #   pydantic-settings
@@ -91,11 +91,11 @@ python-dotenv==1.2.3
 pyyaml==6.0.3
     # via
     #   uvicorn
-    #   vehinode (pyproject.toml)
+    #   carhibou (pyproject.toml)
 sqlalchemy==2.0.52
     # via
     #   alembic
-    #   vehinode (pyproject.toml)
+    #   carhibou (pyproject.toml)
 starlette==1.6.0
     # via fastapi
 typing-extensions==4.16.0
@@ -115,7 +115,7 @@ typing-inspection==0.4.4
     #   pydantic
     #   pydantic-settings
 uvicorn==0.52.4
-    # via vehinode (pyproject.toml)
+    # via carhibou (pyproject.toml)
 uvloop==0.22.1
     # via uvicorn
 watchfiles==1.2.0

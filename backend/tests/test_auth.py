@@ -21,7 +21,7 @@ def test_only_first_admin_can_register_then_use_session(client: TestClient) -> N
         "profiles.create": False,
         "system.admin": True,
     }
-    assert "vehinode_session" in client.cookies
+    assert "carhibou_session" in client.cookies
     assert client.get("/api/v1/auth/setup").json() == {"registration_open": False}
 
     rejected = client.post(

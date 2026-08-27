@@ -13,15 +13,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Buco7854/vehinode/agent/internal/client"
-	"github.com/Buco7854/vehinode/agent/internal/store"
+	"github.com/Buco7854/carhibou/agent/internal/client"
+	"github.com/Buco7854/carhibou/agent/internal/store"
 )
 
 const (
-	ServiceName = "vehinode-agent.service"
-	BinaryPath  = "/usr/local/bin/vehinode-agent"
-	ConfigDir   = "/etc/vehinode-agent"
-	DataDir     = "/var/lib/vehinode-agent"
+	ServiceName = "carhibou-agent.service"
+	BinaryPath  = "/usr/local/bin/carhibou-agent"
+	ConfigDir   = "/etc/carhibou-agent"
+	DataDir     = "/var/lib/carhibou-agent"
 )
 
 func RequireRoot() error {
@@ -35,22 +35,22 @@ func SetupIdentityAndDirectories() error {
 	if err := RequireRoot(); err != nil {
 		return err
 	}
-	if exec.Command("getent", "group", "vehinode-agent").Run() != nil {
-		if output, err := exec.Command("groupadd", "--system", "vehinode-agent").CombinedOutput(); err != nil {
+	if exec.Command("getent", "group", "carhibou-agent").Run() != nil {
+		if output, err := exec.Command("groupadd", "--system", "carhibou-agent").CombinedOutput(); err != nil {
 			return fmt.Errorf("create service group: %s: %w", strings.TrimSpace(string(output)), err)
 		}
 	}
-	if exec.Command("id", "vehinode-agent").Run() != nil {
-		if output, err := exec.Command("useradd", "--system", "--gid", "vehinode-agent", "--home", DataDir, "--shell", "/usr/sbin/nologin", "vehinode-agent").CombinedOutput(); err != nil {
+	if exec.Command("id", "carhibou-agent").Run() != nil {
+		if output, err := exec.Command("useradd", "--system", "--gid", "carhibou-agent", "--home", DataDir, "--shell", "/usr/sbin/nologin", "carhibou-agent").CombinedOutput(); err != nil {
 			return fmt.Errorf("create service user: %s: %w", strings.TrimSpace(string(output)), err)
 		}
 	}
 	if exec.Command("getent", "group", "dialout").Run() == nil {
-		if output, err := exec.Command("usermod", "--append", "--groups", "dialout", "vehinode-agent").CombinedOutput(); err != nil {
+		if output, err := exec.Command("usermod", "--append", "--groups", "dialout", "carhibou-agent").CombinedOutput(); err != nil {
 			return fmt.Errorf("grant serial access: %s: %w", strings.TrimSpace(string(output)), err)
 		}
 	}
-	account, err := user.Lookup("vehinode-agent")
+	account, err := user.Lookup("carhibou-agent")
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func SetupIdentityAndDirectories() error {
 }
 
 func ChownAgent(path string) error {
-	account, err := user.Lookup("vehinode-agent")
+	account, err := user.Lookup("carhibou-agent")
 	if err != nil {
 		return err
 	}
@@ -105,22 +105,22 @@ func ServiceRunning() bool {
 
 func InstallService() error {
 	unit := `[Unit]
-Description=VehiNode vehicle telemetry agent
+Description=Carhibou vehicle telemetry agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=vehinode-agent
-Group=vehinode-agent
-ExecStart=/usr/local/bin/vehinode-agent run
+User=carhibou-agent
+Group=carhibou-agent
+ExecStart=/usr/local/bin/carhibou-agent run
 Restart=always
 RestartSec=10
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/vehinode-agent /etc/vehinode-agent
+ReadWritePaths=/var/lib/carhibou-agent /etc/carhibou-agent
 
 [Install]
 WantedBy=multi-user.target
@@ -142,7 +142,7 @@ func Uninstall(yes bool) error {
 		return err
 	}
 	if !yes {
-		fmt.Println("This removes the VehiNode service, credentials, local configuration, and queued telemetry.")
+		fmt.Println("This removes the Carhibou service, credentials, local configuration, and queued telemetry.")
 		fmt.Print("Type 'uninstall' to continue: ")
 		answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		if err != nil {
@@ -159,17 +159,17 @@ func Uninstall(yes bool) error {
 	}
 	ignoreCommand("systemctl", "daemon-reload")
 	ignoreCommand("systemctl", "reset-failed", ServiceName)
-	for _, path := range []string{ConfigDir, DataDir, "/opt/vehinode-agent", "/usr/local/bin/vehinode-agent-uninstall"} {
+	for _, path := range []string{ConfigDir, DataDir, "/opt/carhibou-agent", "/usr/local/bin/carhibou-agent-uninstall"} {
 		if err := os.RemoveAll(path); err != nil {
 			return err
 		}
 	}
-	ignoreCommand("userdel", "vehinode-agent")
-	ignoreCommand("groupdel", "vehinode-agent")
+	ignoreCommand("userdel", "carhibou-agent")
+	ignoreCommand("groupdel", "carhibou-agent")
 	if err := os.Remove(BinaryPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	fmt.Println("VehiNode agent fully removed, including credentials and queued telemetry. Shared OS files were untouched.")
+	fmt.Println("Carhibou agent fully removed, including credentials and queued telemetry. Shared OS files were untouched.")
 	return nil
 }
 
@@ -195,7 +195,7 @@ func Update(api *client.Client, version, target string) error {
 	if !strings.EqualFold(expected[0], hex.EncodeToString(actual[:])) {
 		return fmt.Errorf("release checksum mismatch")
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(BinaryPath), ".vehinode-agent-*")
+	temporary, err := os.CreateTemp(filepath.Dir(BinaryPath), ".carhibou-agent-*")
 	if err != nil {
 		return err
 	}
@@ -246,7 +246,7 @@ func DetectTarget(buildTarget string) (string, error) {
 }
 
 func ArtifactName(version, target string) string {
-	return fmt.Sprintf("vehinode-agent-%s-%s", version, target)
+	return fmt.Sprintf("carhibou-agent-%s-%s", version, target)
 }
 
 func LoadCredentials(path string) (store.Credentials, error) {

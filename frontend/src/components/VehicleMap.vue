@@ -21,7 +21,7 @@ let routeHalo: L.Polyline | undefined
 function positionIcon(heading: number | null | undefined): L.DivIcon {
   const direction = Number.isFinite(heading) ? Number(heading) : 0
   return L.divIcon({
-    className: 'vehinode-position-marker',
+    className: 'carhibou-position-marker',
     html: `<span class="position-puck" style="--heading:${direction}deg"><i></i><b></b></span>`,
     iconSize: [34, 34],
     iconAnchor: [17, 17],
@@ -101,7 +101,7 @@ onBeforeUnmount(() => map?.remove())
 :deep(.leaflet-control-attribution a){color:var(--accent)}
 :deep(.leaflet-tooltip){padding:4px 7px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-soft);font:400 12px/1.3 "IBM Plex Sans",sans-serif}
 :deep(.leaflet-tooltip::before){display:none}
-:deep(.vehinode-position-marker){background:transparent;border:0}
+:deep(.carhibou-position-marker){background:transparent;border:0}
 :deep(.position-puck){position:relative;width:34px;height:34px;display:grid;place-items:center;filter:drop-shadow(0 3px 6px rgba(16,24,20,.22))}
 :deep(.position-puck i){position:absolute;inset:4px;background:var(--panel);border:2px solid var(--accent);border-radius:50%}
 :deep(.position-puck b){position:relative;width:10px;height:10px;background:var(--accent);border:2px solid var(--panel);border-radius:50%;box-shadow:0 0 0 2px var(--accent)}

@@ -29,7 +29,7 @@ jobs:
           go test ./...
           go vet ./...
           sh build-release.sh "$VERSION"
-          test -f "dist/vehinode-agent-${VERSION}-linux-armv6"
+          test -f "dist/carhibou-agent-${VERSION}-linux-armv6"
       - name: Upload to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

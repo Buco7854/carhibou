@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Buco7854/vehinode/agent/internal/model"
+	"github.com/Buco7854/carhibou/agent/internal/model"
 )
 
 func at(latitude, longitude float64, speed *float64) model.Sample {

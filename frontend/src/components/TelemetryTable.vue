@@ -61,7 +61,7 @@ let nextFilterId = 1
 const preference = ref<ColumnPreference>({ order: [], hidden: [] })
 let request = 0
 
-const storageKey = computed(() => `vehinode.history-columns.${props.vehicleId}`)
+const storageKey = computed(() => `carhibou.history-columns.${props.vehicleId}`)
 
 function humanize(key: string): string {
   const text = key.replaceAll('_', ' ').trim()

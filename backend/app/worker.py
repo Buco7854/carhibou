@@ -148,7 +148,7 @@ def process_one() -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="VehiNode PostgreSQL job worker")
+    parser = argparse.ArgumentParser(description="Carhibou PostgreSQL job worker")
     parser.add_argument("--once", action="store_true", help="process at most one job")
     args = parser.parse_args()
     configure_logging(get_settings().log_level)

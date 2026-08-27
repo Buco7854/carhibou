@@ -3,7 +3,7 @@ requires = ["setuptools==80.9.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vehinode"
+name = "carhibou"
 version = "0.1.0"
 description = "Self-hosted vehicle telemetry, visualization and programmability"
 readme = "README.md"
@@ -52,7 +52,7 @@ dev = [
 ]
 
 [project.scripts]
-vehinode-worker = "backend.app.worker:main"
+carhibou-worker = "backend.app.worker:main"
 
 [tool.setuptools]
 include-package-data = false

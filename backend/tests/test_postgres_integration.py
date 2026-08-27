@@ -16,13 +16,13 @@ from backend.app.telemetry.models import Telemetry
 from backend.app.vehicle_state.models import VehicleState
 
 pytestmark = pytest.mark.postgres
-DATABASE_URL = os.getenv("VEHINODE_TEST_DATABASE_URL")
+DATABASE_URL = os.getenv("CARHIBOU_TEST_DATABASE_URL")
 
 
 @pytest.fixture
 def postgres_factory() -> Generator[sessionmaker[Session], None, None]:
     if not DATABASE_URL:
-        pytest.skip("VEHINODE_TEST_DATABASE_URL is not configured")
+        pytest.skip("CARHIBOU_TEST_DATABASE_URL is not configured")
     engine = create_engine(DATABASE_URL, pool_pre_ping=True)
     with engine.begin() as connection:
         connection.execute(text("TRUNCATE TABLE users CASCADE"))

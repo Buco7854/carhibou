@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Buco7854/vehinode/agent/internal/model"
-	"github.com/Buco7854/vehinode/agent/internal/profile"
+	"github.com/Buco7854/carhibou/agent/internal/model"
+	"github.com/Buco7854/carhibou/agent/internal/profile"
 )
 
 // connectRetryInterval throttles reconnection to an adapter that is not

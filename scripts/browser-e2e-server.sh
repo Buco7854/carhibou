@@ -2,7 +2,7 @@
 set -eu
 
 PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-E2E_STATE="${TMPDIR:-/tmp}/vehinode-browser-e2e-pids"
+E2E_STATE="${TMPDIR:-/tmp}/carhibou-browser-e2e-pids"
 
 # A trap cannot run when the runner kills this script outright, which is how a
 # cancelled or timed-out run ends, so every start clears what the last one left.
@@ -15,9 +15,9 @@ if [ -f "$E2E_STATE" ]; then
   done < "$E2E_STATE"
   rm -f "$E2E_STATE"
 fi
-rm -rf "${TMPDIR:-/tmp}"/vehinode-browser-e2e.??????
+rm -rf "${TMPDIR:-/tmp}"/carhibou-browser-e2e.??????
 
-E2E_RUNTIME=$(mktemp -d "${TMPDIR:-/tmp}/vehinode-browser-e2e.XXXXXX")
+E2E_RUNTIME=$(mktemp -d "${TMPDIR:-/tmp}/carhibou-browser-e2e.XXXXXX")
 APP_PID=""
 WORKER_PID=""
 
@@ -37,17 +37,17 @@ else
   PYTHON=python3
 fi
 
-if [ -z "${VEHINODE_DATABASE_URL:-}" ]; then
-  export VEHINODE_DATABASE_URL="sqlite:///$E2E_RUNTIME/vehinode.sqlite3"
+if [ -z "${CARHIBOU_DATABASE_URL:-}" ]; then
+  export CARHIBOU_DATABASE_URL="sqlite:///$E2E_RUNTIME/carhibou.sqlite3"
 fi
-export VEHINODE_FRONTEND_DIR="$PROJECT_ROOT/frontend/dist"
-export VEHINODE_MEDIA_DIR="$E2E_RUNTIME/media"
-export VEHINODE_PUBLIC_URL="http://127.0.0.1:18124"
-export VEHINODE_WORKER_ID="browser-e2e-worker"
-export VEHINODE_LOG_LEVEL="WARNING"
-export VEHINODE_BOOTSTRAP_ADMIN_EMAIL="browser-owner@example.com"
-export VEHINODE_BOOTSTRAP_ADMIN_PASSWORD="browser-e2e-password-2026"
-export VEHINODE_BOOTSTRAP_ADMIN_DISPLAY_NAME="Browser Owner"
+export CARHIBOU_FRONTEND_DIR="$PROJECT_ROOT/frontend/dist"
+export CARHIBOU_MEDIA_DIR="$E2E_RUNTIME/media"
+export CARHIBOU_PUBLIC_URL="http://127.0.0.1:18124"
+export CARHIBOU_WORKER_ID="browser-e2e-worker"
+export CARHIBOU_LOG_LEVEL="WARNING"
+export CARHIBOU_BOOTSTRAP_ADMIN_EMAIL="browser-owner@example.com"
+export CARHIBOU_BOOTSTRAP_ADMIN_PASSWORD="browser-e2e-password-2026"
+export CARHIBOU_BOOTSTRAP_ADMIN_DISPLAY_NAME="Browser Owner"
 
 cd "$PROJECT_ROOT"
 "$PYTHON" -m alembic upgrade head

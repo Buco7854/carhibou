@@ -43,8 +43,8 @@ from agent.vehicle_agent.simulator.journey import SimulatedCZeroJourney
 from agent.vehicle_agent.system_health import LinuxSystemHealthProvider
 from agent.vehicle_agent.transport import HTTPSBatchTransport, TransportError
 
-DEFAULT_DATA = Path("/var/lib/vehinode-agent")
-DEFAULT_CONFIG = Path("/etc/vehinode-agent")
+DEFAULT_DATA = Path("/var/lib/carhibou-agent")
+DEFAULT_CONFIG = Path("/etc/carhibou-agent")
 
 
 def _profile_decoder(config: AgentConfiguration) -> VehicleProfileDecoder | None:
@@ -68,7 +68,7 @@ def _credentials(path: Path) -> dict[str, str]:
 def command_status(args: argparse.Namespace) -> int:
     queue = SQLiteQueue(args.data_dir / "queue.sqlite3")
     credentials_present = (args.config_dir / "credentials.json").is_file()
-    print(f"VehiNode agent {__version__}")
+    print(f"Carhibou agent {__version__}")
     print(f"Credentials: {'installed' if credentials_present else 'missing'}")
     print(f"Queued telemetry: {queue.depth()}")
     return 0 if credentials_present else 1
@@ -131,7 +131,7 @@ def command_devices_set(args: argparse.Namespace) -> int:
             return 2
     HardwareConfigurationStore(args.config_dir / "hardware.json").save(candidate)
     print(json.dumps(candidate.as_dict(), indent=2))
-    print("Saved. Restart the service with: sudo systemctl restart vehinode-agent")
+    print("Saved. Restart the service with: sudo systemctl restart carhibou-agent")
     return 0
 
 
@@ -161,7 +161,7 @@ def command_doctor(args: argparse.Namespace) -> int:
 
 
 def command_logs(_args: argparse.Namespace) -> int:
-    return subprocess.call(["journalctl", "-u", "vehinode-agent", "-n", "200", "--no-pager"])
+    return subprocess.call(["journalctl", "-u", "carhibou-agent", "-n", "200", "--no-pager"])
 
 
 def command_config(args: argparse.Namespace) -> int:
@@ -420,7 +420,7 @@ def command_update(args: argparse.Namespace) -> int:
 
 
 def command_uninstall(args: argparse.Namespace) -> int:
-    uninstaller = Path("/usr/local/bin/vehinode-agent-uninstall")
+    uninstaller = Path("/usr/local/bin/carhibou-agent-uninstall")
     if not uninstaller.is_file():
         print(f"Uninstaller is missing: {uninstaller}", file=sys.stderr)
         return 1
@@ -433,7 +433,7 @@ def command_uninstall(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="vehinode-agent")
+    parser = argparse.ArgumentParser(prog="carhibou-agent")
     parser.add_argument("--config-dir", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA)
     sub = parser.add_subparsers(dest="command", required=True)

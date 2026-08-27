@@ -1,6 +1,6 @@
-# VehiNode agent guide
+# Carhibou agent guide
 
-VehiNode is a self-hosted modular monolith for vehicle telemetry. The browser is
+Carhibou is a self-hosted modular monolith for vehicle telemetry. The browser is
 a Vue 3/TypeScript SPA; FastAPI owns HTTP and domain services; PostgreSQL owns
 durable data and jobs; the worker runs trusted Python hooks in child processes;
 the ARMv6-friendly Go agent uses serial devices, HTTP and a compiled-in SQLite queue.
@@ -42,7 +42,7 @@ cd frontend && npx playwright install chromium && npm run test:e2e
 cd docs && npm ci && npm run docs:build
 alembic upgrade head
 python -m backend.app.worker --once
-go run ./agent/cmd/vehinode-agent --help
+go run ./agent/cmd/carhibou-agent --help
 ```
 
 Before a cohesive commit: run focused tests, inspect the diff, update docs plus

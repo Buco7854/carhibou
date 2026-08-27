@@ -32,7 +32,7 @@ def test_batch_transport_preserves_ids_and_fetches_configuration(monkeypatch) ->
 
     monkeypatch.setattr("agent.vehicle_agent.transport.urlopen", fake_urlopen)
     sample = Sample(sequence=1, recorded_at=datetime.now(UTC), position=None)
-    transport = HTTPSBatchTransport("https://vehinode.example", "device-credential", str(uuid4()))
+    transport = HTTPSBatchTransport("https://carhibou.example", "device-credential", str(uuid4()))
     assert transport.upload([sample]) == [sample.id]
     sent = json.loads(cast(bytes, requests[0].data or b"{}"))
     assert sent["samples"][0]["id"] == sample.id

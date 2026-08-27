@@ -68,10 +68,10 @@ export default defineConfig({
     ],
     outline: { level: [2, 3], label: 'On this page' },
     editLink: {
-      pattern: 'https://github.com/Buco7854/vehinode/edit/main/docs/:path',
+      pattern: 'https://github.com/Buco7854/carhibou/edit/main/docs/:path',
       text: 'Edit this page on GitHub',
     },
-    socialLinks: [{ icon: 'github', link: 'https://github.com/Buco7854/vehinode' }],
+    socialLinks: [{ icon: 'github', link: 'https://github.com/Buco7854/carhibou' }],
     search: { provider: 'local' },
   },
 })

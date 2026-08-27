@@ -6,8 +6,8 @@ if [ "$#" -eq 0 ]; then
 import base64
 import secrets
 
-print("VEHINODE_SESSION_PEPPER=" + secrets.token_urlsafe(48))
-print("VEHINODE_MASTER_KEY=" + base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())
+print("CARHIBOU_SESSION_PEPPER=" + secrets.token_urlsafe(48))
+print("CARHIBOU_MASTER_KEY=" + base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())
 print("POSTGRES_PASSWORD=" + secrets.token_urlsafe(32))
 PY
   exit 0
@@ -33,8 +33,8 @@ import sys
 
 path = Path(sys.argv[1])
 values = {
-    "VEHINODE_SESSION_PEPPER": secrets.token_urlsafe(48),
-    "VEHINODE_MASTER_KEY": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
+    "CARHIBOU_SESSION_PEPPER": secrets.token_urlsafe(48),
+    "CARHIBOU_MASTER_KEY": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
     "POSTGRES_PASSWORD": secrets.token_urlsafe(32),
 }
 
@@ -56,4 +56,4 @@ path.write_text("\n".join(result) + "\n", encoding="utf-8")
 os.chmod(path, 0o600)
 PY
 
-echo "Generated VehiNode secrets in $env_file (permissions set to 0600)."
+echo "Generated Carhibou secrets in $env_file (permissions set to 0600)."

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Buco7854/vehinode/agent/internal/providers"
+	"github.com/Buco7854/carhibou/agent/internal/providers"
 )
 
 func TestCommandsRejectNonPositiveDurations(t *testing.T) {
@@ -75,8 +75,8 @@ func TestResolveReusesTheSweepRatherThanReprobing(t *testing.T) {
 // already enabled, on an interface that answers only intermittently.
 func TestStreamingGPSNeverOpensTheControlPort(t *testing.T) {
 	devices := resolvedDevices{
-		gps:        "/dev/vehinode-absent-gps",
-		modem:      "/dev/vehinode-absent-modem",
+		gps:        "/dev/carhibou-absent-gps",
+		modem:      "/dev/carhibou-absent-modem",
 		gpsStreams: true,
 	}
 	position, closePosition, err := startPosition(devices, 1)
@@ -95,7 +95,7 @@ func TestStreamingGPSNeverOpensTheControlPort(t *testing.T) {
 // With nothing streaming, the control port is both what switches the receiver on
 // and the only thing left able to answer a position.
 func TestPositionFallsBackToTheControlPortWhenNothingStreams(t *testing.T) {
-	devices := resolvedDevices{gps: "/dev/vehinode-absent", modem: "/dev/vehinode-absent"}
+	devices := resolvedDevices{gps: "/dev/carhibou-absent", modem: "/dev/carhibou-absent"}
 	position, closePosition, err := startPosition(devices, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

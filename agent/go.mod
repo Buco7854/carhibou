@@ -1,4 +1,4 @@
-module github.com/Buco7854/vehinode/agent
+module github.com/Buco7854/carhibou/agent
 
 go 1.25.0
 

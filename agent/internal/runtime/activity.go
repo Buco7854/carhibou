@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/Buco7854/vehinode/agent/internal/model"
+	"github.com/Buco7854/carhibou/agent/internal/model"
 )
 
 // ActivitySource names the evidence that decided the vehicle's state.

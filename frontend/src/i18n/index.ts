@@ -14,7 +14,7 @@ export function detectBrowserLocale(languages: readonly string[] = navigator.lan
 }
 
 function initialLocale(): SupportedLocale {
-  const stored = localStorage.getItem('vehinode.locale')
+  const stored = localStorage.getItem('carhibou.locale')
   if (stored === 'en' || stored === 'fr') return stored
   const languages = navigator.languages?.length ? navigator.languages : [navigator.language]
   return detectBrowserLocale(languages)
@@ -32,7 +32,7 @@ const i18n = createI18n({
 })
 
 export function persistLocale(locale: SupportedLocale): void {
-  localStorage.setItem('vehinode.locale', locale)
+  localStorage.setItem('carhibou.locale', locale)
   document.documentElement.lang = locale
 }
 

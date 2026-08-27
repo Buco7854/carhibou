@@ -11,15 +11,15 @@ DEV_MASTER_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="VEHINODE_", env_file=".env", env_ignore_empty=True, extra="ignore"
+        env_prefix="CARHIBOU_", env_file=".env", env_ignore_empty=True, extra="ignore"
     )
 
     environment: str = "development"
-    database_url: str = "sqlite:///./vehinode.db"
+    database_url: str = "sqlite:///./carhibou.db"
     public_url: str = "http://localhost:8000"
     session_cookie_secure: bool = False
-    session_cookie_name: str = "vehinode_session"
-    csrf_cookie_name: str = "vehinode_csrf"
+    session_cookie_name: str = "carhibou_session"
+    csrf_cookie_name: str = "carhibou_csrf"
     session_ttl_hours: int = Field(default=168, ge=1, le=24 * 365)
     session_pepper: str = DEV_PEPPER
     master_key: str = DEV_MASTER_KEY
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     hook_memory_mb: int = Field(default=128, ge=32, le=1024)
     hook_log_bytes: int = Field(default=64_000, ge=1024, le=1_000_000)
     worker_id: str = "worker-1"
-    agent_release_dir: str = "/opt/vehinode-agent-releases"
+    agent_release_dir: str = "/opt/carhibou-agent-releases"
     frontend_dir: str = ""
     log_level: str = "INFO"
 

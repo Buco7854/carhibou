@@ -24,7 +24,7 @@ jobs:
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./...
       - run: go test ./...
-      - run: sh build-release.sh 0.1.0 /tmp/vehinode-agent-dist
+      - run: sh build-release.sh 0.1.0 /tmp/carhibou-agent-dist
 
   python:
     runs-on: ubuntu-latest
@@ -43,7 +43,7 @@ jobs:
       - run: pytest -m "not postgres" backend/tests agent/tests
       - name: Verify SQLite migrations
         env:
-          VEHINODE_DATABASE_URL: sqlite:////tmp/vehinode-migrations.sqlite3
+          CARHIBOU_DATABASE_URL: sqlite:////tmp/carhibou-migrations.sqlite3
         run: |
           alembic upgrade head
           alembic check
@@ -91,18 +91,18 @@ jobs:
       postgres:
         image: postgres:18.6-bookworm
         env:
-          POSTGRES_DB: vehinode_browser_e2e
-          POSTGRES_USER: vehinode
+          POSTGRES_DB: carhibou_browser_e2e
+          POSTGRES_USER: carhibou
           POSTGRES_PASSWORD: test-password
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U vehinode -d vehinode_browser_e2e"
+          --health-cmd "pg_isready -U carhibou -d carhibou_browser_e2e"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
     env:
-      VEHINODE_DATABASE_URL: postgresql+psycopg://vehinode:test-password@localhost:5432/vehinode_browser_e2e
+      CARHIBOU_DATABASE_URL: postgresql+psycopg://carhibou:test-password@localhost:5432/carhibou_browser_e2e
     defaults:
       run:
         working-directory: frontend
@@ -130,19 +130,19 @@ jobs:
       postgres:
         image: postgres:18.6-bookworm
         env:
-          POSTGRES_DB: vehinode_test
-          POSTGRES_USER: vehinode
+          POSTGRES_DB: carhibou_test
+          POSTGRES_USER: carhibou
           POSTGRES_PASSWORD: test-password
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U vehinode -d vehinode_test"
+          --health-cmd "pg_isready -U carhibou -d carhibou_test"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
     env:
-      VEHINODE_DATABASE_URL: postgresql+psycopg://vehinode:test-password@localhost:5432/vehinode_test
-      VEHINODE_TEST_DATABASE_URL: postgresql+psycopg://vehinode:test-password@localhost:5432/vehinode_test
+      CARHIBOU_DATABASE_URL: postgresql+psycopg://carhibou:test-password@localhost:5432/carhibou_test
+      CARHIBOU_TEST_DATABASE_URL: postgresql+psycopg://carhibou:test-password@localhost:5432/carhibou_test
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -169,33 +169,33 @@ jobs:
         with:
           context: .
           load: true
-          tags: vehinode:ci
+          tags: carhibou:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - run: docker compose --env-file .env.example config --quiet
       - name: Smoke test image and migrations
         run: |
-          docker network create vehinode-ci
-          docker run -d --name vehinode-ci-postgres --network vehinode-ci -e POSTGRES_DB=vehinode -e POSTGRES_USER=vehinode -e POSTGRES_PASSWORD=test-password postgres:18.6-bookworm
+          docker network create carhibou-ci
+          docker run -d --name carhibou-ci-postgres --network carhibou-ci -e POSTGRES_DB=carhibou -e POSTGRES_USER=carhibou -e POSTGRES_PASSWORD=test-password postgres:18.6-bookworm
           for attempt in $(seq 1 30); do
-            docker exec vehinode-ci-postgres pg_isready -U vehinode -d vehinode && break
+            docker exec carhibou-ci-postgres pg_isready -U carhibou -d carhibou && break
             [ "$attempt" -lt 30 ] || exit 1
             sleep 1
           done
-          DATABASE_URL=postgresql+psycopg://vehinode:test-password@vehinode-ci-postgres:5432/vehinode
-          docker run --rm --network vehinode-ci -e VEHINODE_DATABASE_URL="$DATABASE_URL" vehinode:ci alembic upgrade head
-          docker run -d --name vehinode-ci-app --network vehinode-ci -p 127.0.0.1:18000:8000 \
-            -e VEHINODE_DATABASE_URL="$DATABASE_URL" \
-            -e VEHINODE_BOOTSTRAP_ADMIN_EMAIL=container-owner@example.com \
-            -e VEHINODE_BOOTSTRAP_ADMIN_PASSWORD=container-bootstrap-password \
-            -e VEHINODE_BOOTSTRAP_ADMIN_DISPLAY_NAME='Container Owner' \
-            vehinode:ci
+          DATABASE_URL=postgresql+psycopg://carhibou:test-password@carhibou-ci-postgres:5432/carhibou
+          docker run --rm --network carhibou-ci -e CARHIBOU_DATABASE_URL="$DATABASE_URL" carhibou:ci alembic upgrade head
+          docker run -d --name carhibou-ci-app --network carhibou-ci -p 127.0.0.1:18000:8000 \
+            -e CARHIBOU_DATABASE_URL="$DATABASE_URL" \
+            -e CARHIBOU_BOOTSTRAP_ADMIN_EMAIL=container-owner@example.com \
+            -e CARHIBOU_BOOTSTRAP_ADMIN_PASSWORD=container-bootstrap-password \
+            -e CARHIBOU_BOOTSTRAP_ADMIN_DISPLAY_NAME='Container Owner' \
+            carhibou:ci
           for attempt in $(seq 1 30); do
             curl --fail --silent http://127.0.0.1:18000/health/ready && break
             [ "$attempt" -lt 30 ] || exit 1
             sleep 1
           done
-          curl --fail --silent http://127.0.0.1:18000/vehicles | grep -q '<title>VehiNode'
+          curl --fail --silent http://127.0.0.1:18000/vehicles | grep -q '<title>Carhibou'
           # The endpoint serves the repository's installer verbatim, so compare the
           # two rather than grepping for an internal variable name. The previous
           # assertion matched ${VERSION}, which a rename to ${AGENT_VERSION} left
@@ -203,9 +203,9 @@ jobs:
           curl --fail --silent http://127.0.0.1:18000/install-agent -o /tmp/install-agent.sh
           diff /tmp/install-agent.sh agent/installer/install-agent.sh
           sh -n /tmp/install-agent.sh
-          curl --fail --silent http://127.0.0.1:18000/agent/releases/0.1.0/vehinode-agent-0.1.0-linux-amd64 -o /tmp/vehinode-agent
-          chmod +x /tmp/vehinode-agent
-          /tmp/vehinode-agent version | grep -q 'VehiNode agent 0.1.0 (linux-amd64)'
+          curl --fail --silent http://127.0.0.1:18000/agent/releases/0.1.0/carhibou-agent-0.1.0-linux-amd64 -o /tmp/carhibou-agent
+          chmod +x /tmp/carhibou-agent
+          /tmp/carhibou-agent version | grep -q 'Carhibou agent 0.1.0 (linux-amd64)'
           curl --fail --silent -X POST http://127.0.0.1:18000/api/v1/auth/login \
             -H 'Content-Type: application/json' \
             --data '{"email":"container-owner@example.com","password":"container-bootstrap-password"}' \
@@ -214,4 +214,4 @@ jobs:
             http://127.0.0.1:18000/api/v1/auth/register \
             -H 'Content-Type: application/json' \
             --data '{"email":"second@example.com","password":"second-container-password","display_name":"Second"}')" = 403
-          docker run --rm --network vehinode-ci -e VEHINODE_DATABASE_URL="$DATABASE_URL" vehinode:ci worker --once
+          docker run --rm --network carhibou-ci -e CARHIBOU_DATABASE_URL="$DATABASE_URL" carhibou:ci worker --once

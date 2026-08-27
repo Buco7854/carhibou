@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Buco7854/vehinode/agent/internal/profile"
+	"github.com/Buco7854/carhibou/agent/internal/profile"
 )
 
 type Configuration struct {

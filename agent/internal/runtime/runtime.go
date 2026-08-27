@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Buco7854/vehinode/agent/internal/client"
-	"github.com/Buco7854/vehinode/agent/internal/model"
-	"github.com/Buco7854/vehinode/agent/internal/store"
+	"github.com/Buco7854/carhibou/agent/internal/client"
+	"github.com/Buco7854/carhibou/agent/internal/model"
+	"github.com/Buco7854/carhibou/agent/internal/store"
 )
 
 type PositionProvider interface {

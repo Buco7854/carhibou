@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 
 export type ThemeMode = 'light' | 'dark' | 'auto'
 
-const stored = localStorage.getItem('vehinode.theme')
+const stored = localStorage.getItem('carhibou.theme')
 export const themeMode = ref<ThemeMode>(
   stored === 'light' || stored === 'dark' || stored === 'auto' ? stored : 'auto',
 )
@@ -21,7 +21,7 @@ function applyTheme(): void {
 
 export function setTheme(mode: ThemeMode): void {
   themeMode.value = mode
-  localStorage.setItem('vehinode.theme', mode)
+  localStorage.setItem('carhibou.theme', mode)
   applyTheme()
 }
 

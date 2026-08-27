@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes follow Keep a Changelog. VehiNode uses semantic versioning after
+All notable changes follow Keep a Changelog. Carhibou uses semantic versioning after
 the first public release.
 
 ## [Unreleased]

@@ -143,7 +143,7 @@ def test_a_non_administrator_cannot_reach_the_endpoints(
         "/api/v1/auth/login",
         json={"email": "driver@example.com", "password": "another-long-password"},
     )
-    token = session.cookies.get("vehinode_csrf")
+    token = session.cookies.get("carhibou_csrf")
     assert session.get("/api/v1/users").status_code == 403
     assert (
         session.post(

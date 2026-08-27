@@ -72,7 +72,7 @@ for command in curl sha256sum install systemctl; do
   fi
 done
 
-ARTIFACT="vehinode-agent-${AGENT_VERSION}-${TARGET}"
+ARTIFACT="carhibou-agent-${AGENT_VERSION}-${TARGET}"
 BASE="${SERVER%/}/agent/releases/${AGENT_VERSION}"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT INT TERM
@@ -107,7 +107,7 @@ download() {
 download "${BASE}/${ARTIFACT}" "${TMPDIR}/${ARTIFACT}"
 download "${BASE}/${ARTIFACT}.sha256" "${TMPDIR}/${ARTIFACT}.sha256"
 (cd "$TMPDIR" && sha256sum -c "${ARTIFACT}.sha256")
-install -m 0755 "${TMPDIR}/${ARTIFACT}" /usr/local/bin/vehinode-agent
+install -m 0755 "${TMPDIR}/${ARTIFACT}" /usr/local/bin/carhibou-agent
 
 set -- install --server "$SERVER"
 if [ "$UPDATE_ONLY" = "true" ]; then
@@ -118,12 +118,12 @@ fi
 if [ "$ALLOW_INSECURE_HTTP" = "true" ]; then
   set -- "$@" --allow-insecure-http
 fi
-/usr/local/bin/vehinode-agent "$@"
+/usr/local/bin/carhibou-agent "$@"
 
 # The service is running by now and holds the serial ports, so report what it
 # detected rather than probing them a second time.
 sleep 2
-/usr/local/bin/vehinode-agent doctor || true
-echo "Detected hardware:  sudo vehinode-agent devices"
-echo "Live data:          sudo systemctl stop vehinode-agent && sudo vehinode-agent monitor"
-echo "Full removal:       sudo vehinode-agent uninstall"
+/usr/local/bin/carhibou-agent doctor || true
+echo "Detected hardware:  sudo carhibou-agent devices"
+echo "Live data:          sudo systemctl stop carhibou-agent && sudo carhibou-agent monitor"
+echo "Full removal:       sudo carhibou-agent uninstall"
