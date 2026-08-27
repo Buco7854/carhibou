@@ -67,7 +67,7 @@ def test_event_stream_rejects_non_browser_credentials(client: TestClient) -> Non
     assert client.get("/api/v1/events/stream").status_code == 401
     assert (
         client.get(
-            "/api/v1/events/stream", headers={"Authorization": "Device not-a-browser-session"}
+            "/api/v1/events/stream", headers={"Authorization": "Agent not-a-browser-session"}
         ).status_code
         == 401
     )

@@ -4,10 +4,10 @@ from fastapi import APIRouter
 from sqlalchemy import func, select, text
 
 from backend.app.access.dependencies import RequireAdmin
+from backend.app.agents.models import Agent
 from backend.app.auth.dependencies import Db
 from backend.app.branding import APP_VERSION
 from backend.app.common.time import utcnow
-from backend.app.devices.models import Device
 from backend.app.hooks.models import HookExecution
 from backend.app.jobs.models import Job, WorkerHeartbeat
 
@@ -40,12 +40,12 @@ def diagnostics(auth: RequireAdmin, db: Db) -> dict[str, object]:
             )
         )
         or 0,
-        "stale_devices": db.scalar(
-            select(func.count(Device.id)).where(
-                Device.revoked_at.is_(None),
+        "stale_agents": db.scalar(
+            select(func.count(Agent.id)).where(
+                Agent.revoked_at.is_(None),
                 (
-                    Device.last_seen_at.is_(None)
-                    | (Device.last_seen_at < now - timedelta(minutes=10))
+                    Agent.last_seen_at.is_(None)
+                    | (Agent.last_seen_at < now - timedelta(minutes=10))
                 ),
             )
         )

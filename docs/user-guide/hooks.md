@@ -8,7 +8,7 @@ sandbox against an administrator who can edit the source.
 
 One uploaded batch produces one run. `ctx.telemetry` is its newest sample, while
 `ctx.telemetry_batch` contains every accepted sample oldest first. The context also
-provides immutable event, vehicle and device data, durable JSON `ctx.state`, encrypted
+provides immutable event, vehicle and agent data, durable JSON `ctx.state`, encrypted
 `ctx.secrets`, HTTP and geometry helpers, structured logging, and `ctx.dry_run`.
 
 State is written only after success, and executions for one hook are serialized so

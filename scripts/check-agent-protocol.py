@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise Carhibou's public device protocol as an independent custom agent."""
+"""Exercise Carhibou's public agent protocol as an independent custom agent."""
 
 import argparse
 import json
@@ -25,7 +25,7 @@ def request_json(
     if data:
         request.add_header("Content-Type", "application/json")
     if credential:
-        request.add_header("Authorization", f"Device {credential}")
+        request.add_header("Authorization", f"Agent {credential}")
     try:
         with urlopen(request, timeout=30) as response:  # noqa: S310 - validated origin
             result = json.load(response)
@@ -65,7 +65,7 @@ def main() -> int:
         server = server_origin(arguments.server, arguments.allow_http)
         enrolled = request_json(
             server,
-            "/api/v1/device/enroll",
+            "/api/v1/agent/enroll",
             payload={
                 "token": arguments.token,
                 "implementation_id": "custom",
@@ -76,8 +76,8 @@ def main() -> int:
         )
         credential = enrolled.get("credential")
         if not isinstance(credential, str) or not credential:
-            raise RuntimeError("enrollment response has no device credential")
-        configuration = request_json(server, "/api/v1/device/config", credential=credential)
+            raise RuntimeError("enrollment response has no agent credential")
+        configuration = request_json(server, "/api/v1/agent/config", credential=credential)
         if not isinstance(configuration.get("version"), int):
             raise RuntimeError("configuration has no integer version")
 
@@ -90,19 +90,19 @@ def main() -> int:
                     "sequence": 1,
                     "recorded_at": datetime.now(UTC).isoformat(),
                     "metrics": {"diagnostic.conformance": True},
-                    "device": {"agent.conformance": True},
+                    "agent": {"agent.conformance": True},
                 }
             ],
         }
         accepted = request_json(
             server,
-            "/api/v1/device/telemetry/batch",
+            "/api/v1/agent/telemetry/batch",
             payload=batch,
             credential=credential,
         )
         duplicate = request_json(
             server,
-            "/api/v1/device/telemetry/batch",
+            "/api/v1/agent/telemetry/batch",
             payload=batch,
             credential=credential,
         )
@@ -114,7 +114,7 @@ def main() -> int:
         print(f"Agent protocol check failed: {exc}", file=sys.stderr)
         return 1
 
-    print(f"Custom agent protocol check passed for device {enrolled.get('device_id')}.")
+    print(f"Custom agent protocol check passed for agent {enrolled.get('agent_id')}.")
     print("The credential was not persisted; revoke this test agent in Carhibou.")
     return 0
 

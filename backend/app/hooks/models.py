@@ -19,7 +19,7 @@ class Trigger(Base):
     vehicle_id: Mapped[str | None] = mapped_column(
         ForeignKey("vehicles.id", ondelete="CASCADE"), index=True
     )
-    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"))
+    agent_id: Mapped[str | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
     telemetry_id: Mapped[str | None] = mapped_column(
         ForeignKey("telemetry.id", ondelete="CASCADE"), index=True
     )

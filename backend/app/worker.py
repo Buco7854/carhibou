@@ -15,6 +15,7 @@ from backend.app.common.database import SessionLocal
 from backend.app.common.logging import configure_logging
 from backend.app.common.settings import get_settings
 from backend.app.common.time import utcnow
+from backend.app.connectors.runtime import ConnectorSupervisor
 from backend.app.hooks.models import HookExecution, HookState
 from backend.app.hooks.runtime import build_runtime_input, run_hook_process
 from backend.app.jobs.models import Job, WorkerHeartbeat
@@ -155,9 +156,15 @@ def main() -> None:
     if args.once:
         process_one()
         return
-    while True:
-        if not process_one():
-            time.sleep(1)
+    supervisor = ConnectorSupervisor(SessionLocal)
+    supervisor.start()
+    try:
+        while True:
+            if not process_one():
+                time.sleep(1)
+    finally:
+        supervisor.stop()
+        supervisor.join(10)
 
 
 if __name__ == "__main__":

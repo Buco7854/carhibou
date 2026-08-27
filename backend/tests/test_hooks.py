@@ -13,7 +13,7 @@ from backend.app.jobs.services import LEASE_SECONDS, recover_expired_leases
 from backend.app.worker import execute_hook_job
 
 
-def _prepare_device(client: TestClient, csrf: str) -> tuple[str, str]:
+def _prepare_agent(client: TestClient, csrf: str) -> tuple[str, str]:
     vehicle = client.post(
         "/api/v1/vehicles",
         headers={"X-CSRF-Token": csrf},
@@ -25,7 +25,7 @@ def _prepare_device(client: TestClient, csrf: str) -> tuple[str, str]:
         json={"implementation_id": "custom", "name": "Simulator"},
     ).json()["token"]
     credential = client.post(
-        "/api/v1/device/enroll",
+        "/api/v1/agent/enroll",
         json={
             "token": token,
             "implementation_id": "custom",
@@ -40,8 +40,8 @@ def _prepare_device(client: TestClient, csrf: str) -> tuple[str, str]:
 def _send_sample(client: TestClient, credential: str) -> str:
     sample_id = str(uuid4())
     response = client.post(
-        "/api/v1/device/telemetry/batch",
-        headers={"Authorization": f"Device {credential}"},
+        "/api/v1/agent/telemetry/batch",
+        headers={"Authorization": f"Agent {credential}"},
         json={
             "boot_id": str(uuid4()),
             "samples": [
@@ -63,8 +63,8 @@ def _send_batch(client: TestClient, credential: str, soc_values: list[float]) ->
     base = datetime.now(UTC)
     identifiers = [str(uuid4()) for _ in soc_values]
     response = client.post(
-        "/api/v1/device/telemetry/batch",
-        headers={"Authorization": f"Device {credential}"},
+        "/api/v1/agent/telemetry/batch",
+        headers={"Authorization": f"Agent {credential}"},
         json={
             "boot_id": str(uuid4()),
             "samples": [
@@ -101,7 +101,7 @@ def test_telemetry_hook_runs_outside_request_persists_state_and_redacts_secrets(
     registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
 ) -> None:
     client, csrf = registered
-    _vehicle_id, credential = _prepare_device(client, csrf)
+    _vehicle_id, credential = _prepare_agent(client, csrf)
     secret = client.put(
         "/api/v1/secrets/api_token",
         headers={"X-CSRF-Token": csrf},
@@ -143,7 +143,7 @@ def test_hook_timeout_and_revision_history(
     registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
 ) -> None:
     client, csrf = registered
-    _vehicle_id, credential = _prepare_device(client, csrf)
+    _vehicle_id, credential = _prepare_agent(client, csrf)
     hook = client.post(
         "/api/v1/hooks",
         headers={"X-CSRF-Token": csrf},
@@ -212,7 +212,7 @@ def test_secret_value_cannot_be_persisted_as_plaintext_hook_state(
     registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
 ) -> None:
     client, csrf = registered
-    _vehicle_id, credential = _prepare_device(client, csrf)
+    _vehicle_id, credential = _prepare_agent(client, csrf)
     client.put(
         "/api/v1/secrets/private_value",
         headers={"X-CSRF-Token": csrf},
@@ -239,7 +239,7 @@ def test_expired_worker_lease_is_failed_for_manual_retry(
     registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
 ) -> None:
     client, csrf = registered
-    _vehicle_id, credential = _prepare_device(client, csrf)
+    _vehicle_id, credential = _prepare_agent(client, csrf)
     client.post(
         "/api/v1/hooks",
         headers={"X-CSRF-Token": csrf},
@@ -266,7 +266,7 @@ def test_one_batch_queues_one_execution_that_can_iterate_every_sample(
     registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
 ) -> None:
     client, csrf = registered
-    _vehicle_id, credential = _prepare_device(client, csrf)
+    _vehicle_id, credential = _prepare_agent(client, csrf)
     hook = client.post(
         "/api/v1/hooks",
         headers={"X-CSRF-Token": csrf},
@@ -300,7 +300,7 @@ def test_manual_test_run_exposes_a_single_sample_batch(
     registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
 ) -> None:
     client, csrf = registered
-    _vehicle_id, credential = _prepare_device(client, csrf)
+    _vehicle_id, credential = _prepare_agent(client, csrf)
     sample_id = _send_sample(client, credential)
     hook = client.post(
         "/api/v1/hooks",

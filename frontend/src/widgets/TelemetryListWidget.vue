@@ -12,7 +12,7 @@ const vehicle = useDashboardVehicle(props.widget)
 const speed = computed(() => metricNumber(vehicle.value, 'vehicle.speed'))
 const readings = computed(() => secondaryReadings(vehicle.value).filter((reading) => reading.value !== null))
 const signal = computed(() => {
-  const value = vehicle.value?.state?.device.mobile_signal
+  const value = vehicle.value?.state?.agent.mobile_signal
   return typeof value === 'number' ? value : null
 })
 const hasTelemetry = computed(() => speed.value !== null || readings.value.length > 0 || signal.value !== null)

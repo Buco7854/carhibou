@@ -1,9 +1,15 @@
-# Agents and enrollment
+# Data sources
+
+Carhibou accepts telemetry from enrolled agents and hosted connectors. Agents push data
+from vehicle hardware. Connectors receive data from an external service and feed it into
+the same state, history and hook pipeline.
+
+## Agents and enrollment
 
 Enrollment starts by choosing an agent implementation from the server catalog. Review its
 hardware summary and whether setup is one command or a guided sequence before creating a
 token. Then name the agent and select its sampling cadence. The one-time token becomes a
-permanent random device credential stored mode `0600`; it can authenticate only device
+permanent random agent credential stored with mode `0600`; it can authenticate only agent
 routes.
 
 ![Enrolled agents with their cadence](/screens/agents.png)
@@ -57,7 +63,7 @@ setup and hardware selection.
 Setup instructions are an ordered sequence. Each step has one of four forms:
 
 - **Command** is ready to paste into a shell. Carhibou safely quotes substituted values.
-- **Value** presents a value to copy into an application or device.
+- **Value** presents a value to copy into an application or hardware target.
 - **Link** opens implementation documentation or a browser-based setup tool.
 - **Manual** explains an action that cannot be automated.
 
@@ -74,7 +80,34 @@ Maintained implementations can be added to Carhibou with an `agent.toml` manifes
 their name, hardware and setup steps. See [the agent protocol](/developers/architecture#agent-protocol)
 for the implementation contract.
 
-Each device row reports four compatibility facts independently: implementation, agent
+Each agent row reports four compatibility facts independently: implementation, agent
 version, protocol version and computed compatibility. Online state is separate and reports
-only whether the server has heard from the device recently. An offline compatible agent and
+only whether the server has heard from the agent recently. An offline compatible agent and
 an online incompatible record describe different conditions.
+
+## Connectors
+
+Data sources bring telemetry into the same vehicle state and history pipeline without an
+agent installed in the vehicle. They appear separately from agents because connection status
+describes the server's link to the external system, not whether a vehicle-side agent is
+online.
+
+The bundled TeslaMate connector subscribes to TeslaMate's MQTT topics. In Home Assistant,
+point it at the same Mosquitto broker that TeslaMate publishes to. Add a data source, select
+the vehicle and **TeslaMate (MQTT)**, then provide:
+
+- the broker hostname and port, normally `1883` without TLS;
+- TLS settings when the broker requires them, using invalid-certificate acceptance only for
+  a broker whose certificate you have verified by another means;
+- the optional broker username and password;
+- the optional TeslaMate namespace and the numeric car id, normally `1`;
+- a sample interval from 1 to 3600 seconds.
+
+The password is write-only. A mask indicates that one is stored, and leaving the password
+field empty while editing keeps the existing value. Disabling a source closes its broker
+session without deleting history. Changing settings restarts only that source in the worker.
+
+Common TeslaMate values use Carhibou keys such as `battery.soc`, `battery.power`,
+`vehicle.odometer`, `vehicle.range`, `charging.active` and the four tyre pressure keys.
+Position values feed the normal map and route history. Other values remain available under
+the `teslamate.` prefix, such as `teslamate.inside_temp`, for history and dashboards.

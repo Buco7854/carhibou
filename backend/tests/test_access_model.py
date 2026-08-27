@@ -154,7 +154,7 @@ def test_four_personas_enforce_the_complete_access_model(
     )
     assert enrollment.status_code == 201, enrollment.text
     enrolled = admin.post(
-        "/api/v1/device/enroll",
+        "/api/v1/agent/enroll",
         json={
             "token": enrollment.json()["token"],
             "implementation_id": "custom",
@@ -164,8 +164,8 @@ def test_four_personas_enforce_the_complete_access_model(
         },
     )
     assert enrolled.status_code == 201, enrolled.text
-    device_id = enrolled.json()["device_id"]
-    device_headers = {"Authorization": f"Device {enrolled.json()['credential']}"}
+    agent_id = enrolled.json()["agent_id"]
+    agent_headers = {"Authorization": f"Agent {enrolled.json()['credential']}"}
     batch = {
         "boot_id": str(uuid4()),
         "samples": [
@@ -177,18 +177,18 @@ def test_four_personas_enforce_the_complete_access_model(
             }
         ],
     }
-    assert admin.get("/api/v1/device/config", headers=device_headers).status_code == 200
+    assert admin.get("/api/v1/agent/config", headers=agent_headers).status_code == 200
     assert (
-        admin.post("/api/v1/device/telemetry/batch", headers=device_headers, json=batch).status_code
+        admin.post("/api/v1/agent/telemetry/batch", headers=agent_headers, json=batch).status_code
         == 200
     )
 
     for persona in ("admin", "operator", "viewer", "stranger"):
         session, _csrf = sessions[persona]
-        visible_devices = session.get("/api/v1/devices")
-        assert visible_devices.status_code == 200
-        assert {row["id"] for row in visible_devices.json()} == (
-            {device_id} if persona in {"admin", "operator", "viewer"} else set()
+        visible_agents = session.get("/api/v1/agents")
+        assert visible_agents.status_code == 200
+        assert {row["id"] for row in visible_agents.json()} == (
+            {agent_id} if persona in {"admin", "operator", "viewer"} else set()
         )
 
     mutation_cases = [
@@ -196,7 +196,7 @@ def test_four_personas_enforce_the_complete_access_model(
         ("put", f"/api/v1/vehicles/{v1['id']}/profile", {"profile_id": None}),
         (
             "put",
-            f"/api/v1/devices/{device_id}",
+            f"/api/v1/agents/{agent_id}",
             {
                 "name": "V1 agent",
                 "sampling_seconds": 5,
@@ -247,7 +247,7 @@ def test_four_personas_enforce_the_complete_access_model(
         for persona, expected_status in (("viewer", 403), ("stranger", 404)):
             session, csrf = sessions[persona]
             assert (
-                _request(session, csrf, method, f"/api/v1/devices/{device_id}/{suffix}").status_code
+                _request(session, csrf, method, f"/api/v1/agents/{agent_id}/{suffix}").status_code
                 == expected_status
             )
     for persona, expected_status in (("viewer", 403), ("stranger", 404)):
@@ -271,8 +271,8 @@ def test_four_personas_enforce_the_complete_access_model(
         json={"implementation_id": "custom", "name": "Second V1 agent"},
     )
     assert operator_enrollment.status_code == 201
-    second_device = admin.post(
-        "/api/v1/device/enroll",
+    second_agent = admin.post(
+        "/api/v1/agent/enroll",
         json={
             "token": operator_enrollment.json()["token"],
             "implementation_id": "custom",
@@ -281,20 +281,20 @@ def test_four_personas_enforce_the_complete_access_model(
             "hostname": "second-pi",
         },
     )
-    assert second_device.status_code == 201
+    assert second_agent.status_code == 201
     assert (
-        _request(operator, operator_csrf, "post", f"/api/v1/devices/{device_id}/rotate").status_code
+        _request(operator, operator_csrf, "post", f"/api/v1/agents/{agent_id}/rotate").status_code
         == 200
     )
     assert (
-        admin.post(f"/api/v1/devices/{device_id}/rotate", headers=admin_headers).status_code == 200
+        admin.post(f"/api/v1/agents/{agent_id}/rotate", headers=admin_headers).status_code == 200
     )
     assert (
-        _request(operator, operator_csrf, "post", f"/api/v1/devices/{device_id}/revoke").status_code
+        _request(operator, operator_csrf, "post", f"/api/v1/agents/{agent_id}/revoke").status_code
         == 204
     )
     assert (
-        admin.post(f"/api/v1/devices/{device_id}/revoke", headers=admin_headers).status_code == 204
+        admin.post(f"/api/v1/agents/{agent_id}/revoke", headers=admin_headers).status_code == 204
     )
 
     for persona in ("operator", "viewer", "stranger", "editor"):
@@ -436,12 +436,12 @@ def test_four_personas_enforce_the_complete_access_model(
     assert {row["id"] for row in future_session.get("/api/v1/vehicles").json()} == {v2["id"]}
 
     assert (
-        _request(operator, operator_csrf, "delete", f"/api/v1/devices/{device_id}").status_code
+        _request(operator, operator_csrf, "delete", f"/api/v1/agents/{agent_id}").status_code
         == 204
     )
     assert (
         admin.delete(
-            f"/api/v1/devices/{second_device.json()['device_id']}", headers=admin_headers
+            f"/api/v1/agents/{second_agent.json()['agent_id']}", headers=admin_headers
         ).status_code
         == 204
     )

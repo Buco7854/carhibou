@@ -22,8 +22,8 @@ bodies are rejected before parsing. Responses carry `X-Request-ID`, accepting a 
 caller-supplied value for trace correlation.
 
 Browser calls use a human session cookie and send the readable CSRF cookie as
-`X-CSRF-Token` for mutations. Agents instead use `Authorization: Device CREDENTIAL`,
-accepted only by `/api/v1/device/*`.
+`X-CSRF-Token` for mutations. Agents instead use `Authorization: Agent CREDENTIAL`,
+accepted only by `/api/v1/agent/*`.
 
 ## Agent protocol
 
@@ -39,8 +39,8 @@ computed from `protocol_version`; the server currently accepts protocol version 
 Enrollment tokens are single-use and bound to one `implementation_id`. A request naming a
 different implementation or an unsupported protocol is rejected before the token is
 consumed. Successful enrollment persists the implementation id, agent version and protocol
-version, then returns a device credential and complete configuration. The credential remains
-restricted to device routes. The generated OpenAPI document is the field-level reference for
+version, then returns an agent credential and complete configuration. The credential remains
+restricted to agent routes. The generated OpenAPI document is the field-level reference for
 enrollment, configuration and telemetry payloads.
 
 A maintained implementation normally consists of one top-level directory containing
@@ -55,6 +55,36 @@ duplicate implementation ids and malformed steps or templates. The production im
 collects manifests independently of Python packaging, so an implementation may use any
 language and distribution method. Backend code is reserved for setup that cannot be
 expressed as static manifest steps, as with the bundled release-specific installer command.
+
+## Connector subsystem
+
+Connectors are worker-hosted telemetry producers for external systems. The human API owns
+configuration and access checks; the worker supervisor periodically reconciles enabled
+connectors and runs one isolated session per connector. A configuration version change
+restarts only that session. MQTT connections use capped exponential reconnect backoff, and
+worker shutdown closes every session cleanly.
+
+Each connector owns a shadow agent with the same id. This preserves telemetry foreign keys
+and reuses the existing atomic ingest path for current state, history, triggers and hook jobs.
+Shadow agents have unusable credentials and are hidden from agent listings. The
+`connector.` implementation prefix is reserved for this purpose: manifests, enrollment
+tokens and agent enrollment requests cannot claim it. Connector settings, enablement and
+deletion are available only through connector routes.
+
+Source mappings are data at the transport boundary. A mapping receives a source topic and
+value and emits canonical metrics, position fields, or namespaced passthrough metrics. The
+TeslaMate mapping translates stable display keys and keeps other values below `teslamate.`.
+It ignores deprecated duplicate position and route topics in favor of the JSON topics.
+Scalar strings are coerced independently, JSON objects are flattened by one level, and a bad
+value drops only that value. Mapping notes are recorded without changing a healthy MQTT
+session to an error state.
+
+TeslaMate publishes retained QoS 1 values on change, so the first subscription delivers a
+snapshot followed by deltas. A session accumulates those changes into one telemetry sample
+per configured window. It retains the last complete position locally so a metric-only delta
+does not clear location. Samples enter `ingest_batch` in-process with a fresh boot id for the
+session and an increasing sequence. Runtime status writes are throttled independently from
+telemetry ingestion.
 
 ## Authentication and access
 
@@ -76,15 +106,15 @@ group is re-evaluated on every login with the same last-active-admin guard used 
 management.
 
 The last active administrator cannot be demoted, suspended or deleted, and an
-administrator cannot remove their own access. Device credentials remain an independent
-hash and dependency: a device credential cannot authorize human routes, and a browser
-session cannot authorize device routes.
+administrator cannot remove their own access. Agent credentials remain an independent
+hash and dependency: an agent credential cannot authorize human routes, and a browser
+session cannot authorize agent routes.
 
 ## Telemetry transaction
 
-`POST /api/v1/device/telemetry/batch` accepts at most 500 samples, each with a stable
+`POST /api/v1/agent/telemetry/batch` accepts at most 500 samples, each with a stable
 UUID, boot-local sequence, UTC timestamp, optional position, canonical metrics and
-device health. A unique sample UUID makes retries idempotent without changing history or
+agent health. A unique sample UUID makes retries idempotent without changing history or
 rerunning hooks.
 
 One transaction stores accepted history, advances `vehicle_state` only for a newer
@@ -110,7 +140,7 @@ and CPU time, memory, file output and result size are bounded for reliability; p
 Python is not treated as hostile-code-safe.
 
 SDK v2 exposes immutable `ctx.event`, newest `ctx.telemetry`, oldest-first
-`ctx.telemetry_batch`, vehicle and device projections, durable JSON state, encrypted
+`ctx.telemetry_batch`, vehicle and agent projections, durable JSON state, encrypted
 secrets, HTTP and geometry helpers, structured logging, and `ctx.dry_run`. ORM entities
 never cross the boundary. State serializes only on success and executions for one hook
 are serialized.

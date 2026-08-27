@@ -31,7 +31,7 @@ export const vehicle = {
     online: true,
     position: { latitude: 48, longitude: 2, altitude: 20, speed: 42, heading: 90, accuracy: 5 },
     metrics: { 'battery.soc': 70, 'battery.power': -11.1 },
-    device: { mobile_signal: -82 },
+    agent: { mobile_signal: -82 },
   },
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
@@ -50,8 +50,31 @@ export const agentImplementations = [
   },
 ]
 
-/** The identity and compatibility fields every device row now carries. */
-export const deviceIdentity = {
+/** The identity and compatibility fields every agent row now carries. */
+export const agentIdentity = {
   implementation_id: 'carhibou.go', protocol_version: 1, agent_version: '0.1.0',
   compatibility: 'compatible' as const,
+}
+
+export const connectorKinds = [
+  {
+    id: 'teslamate.mqtt', name: 'TeslaMate (MQTT)',
+    description: 'Subscribe to the MQTT broker TeslaMate publishes to.',
+    docs_url: 'https://carhibou.example/connectors/teslamate',
+  },
+]
+
+/** A connector row as GET /connectors returns it, password never included. */
+export function connectorRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'connector-1', vehicle_id: 'vehicle-1', name: 'Garage broker', kind: 'teslamate.mqtt',
+    enabled: true, masked: '••••••••', config_version: 1, status: 'connected', last_connected_at: '2026-01-01T00:00:00Z',
+    last_message_at: '2026-01-01T00:05:00Z', last_sample_at: '2026-01-01T00:05:00Z', last_error: '',
+    created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+    config: {
+      host: 'mqtt.local', port: 1883, tls: false, tls_accept_invalid_certs: false,
+      username: 'carhibou', namespace: '', car_id: 1, sample_seconds: 10,
+    },
+    ...overrides,
+  }
 }

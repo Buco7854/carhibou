@@ -265,7 +265,7 @@ onMounted(load)
           <!-- Viewers get the fact, not the control; the span keeps the links right-aligned. -->
           <span v-else class="card-profile-name">{{ vehicle.vehicle_profile ? profileNames[vehicle.vehicle_profile] : '' }}</span>
           <RouterLink class="link-button" :to="`/vehicles/${vehicle.id}/history`">{{ t('vehicles.history') }}</RouterLink>
-          <RouterLink class="link-button" to="/devices">{{ t('vehicles.agent') }}</RouterLink>
+          <RouterLink class="link-button" to="/data-sources">{{ t('vehicles.agent') }}</RouterLink>
           <button v-if="canOperate(vehicle)" class="link-button" type="button" @click="clearTelemetry(vehicle)">{{ t('vehicles.clearData') }}</button>
           <button v-if="isAdmin" class="link-button danger" type="button" @click="deleteTarget=vehicle">{{ t('common.delete') }}</button>
         </footer>

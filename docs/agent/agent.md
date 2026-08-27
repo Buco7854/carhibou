@@ -6,7 +6,7 @@ Python. Normal installation uses systemd.
 
 ## Install
 
-Create a one-time enrollment under **Devices** and copy its command:
+Create a one-time enrollment under **Data sources** and copy its command:
 
 ```sh
 curl -fsSL https://carhibou.example/install-agent \
@@ -17,7 +17,7 @@ The bootstrap validates Linux, systemd and the server URL, detects the CPU, then
 downloads one executable and its SHA-256 file. Releases provide `linux-armv6`,
 `linux-armv7`, `linux-arm64` and `linux-amd64`. The executable creates the unprivileged
 `carhibou-agent` account with serial access, enrolls, installs
-`carhibou-agent.service`, and runs diagnostics. Its permanent device credential is
+`carhibou-agent.service`, and runs diagnostics. Its permanent agent credential is
 returned once and stored mode-restricted under `/etc/carhibou-agent`.
 
 HTTPS is required by default. A trusted-LAN development server using HTTP adds

@@ -48,6 +48,6 @@ than downsampling. Header sorting treats metric values numerically and places te
 booleans last. Multiple numeric minimum and maximum filters combine, while *Only rows
 reporting it* removes rows where an intermittent signal is absent.
 
-Columns are derived from the data: position and device fields plus every metric reported
+Columns are derived from the data: position and agent fields plus every metric reported
 in the range. Hidden columns and their order are remembered in the browser per vehicle;
 new signals are appended without replacing that choice.

@@ -71,7 +71,7 @@ variables, an empty instance shows the one-time setup form. Local registration c
 as soon as the first account exists.
 
 Add a vehicle, select a matching telemetry profile only when its formulas and hardware
-apply, then create an enrollment under **Devices**. Before retaining useful data,
+apply, then create an enrollment under **Data sources**. Before retaining useful data,
 configure the backups below and [install the vehicle agent](/agent/agent).
 
 ### Single sign-on with OpenID Connect

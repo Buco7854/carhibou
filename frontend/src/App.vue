@@ -45,7 +45,7 @@ async function signOut() {
         <RouterLink to="/vehicles" :title="t('nav.vehicles')"><AppIcon name="vehicle" :size="17" /><span class="nav-label">{{ t('nav.vehicles') }}</span></RouterLink>
         <RouterLink to="/profiles" :title="t('nav.profiles')"><AppIcon name="profile" :size="17" /><span class="nav-label">{{ t('nav.profiles') }}</span></RouterLink>
         <RouterLink v-if="isAdmin" to="/hooks" :title="t('nav.hooks')"><AppIcon name="hooks" :size="17" /><span class="nav-label">{{ t('nav.hooks') }}</span></RouterLink>
-        <RouterLink to="/devices" :title="t('nav.devices')"><AppIcon name="devices" :size="17" /><span class="nav-label">{{ t('nav.devices') }}</span></RouterLink>
+        <RouterLink to="/data-sources" :title="t('nav.dataSources')"><AppIcon name="agent" :size="17" /><span class="nav-label">{{ t('nav.dataSources') }}</span></RouterLink>
         <span class="nav-divider" />
         <RouterLink to="/settings" :title="t('nav.settings')"><AppIcon name="settings" :size="17" /><span class="nav-label">{{ t('nav.settings') }}</span></RouterLink>
         <RouterLink v-if="isAdmin" to="/admin" :title="t('admin.title')"><AppIcon name="profile" :size="17" /><span class="nav-label">{{ t('admin.title') }}</span></RouterLink>

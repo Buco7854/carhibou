@@ -24,13 +24,13 @@ type Sample struct {
 	RecordedAt time.Time      `json:"recorded_at"`
 	Position   *PositionFix   `json:"position"`
 	Metrics    map[string]any `json:"metrics"`
-	Device     map[string]any `json:"device"`
+	Agent      map[string]any `json:"agent"`
 }
 
-func NewSample(sequence int64, position *PositionFix, metrics, device map[string]any) Sample {
+func NewSample(sequence int64, position *PositionFix, metrics, agent map[string]any) Sample {
 	return Sample{
 		ID: NewUUID(), Sequence: sequence, RecordedAt: time.Now().UTC(), Position: position,
-		Metrics: nonNilMap(metrics), Device: nonNilMap(device),
+		Metrics: nonNilMap(metrics), Agent: nonNilMap(agent),
 	}
 }
 

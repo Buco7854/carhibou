@@ -170,7 +170,7 @@ func commandInstall(locations paths, arguments []string) error {
 			return err
 		}
 		normalized, _ := client.NormalizeServerURL(*server, *allowHTTP)
-		credentials := store.Credentials{ServerURL: normalized, DeviceID: response.DeviceID, VehicleID: response.VehicleID, Credential: response.Credential, AllowInsecureHTTP: *allowHTTP}
+		credentials := store.Credentials{ServerURL: normalized, AgentID: response.AgentID, VehicleID: response.VehicleID, Credential: response.Credential, AllowInsecureHTTP: *allowHTTP}
 		credentialsPath := filepath.Join(locations.config, "credentials.json")
 		configPath := filepath.Join(locations.config, "config.json")
 		if err := store.WriteJSONAtomic(credentialsPath, credentials, 0o600); err != nil {
@@ -185,7 +185,7 @@ func commandInstall(locations paths, arguments []string) error {
 		if err := agentsystem.ChownAgent(configPath); err != nil {
 			return err
 		}
-		fmt.Printf("Enrolled device %s\n", response.DeviceID)
+		fmt.Printf("Enrolled agent %s\n", response.AgentID)
 	}
 	if err := agentsystem.InstallService(); err != nil {
 		return err

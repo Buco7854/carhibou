@@ -277,7 +277,7 @@ def command_enroll(args: argparse.Namespace) -> int:
     if not isinstance(remote_config, dict):
         raise ConfigurationError("enrollment response has no valid configuration")
     ConfigurationStore(args.config_dir / "config.json").install_if_newer(remote_config)
-    print(f"Enrolled device {response['device_id']}")
+    print(f"Enrolled agent {response['agent_id']}")
     return 0
 
 

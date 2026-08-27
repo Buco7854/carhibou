@@ -6,9 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from backend.app.branding import APP_VERSION
-from backend.app.common.settings import get_settings
-from backend.app.devices.manifests import (
+from backend.app.agents.manifests import (
     AgentManifest,
     ManifestError,
     ManifestStep,
@@ -16,6 +14,8 @@ from backend.app.devices.manifests import (
     StepKind,
     agent_manifests,
 )
+from backend.app.branding import APP_VERSION
+from backend.app.common.settings import get_settings
 
 SUPPORTED_PROTOCOL_VERSION = 1
 BUNDLED_IMPLEMENTATION_ID = "carhibou.go"

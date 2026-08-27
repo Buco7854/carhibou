@@ -26,7 +26,7 @@ def test_agent_cadence_is_chosen_at_enrollment_and_editable_afterwards(
     assert enrollment.status_code == 201, enrollment.text
 
     enrolled = client.post(
-        "/api/v1/device/enroll",
+        "/api/v1/agent/enroll",
         json={
             "token": enrollment.json()["token"],
             "implementation_id": "custom",
@@ -44,13 +44,13 @@ def test_agent_cadence_is_chosen_at_enrollment_and_editable_afterwards(
     assert enrolled["config"]["upload"]["parked_seconds"] == 1800
     assert enrolled["config"]["version"] == 1
 
-    device_id = enrolled["device_id"]
-    device_headers = {"Authorization": f"Device {enrolled['credential']}"}
+    agent_id = enrolled["agent_id"]
+    agent_headers = {"Authorization": f"Agent {enrolled['credential']}"}
 
     # Renaming is a label the agent never sees, so it must not look like a new
     # configuration the agent has to fetch and re-validate.
     renamed = client.put(
-        f"/api/v1/devices/{device_id}",
+        f"/api/v1/agents/{agent_id}",
         headers=headers,
         json={
             "name": "Renamed",
@@ -65,7 +65,7 @@ def test_agent_cadence_is_chosen_at_enrollment_and_editable_afterwards(
     assert renamed.json()["config_version"] == 1
 
     slowed = client.put(
-        f"/api/v1/devices/{device_id}",
+        f"/api/v1/agents/{agent_id}",
         headers=headers,
         json={
             "name": "Renamed",
@@ -76,14 +76,14 @@ def test_agent_cadence_is_chosen_at_enrollment_and_editable_afterwards(
         },
     ).json()
     assert slowed["config_version"] == 2
-    config = client.get("/api/v1/device/config", headers=device_headers).json()
+    config = client.get("/api/v1/agent/config", headers=agent_headers).json()
     assert config["version"] == 2
     assert config["sampling"]["default_seconds"] == 60
     assert config["upload"]["default_seconds"] == 900
 
     # Changing only the parked pair is still a configuration the agent needs.
     parked = client.put(
-        f"/api/v1/devices/{device_id}",
+        f"/api/v1/agents/{agent_id}",
         headers=headers,
         json={
             "name": "Renamed",
@@ -95,7 +95,7 @@ def test_agent_cadence_is_chosen_at_enrollment_and_editable_afterwards(
     ).json()
     assert parked["config_version"] == 3
     assert (
-        client.get("/api/v1/device/config", headers=device_headers).json()["sampling"][
+        client.get("/api/v1/agent/config", headers=agent_headers).json()["sampling"][
             "parked_seconds"
         ]
         == 600
@@ -104,7 +104,7 @@ def test_agent_cadence_is_chosen_at_enrollment_and_editable_afterwards(
     # The agent enforces the same bounds, so a value it would reject never leaves
     # the server as a configuration the agent silently keeps ignoring.
     rejected = client.put(
-        f"/api/v1/devices/{device_id}",
+        f"/api/v1/agents/{agent_id}",
         headers=headers,
         json={
             "name": "Renamed",
@@ -130,7 +130,7 @@ def test_a_agent_can_be_deleted_and_a_vehicle_emptied(
         json={"implementation_id": "custom", "name": "Pi"},
     ).json()["token"]
     enrolled = client.post(
-        "/api/v1/device/enroll",
+        "/api/v1/agent/enroll",
         json={
             "token": token,
             "implementation_id": "custom",
@@ -139,9 +139,9 @@ def test_a_agent_can_be_deleted_and_a_vehicle_emptied(
             "hostname": "pi",
         },
     ).json()
-    credential = {"Authorization": f"Device {enrolled['credential']}"}
+    credential = {"Authorization": f"Agent {enrolled['credential']}"}
     sent = client.post(
-        "/api/v1/device/telemetry/batch",
+        "/api/v1/agent/telemetry/batch",
         headers=credential,
         json={
             "boot_id": str(uuid4()),
@@ -152,7 +152,7 @@ def test_a_agent_can_be_deleted_and_a_vehicle_emptied(
                     "recorded_at": datetime.now(UTC).isoformat(),
                     "position": {"latitude": 48.0, "longitude": 2.0},
                     "metrics": {"battery.soc": 80},
-                    "device": {},
+                    "agent": {},
                 }
             ],
         },
@@ -169,16 +169,16 @@ def test_a_agent_can_be_deleted_and_a_vehicle_emptied(
     )
     assert client.get(entries).json()["total"] == 0
     assert client.get(f"/api/v1/vehicles/{vehicle['id']}").status_code == 200
-    assert any(d["id"] == enrolled["device_id"] for d in client.get("/api/v1/devices").json())
+    assert any(d["id"] == enrolled["agent_id"] for d in client.get("/api/v1/agents").json())
     # The vehicle must stop claiming a reading nothing now supports.
     assert client.get(f"/api/v1/vehicles/{vehicle['id']}").json()["state"] is None
 
     # Deleting the agent is for hardware that is gone, and leaves nothing behind.
-    removed = client.delete(f"/api/v1/devices/{enrolled['device_id']}", headers=headers)
+    removed = client.delete(f"/api/v1/agents/{enrolled['agent_id']}", headers=headers)
     assert removed.status_code == 204, removed.text
-    assert client.get("/api/v1/devices").json() == []
+    assert client.get("/api/v1/agents").json() == []
     # Its credential no longer works.
-    assert client.get("/api/v1/device/config", headers=credential).status_code == 401
+    assert client.get("/api/v1/agent/config", headers=credential).status_code == 401
 
 
 def test_every_vehicle_can_be_emptied_at_once(registered: tuple[TestClient, str]) -> None:

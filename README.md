@@ -1,7 +1,7 @@
 # Carhibou
 
 Carhibou is a vehicle telemetry platform. A lightweight Raspberry Pi
-agent durably uploads GPS, OBD-II, CAN and device-health samples; a FastAPI and
+agent durably uploads GPS, OBD-II, CAN and agent-health samples; a FastAPI and
 PostgreSQL server presents live state, history, dashboards and trusted Python hooks.
 
 > Your vehicle produces data. You decide what that data does.

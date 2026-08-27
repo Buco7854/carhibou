@@ -33,7 +33,7 @@ class HistoryEntry(BaseModel):
     heading: float | None
     accuracy: float | None
     metrics: dict[str, object]
-    device: dict[str, object]
+    agent: dict[str, object]
 
 
 class HistoryEntriesResponse(BaseModel):
@@ -44,5 +44,5 @@ class HistoryEntriesResponse(BaseModel):
     limit: int
     offset: int
     metric_keys: list[str]
-    device_keys: list[str]
+    agent_keys: list[str]
     entries: list[HistoryEntry]

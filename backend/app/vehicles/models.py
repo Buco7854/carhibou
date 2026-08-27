@@ -26,7 +26,8 @@ class Vehicle(TimestampMixin, Base):
     icon: Mapped[str] = mapped_column(String(50), default="car")
 
     grants = relationship("VehicleAccessGrant", passive_deletes="all")
-    devices = relationship("Device", back_populates="vehicle", passive_deletes="all")
+    agents = relationship("Agent", back_populates="vehicle", passive_deletes="all")
+    connectors = relationship("Connector", back_populates="vehicle", passive_deletes="all")
     state = relationship(
         "VehicleState", back_populates="vehicle", uselist=False, passive_deletes="all"
     )

@@ -43,7 +43,7 @@ empty vehicle list (this replaces the old "guest" idea — no separate role).
 - Create: admin or `profiles.create`.
 - Edit/delete: admin, or the creator (non-built-in only). Built-ins stay read-only.
 - Deleting a profile that is assigned to vehicles silently unassigns it from ALL
-  of them (bump each affected device's config_version, as assign_profile already
+  of them (bump each affected agent's config_version, as assign_profile already
   does). The deleting user is NOT told which or whether vehicles used it — no
   count, no warning, plain 204. This is deliberate: it must not leak the
   existence of vehicles the user cannot see.
@@ -131,7 +131,7 @@ VEHINODE_OIDC_DISPLAY_NAME (login button label, default "SSO")
 2. NO route or service may compare user ids to decide visibility. Every current
    `owner_id ==` filter (28 sites across: dashboards/routes.py [keep — personal],
    vehicles/services.py, hooks/*, vehicle_profiles/services.py, secrets/routes.py,
-   telemetry/services.py, devices/routes.py, api/events.py via list_vehicles)
+   telemetry/services.py, agents/routes.py, api/events.py via list_vehicles)
    must be routed through the access module or deleted with the feature that
    needed it.
 3. The SSE stream (api/events.py) already recomputes `list_vehicles` per push —
@@ -151,7 +151,7 @@ Walk EVERY endpoint (list + detail + mutation) and assert:
 - profile create → 403 without `profiles.create`; editor can PUT/DELETE own
   profile only; deleting an assigned profile unassigns silently (assert the
   vehicle's profile is NULL afterwards and the response body carries no counts),
-- device-side endpoints (enroll/config/telemetry batch) still work with device
+- agent-side endpoints (enroll/config/telemetry batch) still work with agent
   credentials, unaffected by user grants.
 
 Also update every existing test that assumed ownership. `registered` fixture

@@ -83,8 +83,8 @@ func (agent *Agent) Collect() (model.Sample, error) {
 	agent.InUse = inUse
 	// Published because an agent that has dropped to its parked cadence is
 	// otherwise indistinguishable from one whose hardware stopped answering.
-	sample.Device["vehicle_in_use"] = inUse
-	sample.Device["activity_source"] = string(source)
+	sample.Agent["vehicle_in_use"] = inUse
+	sample.Agent["activity_source"] = string(source)
 	agent.Sequence++
 	return sample, agent.Queue.Enqueue(sample)
 }

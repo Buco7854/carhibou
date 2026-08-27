@@ -60,7 +60,7 @@ def test_owner_profile_reaches_agent_and_updates_config_version(
         json={"implementation_id": "custom", "name": "Pi agent"},
     ).json()
     enrolled = client.post(
-        "/api/v1/device/enroll",
+        "/api/v1/agent/enroll",
         json={
             "token": enrollment["token"],
             "implementation_id": "custom",
@@ -70,10 +70,10 @@ def test_owner_profile_reaches_agent_and_updates_config_version(
         },
     )
     assert enrolled.status_code == 201, enrolled.text
-    device = enrolled.json()
-    assert device["config"]["version"] == 1
-    assert device["config"]["vehicle_profile"] == profile["id"]
-    shipped = device["config"]["vehicle_profile_definition"]
+    agent = enrolled.json()
+    assert agent["config"]["version"] == 1
+    assert agent["config"]["vehicle_profile"] == profile["id"]
+    shipped = agent["config"]["vehicle_profile_definition"]
     assert shipped["signals"][0]["decoder"]["scale"] == 0.5
     # An agent decodes frames; it never renders a profile. Interface metadata is
     # kept out of the configuration it downloads and parses on every sync.
@@ -95,8 +95,8 @@ def test_owner_profile_reaches_agent_and_updates_config_version(
     assert updated.status_code == 200, updated.text
     assert updated.json()["definition"]["version"] == 2
 
-    device_headers = {"Authorization": f"Device {device['credential']}"}
-    config = client.get("/api/v1/device/config", headers=device_headers)
+    agent_headers = {"Authorization": f"Agent {agent['credential']}"}
+    config = client.get("/api/v1/agent/config", headers=agent_headers)
     assert config.status_code == 200
     assert config.json()["version"] == 2
     assert config.json()["vehicle_profile_definition"]["signals"][0]["decoder"]["scale"] == 0.25
@@ -105,7 +105,7 @@ def test_owner_profile_reaches_agent_and_updates_config_version(
     assert removed.status_code == 204
     vehicle_after = client.get(f"/api/v1/vehicles/{vehicle['id']}").json()
     assert vehicle_after["vehicle_profile"] is None
-    config_after = client.get("/api/v1/device/config", headers=device_headers).json()
+    config_after = client.get("/api/v1/agent/config", headers=agent_headers).json()
     assert config_after["version"] == 3
     assert config_after["vehicle_profile"] is None
     assert config_after["vehicle_profile_definition"] is None

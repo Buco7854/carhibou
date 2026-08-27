@@ -15,7 +15,7 @@ def _seed(client: TestClient, csrf: str) -> str:
         json={"implementation_id": "custom", "name": "Agent"},
     ).json()["token"]
     credential = client.post(
-        "/api/v1/device/enroll",
+        "/api/v1/agent/enroll",
         json={
             "token": token,
             "implementation_id": "custom",
@@ -32,7 +32,7 @@ def _seed(client: TestClient, csrf: str) -> str:
             "recorded_at": (base + timedelta(minutes=index)).isoformat(),
             "position": {"latitude": 48.0 + index, "longitude": 2.0, "speed": 10.0 * index},
             "metrics": {"battery.soc": soc, "charging.active": index == 0},
-            "device": {"mobile_signal": -70 - index},
+            "agent": {"mobile_signal": -70 - index},
         }
         for index, soc in enumerate([90, 30, 60])
     ]
@@ -40,8 +40,8 @@ def _seed(client: TestClient, csrf: str) -> str:
     last_metrics: dict[str, Any] = samples[-1]["metrics"]
     last_metrics["custom.oil_pressure"] = 3.4
     response = client.post(
-        "/api/v1/device/telemetry/batch",
-        headers={"Authorization": f"Device {credential}"},
+        "/api/v1/agent/telemetry/batch",
+        headers={"Authorization": f"Agent {credential}"},
         json={"boot_id": str(uuid4()), "samples": samples},
     )
     assert response.status_code == 200, response.text
@@ -58,7 +58,7 @@ def test_entries_default_to_latest_first_and_expose_every_reported_column(
     assert body["total"] == 3
     assert [row["metrics"]["battery.soc"] for row in body["entries"]] == [60, 30, 90]
     assert body["metric_keys"] == ["battery.soc", "charging.active", "custom.oil_pressure"]
-    assert body["device_keys"] == ["mobile_signal"]
+    assert body["agent_keys"] == ["mobile_signal"]
     # A row that never reported the signal simply omits the key.
     assert body["entries"][1]["metrics"].get("custom.oil_pressure") is None
 
@@ -103,7 +103,7 @@ def test_entries_sort_and_filter_on_profile_defined_metrics(
     assert client.get(url, params={"sort": "drop table"}).status_code == 400
 
 
-def test_entries_paginate_and_sort_by_device_and_fixed_columns(
+def test_entries_paginate_and_sort_by_agent_and_fixed_columns(
     registered: tuple[TestClient, str],
 ) -> None:
     client, csrf = registered
@@ -116,5 +116,5 @@ def test_entries_paginate_and_sort_by_device_and_fixed_columns(
     rest = client.get(url, params={"limit": 2, "offset": 2, "sort": "speed"}).json()
     assert [row["speed"] for row in rest["entries"]] == [0.0]
 
-    signal = client.get(url, params={"sort": "device:mobile_signal", "direction": "asc"}).json()
-    assert [row["device"]["mobile_signal"] for row in signal["entries"]] == [-72, -71, -70]
+    signal = client.get(url, params={"sort": "agent:mobile_signal", "direction": "asc"}).json()
+    assert [row["agent"]["mobile_signal"] for row in signal["entries"]] == [-72, -71, -70]

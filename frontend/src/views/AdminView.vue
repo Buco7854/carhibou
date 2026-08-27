@@ -220,8 +220,8 @@ onMounted(async () => {
     <section v-if="isAdmin && vehicles.length" class="settings-block">
       <div class="settings-label"><h2>{{ t('admin.vehicleAccess') }}</h2><p>{{ t('admin.vehicleAccessHint') }}</p></div>
       <div class="settings-body">
-        <label class="field grant-vehicle"><span>{{ t('devices.vehicle') }}</span>
-          <AppSelect v-model="accessVehicleId" :aria-label="t('devices.vehicle')">
+        <label class="field grant-vehicle"><span>{{ t('common.vehicle') }}</span>
+          <AppSelect v-model="accessVehicleId" :aria-label="t('common.vehicle')">
             <option v-for="item in vehicles" :key="item.id" :value="item.id">{{ item.name }}</option>
           </AppSelect>
         </label>
@@ -262,7 +262,7 @@ onMounted(async () => {
         <label class="check"><input v-model="defaults.profiles_create" type="checkbox" /><span>{{ t('admin.defaultProfilesCreate') }}</span></label>
         <ul v-if="defaults.grants.length" class="grant-list">
           <li v-for="(grant, index) in defaults.grants" :key="index">
-            <AppSelect :model-value="grant.vehicle_id" :aria-label="t('devices.vehicle')" @update:model-value="setDefaultGrantVehicle(grant, $event)">
+            <AppSelect :model-value="grant.vehicle_id" :aria-label="t('common.vehicle')" @update:model-value="setDefaultGrantVehicle(grant, $event)">
               <option v-for="item in vehicles" :key="item.id" :value="item.id">{{ item.name }}</option>
             </AppSelect>
             <AppSelect compact :model-value="grant.level" :aria-label="t('admin.level')" @update:model-value="setDefaultGrantLevel(grant, $event)">
@@ -302,7 +302,7 @@ onMounted(async () => {
           <div><dt>{{ t('settings.pendingJobs') }}</dt><dd class="mono">{{ diagnostics.pending_jobs }}</dd></div>
           <div><dt>{{ t('settings.failedJobs') }}</dt><dd class="mono">{{ diagnostics.failed_jobs }}</dd></div>
           <div><dt>{{ t('settings.hookFailures') }}</dt><dd class="mono">{{ diagnostics.hook_failures }}</dd></div>
-          <div><dt>{{ t('settings.staleDevices') }}</dt><dd class="mono">{{ diagnostics.stale_devices }}</dd></div>
+          <div><dt>{{ t('settings.staleAgents') }}</dt><dd class="mono">{{ diagnostics.stale_agents }}</dd></div>
         </dl>
       </div>
     </section>

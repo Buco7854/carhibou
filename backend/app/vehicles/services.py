@@ -141,6 +141,6 @@ def serialize_vehicle(vehicle: Vehicle, level: VehicleAccessLevel) -> VehicleRes
         online=online,
         position=position,
         metrics=state.latest_metrics,
-        device=state.device_state,
+        agent=state.agent_state,
     )
     return response

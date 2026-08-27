@@ -7,7 +7,7 @@
 - [x] Local identity, sessions, CSRF, password change/revocation
 - [x] First-admin-only registration and idempotent environment bootstrap
 - [x] Vehicle creation and ownership enforcement
-- [x] One-time device enrollment and separate device authentication
+- [x] One-time agent enrollment and separate agent authentication
 - [x] Idempotent batch telemetry and atomic current state
 - [x] Enrollable journey simulator
 - [x] Responsive SPA login, vehicle creation and live dashboard

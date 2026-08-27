@@ -10,9 +10,9 @@ from typing import Any, BinaryIO
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.agents.models import Agent
 from backend.app.branding import HOOK_SDK_VERSION
 from backend.app.common.settings import get_settings
-from backend.app.devices.models import Device
 from backend.app.hooks.child import RESULT_MARKER
 from backend.app.hooks.models import Hook, HookExecution, HookState, Trigger
 from backend.app.secrets.crypto import decrypt_secret, redact_text
@@ -50,7 +50,7 @@ def _sample(telemetry: Telemetry) -> dict[str, Any]:
         "sequence": telemetry.sequence,
         "position": _position(telemetry),
         "metrics": telemetry.metrics,
-        "device": telemetry.device_data,
+        "agent": telemetry.agent_data,
     }
 
 
@@ -84,9 +84,9 @@ def build_runtime_input(
         raise LookupError("hook execution inputs no longer exist")
     batch = _batch(db, trigger, telemetry)
     vehicle = db.get(Vehicle, telemetry.vehicle_id)
-    device = db.get(Device, telemetry.device_id)
-    if not vehicle or not device:
-        raise LookupError("vehicle or device no longer exists")
+    agent = db.get(Agent, telemetry.agent_id)
+    if not vehicle or not agent:
+        raise LookupError("vehicle or agent no longer exists")
     current = db.get(VehicleState, vehicle.id)
     state = db.get(HookState, hook.id)
     secret_rows = list(db.scalars(select(Secret)))
@@ -102,7 +102,7 @@ def build_runtime_input(
             "version": trigger.version,
             "occurred_at": trigger.occurred_at.isoformat(),
             "vehicle_id": trigger.vehicle_id,
-            "device_id": trigger.device_id,
+            "agent_id": trigger.agent_id,
             "payload": trigger.payload,
         },
         "telemetry": _sample(telemetry),
@@ -116,14 +116,14 @@ def build_runtime_input(
                 "updated_at": current.updated_at.isoformat() if current else None,
                 "position": _position(current) if current else None,
                 "metrics": current.latest_metrics if current else {},
-                "device": current.device_state if current else {},
+                "agent": current.agent_state if current else {},
             },
         },
-        "device": {
-            "id": device.id,
-            "name": device.name,
-            "agent_version": device.agent_version,
-            "hostname": device.hostname,
+        "agent": {
+            "id": agent.id,
+            "name": agent.name,
+            "agent_version": agent.agent_version,
+            "hostname": agent.hostname,
         },
         "state": state.value if state else {},
         "secrets": secrets,

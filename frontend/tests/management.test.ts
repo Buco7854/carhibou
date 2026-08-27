@@ -5,10 +5,10 @@ import { auth } from '../src/api/auth'
 import AppSelect from '../src/components/AppSelect.vue'
 import VehicleProfileEditor from '../src/components/VehicleProfileEditor.vue'
 import DashboardsView from '../src/views/DashboardsView.vue'
-import DevicesView from '../src/views/DevicesView.vue'
+import DataSourcesView from '../src/views/DataSourcesView.vue'
 import ProfilesView from '../src/views/ProfilesView.vue'
 import VehiclesView from '../src/views/VehiclesView.vue'
-import { adminUser, agentImplementations, deviceIdentity, jsonResponse, vehicle } from './helpers'
+import { adminUser, agentImplementations, connectorKinds, agentIdentity, jsonResponse, vehicle } from './helpers'
 
 vi.mock('gridstack', () => ({
   GridStack: {
@@ -45,16 +45,18 @@ describe('vehicle and dashboard management', () => {
     expect(wrapper.text()).toContain('Éclair')
   })
 
-  it('shows stale device status from the server freshness calculation', async () => {
+  it('shows stale agent status from the server freshness calculation', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse(agentImplementations))
+      if (url.endsWith('/connector-kinds')) return Promise.resolve(jsonResponse(connectorKinds))
+      if (url.endsWith('/connectors')) return Promise.resolve(jsonResponse([]))
       if (url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([]))
-      if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([{
-        id:'d1',vehicle_id:vehicle.id,name:'Pi Zero',credential_version:1,...deviceIdentity,hostname:'car',hardware:{},online:false,last_seen_at:'2026-01-01T00:00:00Z',revoked_at:null,created_at:'2026-01-01T00:00:00Z',
+      if (url.endsWith('/agents')) return Promise.resolve(jsonResponse([{
+        id:'d1',vehicle_id:vehicle.id,name:'Pi Zero',credential_version:1,...agentIdentity,hostname:'car',hardware:{},online:false,last_seen_at:'2026-01-01T00:00:00Z',revoked_at:null,created_at:'2026-01-01T00:00:00Z',
       }]))
       return Promise.resolve(jsonResponse([vehicle]))
     }))
-    const wrapper = mount(DevicesView, { global:{plugins:[i18n]} })
+    const wrapper = mount(DataSourcesView, { global:{plugins:[i18n]} })
     await flushPromises()
     expect(wrapper.text()).toContain('Pi Zero')
     expect(wrapper.text()).toContain('Parked / stale')
@@ -63,18 +65,20 @@ describe('vehicle and dashboard management', () => {
   it('shows newly created vehicles in the agent enrollment selector', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
       if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse(agentImplementations))
+      if (url.endsWith('/connector-kinds')) return Promise.resolve(jsonResponse(connectorKinds))
+      if (url.endsWith('/connectors')) return Promise.resolve(jsonResponse([]))
       if (url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([]))
-      if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([]))
+      if (url.endsWith('/agents')) return Promise.resolve(jsonResponse([]))
       if (url.endsWith(`/vehicles/${vehicle.id}/enrollments`) && options?.method === 'POST') {
         return Promise.resolve(jsonResponse({ token:'tok-1', expires_at:'2026-01-01T00:30:00Z', setup_steps:[{ kind:'command', text:'', command:'curl -fsSL https://hub.example/install-agent | sudo sh', value:'', url:'' }] }, 201))
       }
       return Promise.resolve(jsonResponse([vehicle]))
     })
     vi.stubGlobal('fetch', fetchMock)
-    const wrapper = mount(DevicesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
+    const wrapper = mount(DataSourcesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
     await flushPromises()
 
-    await wrapper.get('.page-header .button').trigger('click')
+    await wrapper.get('.header-actions .button:not(.secondary)').trigger('click')
     // The implementation is picked first, so the vehicle is the second combobox.
     expect(wrapper.findAll('[role="combobox"]')[1]!.text()).toContain('Éclair')
     await wrapper.get('.enrollment-panel').trigger('submit')
@@ -95,17 +99,19 @@ describe('vehicle and dashboard management', () => {
     ]
     const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
       if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse(agentImplementations))
+      if (url.endsWith('/connector-kinds')) return Promise.resolve(jsonResponse(connectorKinds))
+      if (url.endsWith('/connectors')) return Promise.resolve(jsonResponse([]))
       if (url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([]))
-      if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([]))
+      if (url.endsWith('/agents')) return Promise.resolve(jsonResponse([]))
       if (url.includes('/enrollments') && options?.method === 'POST') {
         return Promise.resolve(jsonResponse({ token:'tok-secret', expires_at:'2026-01-01T00:30:00Z', setup_steps:setupSteps }, 201))
       }
       return Promise.resolve(jsonResponse([vehicle]))
     })
     vi.stubGlobal('fetch', fetchMock)
-    const wrapper = mount(DevicesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
+    const wrapper = mount(DataSourcesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
     await flushPromises()
-    await wrapper.get('.page-header .button').trigger('click')
+    await wrapper.get('.header-actions .button:not(.secondary)').trigger('click')
 
     // The bundled agent is preselected and described before a token is spent.
     const card = wrapper.get('.implementation-card')
@@ -212,20 +218,22 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('sets an agent cadence at enrollment and edits it afterwards', async () => {
-    const device = { id:'device-1', vehicle_id:'vehicle-1', name:'Pi', credential_version:1, ...deviceIdentity, hostname:'pi', hardware:{}, sampling_seconds:5, upload_seconds:5, parked_sampling_seconds:300, parked_upload_seconds:300, online:true, last_seen_at:null, last_config_sync_at:null, config_version:1, revoked_at:null, created_at:'2026-01-01T00:00:00Z' }
+    const agent = { id:'agent-1', vehicle_id:'vehicle-1', name:'Pi', credential_version:1, ...agentIdentity, hostname:'pi', hardware:{}, sampling_seconds:5, upload_seconds:5, parked_sampling_seconds:300, parked_upload_seconds:300, online:true, last_seen_at:null, last_config_sync_at:null, config_version:1, revoked_at:null, created_at:'2026-01-01T00:00:00Z' }
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse(agentImplementations))
+      if (url.endsWith('/connector-kinds')) return Promise.resolve(jsonResponse(connectorKinds))
+      if (url.endsWith('/connectors')) return Promise.resolve(jsonResponse([]))
       if (url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([]))
-      if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([device]))
+      if (url.endsWith('/agents')) return Promise.resolve(jsonResponse([agent]))
       if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
       if (url.includes('/enrollments')) return Promise.resolve(jsonResponse({ token:'tok-1', expires_at:'2026-01-01T00:30:00Z', setup_steps:[{ kind:'command', text:'', command:'curl ...', value:'', url:'' }] }, 201))
-      return Promise.resolve(jsonResponse(device))
+      return Promise.resolve(jsonResponse(agent))
     })
     vi.stubGlobal('fetch', fetchMock)
-    const wrapper = mount(DevicesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
+    const wrapper = mount(DataSourcesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
     await flushPromises()
 
-    await wrapper.get('.header-actions .button').trigger('click')
+    await wrapper.get('.header-actions .button:not(.secondary)').trigger('click')
 
     // A preset sets both intervals at once, and the estimate says what the
     // choice costs on a metered plan.
@@ -242,7 +250,7 @@ describe('vehicle and dashboard management', () => {
     expect(enrolled.parked_upload_seconds).toBe(600)
 
     // The same two values are editable once the agent exists.
-    await wrapper.findAll('.device-actions .button')[0]!.trigger('click')
+    await wrapper.findAll('.source-actions .button')[0]!.trigger('click')
     await flushPromises()
     // The enrollment modal is still mounted, so scope to the settings one.
     const settings = wrapper.findAll('[role="dialog"]').at(-1)!
@@ -250,22 +258,24 @@ describe('vehicle and dashboard management', () => {
     await settings.get('form').trigger('submit')
     await flushPromises()
     const saved = fetchMock.mock.calls.find((call) => call[1]?.method === 'PUT')
-    expect(String(saved?.[0])).toContain('/devices/device-1')
+    expect(String(saved?.[0])).toContain('/agents/agent-1')
     expect(JSON.parse(saved?.[1]?.body as string).sampling_seconds).toBe(60)
   })
 
   it('reports implementation identity and protocol compatibility apart from online state', async () => {
-    const device = { id:'device-1', vehicle_id:'vehicle-1', name:'Pi', credential_version:1, ...deviceIdentity, implementation_id:'acme.esp32', protocol_version:7, agent_version:'2.4.0', compatibility:'incompatible' as const, hostname:'pi', hardware:{}, sampling_seconds:5, upload_seconds:5, parked_sampling_seconds:300, parked_upload_seconds:300, online:true, last_seen_at:'2026-01-01T00:00:00Z', last_config_sync_at:null, config_version:1, revoked_at:null, created_at:'2026-01-01T00:00:00Z' }
+    const agent = { id:'agent-1', vehicle_id:'vehicle-1', name:'Pi', credential_version:1, ...agentIdentity, implementation_id:'acme.esp32', protocol_version:7, agent_version:'2.4.0', compatibility:'incompatible' as const, hostname:'pi', hardware:{}, sampling_seconds:5, upload_seconds:5, parked_sampling_seconds:300, parked_upload_seconds:300, online:true, last_seen_at:'2026-01-01T00:00:00Z', last_config_sync_at:null, config_version:1, revoked_at:null, created_at:'2026-01-01T00:00:00Z' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse(agentImplementations))
+      if (url.endsWith('/connector-kinds')) return Promise.resolve(jsonResponse(connectorKinds))
+      if (url.endsWith('/connectors')) return Promise.resolve(jsonResponse([]))
       if (url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([]))
-      if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([device]))
+      if (url.endsWith('/agents')) return Promise.resolve(jsonResponse([agent]))
       return Promise.resolve(jsonResponse([vehicle]))
     }))
-    const wrapper = mount(DevicesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
+    const wrapper = mount(DataSourcesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
     await flushPromises()
 
-    const facts = wrapper.get('.device-facts').text()
+    const facts = wrapper.get('.source-facts').text()
     expect(facts).toContain('acme.esp32')
     expect(facts).toContain('2.4.0')
     expect(facts).toContain('7')
@@ -274,7 +284,7 @@ describe('vehicle and dashboard management', () => {
     // roster summary reports the two facts separately.
     expect(wrapper.get('.status').text()).toBe('Online')
     expect(wrapper.get('.status').classes()).toContain('online')
-    expect(wrapper.get('.page-header p').text()).toContain('1 of 1 reporting')
+    expect(wrapper.get('.group-note').text()).toContain('1 of 1 reporting')
     expect(wrapper.get('.summary-flag').text()).toContain('1 on an unsupported protocol')
   })
 
@@ -483,7 +493,7 @@ describe('vehicle and dashboard management', () => {
       {id:'energy',type:'battery-gauge',x:6,y:0,w:3,h:2},
       {id:'telemetry',type:'telemetry-list',x:9,y:0,w:3,h:3},
       {id:'chart',type:'time-series',x:0,y:4,w:6,h:3,metric:'battery.soc'},
-      {id:'health',type:'device-health',x:6,y:4,w:3,h:2},
+      {id:'health',type:'agent-health',x:6,y:4,w:3,h:2},
       {id:'online',type:'online-status',x:9,y:4,w:3,h:2},
     ]}, created_at:'', updated_at:'' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {

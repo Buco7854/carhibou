@@ -38,7 +38,7 @@ class AgentRuntime:
             recorded_at=datetime.now(UTC),
             position=self.position.read(),
             metrics=dict(self.vehicle.read_metrics()),
-            device=dict(self.health.read_health()),
+            agent=dict(self.health.read_health()),
         )
         self.queue.enqueue(sample)
         return sample

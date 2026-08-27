@@ -11,6 +11,8 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from backend.app.access.routes import router as access_router
+from backend.app.agents.protocol import registered_implementations, setup_steps
+from backend.app.agents.routes import agent_router, human_router
 from backend.app.api.agent_distribution import router as agent_distribution_router
 from backend.app.api.errors import install_error_handlers
 from backend.app.api.events import router as event_router
@@ -22,9 +24,8 @@ from backend.app.common.database import SessionLocal
 from backend.app.common.logging import configure_logging
 from backend.app.common.middleware import RequestContextMiddleware
 from backend.app.common.settings import get_settings
+from backend.app.connectors.routes import router as connector_router
 from backend.app.dashboards.routes import router as dashboard_router
-from backend.app.devices.protocol import registered_implementations, setup_steps
-from backend.app.devices.routes import device_router, human_router
 from backend.app.history.routes import router as history_router
 from backend.app.hooks.routes import router as hook_router
 from backend.app.secrets.routes import router as secret_router
@@ -98,8 +99,9 @@ for api_router in (
     access_router,
     event_router,
     vehicle_router,
+    connector_router,
     human_router,
-    device_router,
+    agent_router,
     telemetry_router,
     history_router,
     vehicle_profile_router,

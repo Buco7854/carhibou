@@ -4,10 +4,10 @@ import i18n from '../src/i18n'
 import { auth } from '../src/api/auth'
 import AppSelect from '../src/components/AppSelect.vue'
 import AdminView from '../src/views/AdminView.vue'
-import DevicesView from '../src/views/DevicesView.vue'
+import DataSourcesView from '../src/views/DataSourcesView.vue'
 import ProfilesView from '../src/views/ProfilesView.vue'
 import VehiclesView from '../src/views/VehiclesView.vue'
-import { adminUser, agentImplementations, deviceIdentity, jsonResponse, memberUser, vehicle } from './helpers'
+import { adminUser, agentImplementations, connectorKinds, agentIdentity, jsonResponse, memberUser, vehicle } from './helpers'
 
 const stubs = { Teleport: true, RouterLink: { template: '<a><slot /></a>' } }
 
@@ -55,15 +55,15 @@ describe('permission-gated controls', () => {
   it('hides enrollment and agent actions from a viewer', async () => {
     auth.user = { ...memberUser }
     const viewed = { ...vehicle, access: 'view' as const }
-    const device = { id: 'd1', vehicle_id: viewed.id, name: 'Pi Zero', credential_version: 1, ...deviceIdentity, hostname: 'car', hardware: {}, sampling_seconds: 5, upload_seconds: 5, parked_sampling_seconds: 300, parked_upload_seconds: 300, online: true, last_seen_at: null, last_config_sync_at: null, config_version: 1, revoked_at: null, created_at: '2026-01-01T00:00:00Z' }
+    const agent = { id: 'd1', vehicle_id: viewed.id, name: 'Pi Zero', credential_version: 1, ...agentIdentity, hostname: 'car', hardware: {}, sampling_seconds: 5, upload_seconds: 5, parked_sampling_seconds: 300, parked_upload_seconds: 300, online: true, last_seen_at: null, last_config_sync_at: null, config_version: 1, revoked_at: null, created_at: '2026-01-01T00:00:00Z' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) =>
-      Promise.resolve(jsonResponse(url.endsWith('/agent-implementations') ? agentImplementations : url.endsWith('/devices') ? [device] : url.endsWith('/vehicle-profiles') ? [profile] : [viewed]))))
-    const wrapper = mount(DevicesView, { global: { plugins: [i18n], stubs } })
+      Promise.resolve(jsonResponse(url.endsWith('/agent-implementations') ? agentImplementations : url.endsWith('/connector-kinds') ? connectorKinds : url.endsWith('/connectors') ? [] : url.endsWith('/agents') ? [agent] : url.endsWith('/vehicle-profiles') ? [profile] : [viewed]))))
+    const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
 
     expect(wrapper.text()).toContain('Pi Zero')
     expect(wrapper.find('.page-header .button').exists()).toBe(false)
-    expect(wrapper.find('.device-actions').exists()).toBe(false)
+    expect(wrapper.find('.source-actions').exists()).toBe(false)
   })
 
   it('hides profile creation without the permission and editing without editability', async () => {
@@ -112,7 +112,7 @@ describe('permission-gated controls', () => {
       if (url.endsWith('/admin/default-access')) return Promise.resolve(jsonResponse({ profiles_create: false, grants: [] }))
       if (url.endsWith('/users')) return Promise.resolve(jsonResponse(accounts))
       if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
-      if (url.endsWith('/system/diagnostics')) return Promise.resolve(jsonResponse({ version: 'test', database: 'ok', pending_jobs: 0, failed_jobs: 0, hook_failures: 0, stale_devices: 0, workers: [] }))
+      if (url.endsWith('/system/diagnostics')) return Promise.resolve(jsonResponse({ version: 'test', database: 'ok', pending_jobs: 0, failed_jobs: 0, hook_failures: 0, stale_agents: 0, workers: [] }))
       return Promise.resolve(jsonResponse({}))
     })
   }

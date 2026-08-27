@@ -9,12 +9,12 @@ const entries = [
   {
     id: 'e2', recorded_at: '2026-01-01T10:01:00Z', sequence: 2,
     latitude: 48.1, longitude: 2.1, altitude: 90, speed: 41, heading: 12, accuracy: 4,
-    metrics: { 'battery.soc': 60, 'custom.oil_pressure': 3.4 }, device: { mobile_signal: -70 },
+    metrics: { 'battery.soc': 60, 'custom.oil_pressure': 3.4 }, agent: { mobile_signal: -70 },
   },
   {
     id: 'e1', recorded_at: '2026-01-01T10:00:00Z', sequence: 1,
     latitude: 48.0, longitude: 2.0, altitude: 88, speed: 0, heading: null, accuracy: 5,
-    metrics: { 'battery.soc': 90 }, device: { mobile_signal: -72 },
+    metrics: { 'battery.soc': 90 }, agent: { mobile_signal: -72 },
   },
 ]
 
@@ -38,7 +38,7 @@ describe('telemetry table', () => {
   it('requests the latest entries first and builds a column per reported signal', async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
       vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0,
-      metric_keys: ['battery.soc', 'custom.oil_pressure'], device_keys: ['mobile_signal'], entries,
+      metric_keys: ['battery.soc', 'custom.oil_pressure'], agent_keys: ['mobile_signal'], entries,
     })))
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mountTable()
@@ -64,7 +64,7 @@ describe('telemetry table', () => {
   it('sorts on a metric column and sends a numeric range filter', async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
       vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0,
-      metric_keys: ['battery.soc'], device_keys: [], entries,
+      metric_keys: ['battery.soc'], agent_keys: [], entries,
     })))
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mountTable()
@@ -91,7 +91,7 @@ describe('telemetry table', () => {
   it('combines several filters in one request', async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
       vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0,
-      metric_keys: ['battery.soc'], device_keys: [], entries,
+      metric_keys: ['battery.soc'], agent_keys: [], entries,
     })))
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mountTable()
@@ -123,7 +123,7 @@ describe('telemetry table', () => {
   it('keeps the canonical name reachable behind the friendly label', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
       vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0,
-      metric_keys: ['battery.soc', 'battery.current'], device_keys: ['mobile_signal'], entries,
+      metric_keys: ['battery.soc', 'battery.current'], agent_keys: ['mobile_signal'], entries,
     }))))
     const wrapper = mountTable()
     await flushPromises()
@@ -142,14 +142,14 @@ describe('telemetry table', () => {
     // An agent column is hidden by default, so its name is reached through the
     // column menu rather than through a header that is not there.
     await wrapper.get('.entries-tools button').trigger('click')
-    const device = wrapper.findAll('.columns-menu label').find((item) => item.text().includes('Mobile signal'))!
-    expect(device.attributes('title')).toContain('mobile_signal')
+    const agentColumn = wrapper.findAll('.columns-menu label').find((item) => item.text().includes('Mobile signal'))!
+    expect(agentColumn.attributes('title')).toContain('mobile_signal')
   })
 
   it('closes the column menu when the page is clicked elsewhere', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
       vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0,
-      metric_keys: [], device_keys: [], entries,
+      metric_keys: [], agent_keys: [], entries,
     }))))
     const wrapper = mount(TelemetryTable, {
       props: { vehicleId: 'vehicle-1', days: 1 },
@@ -175,7 +175,7 @@ describe('telemetry table', () => {
   it('remembers hidden and reordered columns per vehicle', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
       vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0,
-      metric_keys: ['battery.soc'], device_keys: [], entries,
+      metric_keys: ['battery.soc'], agent_keys: [], entries,
     }))))
     const wrapper = mountTable()
     await flushPromises()

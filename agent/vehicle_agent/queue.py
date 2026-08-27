@@ -72,12 +72,12 @@ class SQLiteQueue:
         position_data = payload.get("position")
         position = PositionFix(**position_data) if isinstance(position_data, dict) else None
         metrics = payload.get("metrics", {})
-        device = payload.get("device", {})
+        agent = payload.get("agent", {})
         return Sample(
             id=str(payload["id"]),
             sequence=int(str(payload["sequence"])),
             recorded_at=datetime.fromisoformat(str(payload["recorded_at"])),
             position=position,
             metrics=dict(metrics) if isinstance(metrics, dict) else {},
-            device=dict(device) if isinstance(device, dict) else {},
+            agent=dict(agent) if isinstance(agent, dict) else {},
         )

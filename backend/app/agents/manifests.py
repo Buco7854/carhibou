@@ -15,6 +15,7 @@ DISTRIBUTION_ROOT = Path(__file__).resolve().parents[3]
 IMAGE_MANIFEST_DIR = Path("/app/agent-manifests")
 IMPLEMENTATION_ID = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 TEMPLATE_FIELDS = {"server", "token", "protocol_version"}
+RESERVED_IMPLEMENTATION_PREFIX = "connector."
 
 SetupKind = Literal["command", "guided"]
 StepKind = Literal["command", "value", "link", "manual"]
@@ -148,6 +149,8 @@ def _parse(source: Path) -> AgentManifest:
     identifier = _nonempty_string(implementation, "id", source)
     if len(identifier) > 100 or not IMPLEMENTATION_ID.fullmatch(identifier):
         raise ManifestError(f"{source}: implementation id is malformed")
+    if identifier.startswith(RESERVED_IMPLEMENTATION_PREFIX):
+        raise ManifestError(f"{source}: implementation id uses reserved prefix 'connector.'")
     protocol_version = implementation["protocol_version"]
     if type(protocol_version) is not int or protocol_version < 1:
         raise ManifestError(f"{source}: protocol_version must be a positive integer")

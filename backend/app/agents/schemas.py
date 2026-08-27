@@ -30,7 +30,7 @@ class EnrollmentCreate(BaseModel):
     parked_upload_seconds: int = PARKED_UPLOAD_SECONDS
 
 
-class DeviceSettings(BaseModel):
+class AgentSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)
@@ -78,7 +78,7 @@ class EnrollRequest(BaseModel):
     hardware: dict[str, object] = Field(default_factory=dict)
 
 
-class DeviceConfig(BaseModel):
+class AgentConfig(BaseModel):
     version: int
     # Each carries "default_seconds" for a vehicle in use and "parked_seconds"
     # for one that is not; the agent decides which state it is in.
@@ -89,10 +89,10 @@ class DeviceConfig(BaseModel):
 
 
 class EnrollResponse(BaseModel):
-    device_id: str
+    agent_id: str
     vehicle_id: str
     credential: str
-    config: DeviceConfig
+    config: AgentConfig
 
 
 class RotateCredentialResponse(BaseModel):
@@ -100,7 +100,7 @@ class RotateCredentialResponse(BaseModel):
     credential_version: int
 
 
-class DeviceResponse(BaseModel):
+class AgentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str

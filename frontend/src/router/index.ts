@@ -15,7 +15,7 @@ const router = createRouter({
     // Hooks execute privileged Python in the worker, so they are instance
     // administration, not something a per-vehicle grant can extend to.
     { path: '/hooks', name: 'hooks', component: () => import('../views/HooksView.vue'), meta: { admin: true } },
-    { path: '/devices', name: 'devices', component: () => import('../views/DevicesView.vue') },
+    { path: '/data-sources', name: 'data-sources', component: () => import('../views/DataSourcesView.vue') },
     { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
   ],

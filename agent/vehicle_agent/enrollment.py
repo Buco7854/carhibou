@@ -22,7 +22,7 @@ def enroll(
     except ValueError as exc:
         raise EnrollmentError(str(exc)) from exc
     request = Request(
-        server_url + "/api/v1/device/enroll",
+        server_url + "/api/v1/agent/enroll",
         data=json.dumps(
             {
                 "token": token,
@@ -42,7 +42,7 @@ def enroll(
         ) as response:
             return dict(json.load(response))
     except (HTTPError, URLError, json.JSONDecodeError) as exc:
-        raise EnrollmentError(f"device enrollment failed: {exc}") from exc
+        raise EnrollmentError(f"agent enrollment failed: {exc}") from exc
 
 
 def store_credentials(path: str | Path, data: dict[str, object], server_url: str) -> None:
@@ -50,7 +50,7 @@ def store_credentials(path: str | Path, data: dict[str, object], server_url: str
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "server_url": validate_server_url(server_url),
-        "device_id": data["device_id"],
+        "agent_id": data["agent_id"],
         "vehicle_id": data["vehicle_id"],
         "credential": data["credential"],
     }

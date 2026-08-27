@@ -30,7 +30,7 @@ class Sample:
     recorded_at: datetime
     position: PositionFix | None
     metrics: dict[str, Any] = field(default_factory=dict)
-    device: dict[str, Any] = field(default_factory=dict)
+    agent: dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=lambda: str(uuid4()))
 
     def as_payload(self) -> dict[str, object]:
@@ -40,7 +40,7 @@ class Sample:
             "recorded_at": self.recorded_at.isoformat(),
             "position": self.position.as_telemetry() if self.position else None,
             "metrics": self.metrics,
-            "device": self.device,
+            "agent": self.agent,
         }
 
 

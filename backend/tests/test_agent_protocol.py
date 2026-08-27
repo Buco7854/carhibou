@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app.devices.models import Device, EnrollmentToken
+from backend.app.agents.models import Agent, AgentEnrollmentToken
 
 
 def _vehicle(client: TestClient, csrf: str) -> dict[str, Any]:
@@ -80,18 +80,18 @@ def test_bundled_and_custom_enrollment_persist_independent_identity(
     invitation = _invitation(client, csrf, vehicle["id"], implementation_id)
     payload = _enrollment_payload(invitation, implementation_id)
 
-    enrolled = client.post("/api/v1/device/enroll", json=payload)
+    enrolled = client.post("/api/v1/agent/enroll", json=payload)
 
     assert enrolled.status_code == 201, enrolled.text
-    listed = client.get("/api/v1/devices").json()[0]
+    listed = client.get("/api/v1/agents").json()[0]
     assert listed["implementation_id"] == implementation_id
     assert listed["protocol_version"] == 1
     assert listed["agent_version"] == "99.42.7-experimental"
     assert listed["compatibility"] == "compatible"
     with db_factory() as db:
-        device = db.scalar(select(Device))
-        assert device is not None
-        assert (device.implementation_id, device.protocol_version, device.agent_version) == (
+        agent = db.scalar(select(Agent))
+        assert agent is not None
+        assert (agent.implementation_id, agent.protocol_version, agent.agent_version) == (
             implementation_id,
             1,
             "99.42.7-experimental",
@@ -118,23 +118,23 @@ def test_mismatch_does_not_consume_token(
     payload = _enrollment_payload(invitation, "custom")
     payload[field] = wrong
 
-    rejected = client.post("/api/v1/device/enroll", json=payload)
+    rejected = client.post("/api/v1/agent/enroll", json=payload)
 
     assert rejected.status_code == 400
     assert message in rejected.json()["error"]["message"]
     with db_factory() as db:
-        token = db.scalar(select(EnrollmentToken))
+        token = db.scalar(select(AgentEnrollmentToken))
         assert token is not None
         assert token.used_at is None
 
     accepted = client.post(
-        "/api/v1/device/enroll",
+        "/api/v1/agent/enroll",
         json=_enrollment_payload(invitation, "custom"),
     )
     assert accepted.status_code == 201, accepted.text
     assert (
         client.post(
-            "/api/v1/device/enroll",
+            "/api/v1/agent/enroll",
             json=_enrollment_payload(invitation, "custom"),
         ).status_code
         == 400
@@ -151,10 +151,10 @@ def test_required_identity_fields_and_integer_protocol_are_fail_closed(
 
     for field in ("implementation_id", "protocol_version", "agent_version", "hostname"):
         missing = {key: value for key, value in payload.items() if key != field}
-        assert client.post("/api/v1/device/enroll", json=missing).status_code == 422
+        assert client.post("/api/v1/agent/enroll", json=missing).status_code == 422
     for value in (True, "1", 1.0):
         invalid = {**payload, "protocol_version": value}
-        assert client.post("/api/v1/device/enroll", json=invalid).status_code == 422
+        assert client.post("/api/v1/agent/enroll", json=invalid).status_code == 422
 
     omitted_implementation = client.post(
         f"/api/v1/vehicles/{vehicle['id']}/enrollments",
@@ -164,18 +164,18 @@ def test_required_identity_fields_and_integer_protocol_are_fail_closed(
     assert omitted_implementation.status_code == 422
 
 
-def test_catalog_is_human_only_and_device_endpoints_remain_device_only(
+def test_catalog_is_human_only_and_agent_endpoints_remain_agent_only(
     registered: tuple[TestClient, str],
 ) -> None:
     client, csrf = registered
     vehicle = _vehicle(client, csrf)
     invitation = _invitation(client, csrf, vehicle["id"], "custom")
     enrolled = client.post(
-        "/api/v1/device/enroll", json=_enrollment_payload(invitation, "custom")
+        "/api/v1/agent/enroll", json=_enrollment_payload(invitation, "custom")
     ).json()
-    device_headers = {"Authorization": f"Device {enrolled['credential']}"}
+    agent_headers = {"Authorization": f"Agent {enrolled['credential']}"}
 
-    assert client.get("/api/v1/device/config").status_code == 401
+    assert client.get("/api/v1/agent/config").status_code == 401
     client.cookies.clear()
-    assert client.get("/api/v1/agent-implementations", headers=device_headers).status_code == 401
-    assert client.get("/api/v1/device/config", headers=device_headers).status_code == 200
+    assert client.get("/api/v1/agent-implementations", headers=agent_headers).status_code == 401
+    assert client.get("/api/v1/agent/config", headers=agent_headers).status_code == 200

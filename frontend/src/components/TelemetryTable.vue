@@ -68,7 +68,7 @@ function humanize(key: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
-/** Every column the range can produce, in discovery order: fixed, then metrics, then device. */
+/** Every column the range can produce, in discovery order: fixed, then metrics, then agent. */
 const allColumns = computed<TableColumn[]>(() => {
   const columns: TableColumn[] = FIXED.map((column) => ({
     key: column.key,
@@ -89,8 +89,8 @@ const allColumns = computed<TableColumn[]>(() => {
       decimals: definition.decimals,
     })
   }
-  for (const name of data.value?.device_keys ?? []) {
-    columns.push({ key: `device:${name}`, label: humanize(name), canonical: name, numeric: true, unit: '', decimals: 1 })
+  for (const name of data.value?.agent_keys ?? []) {
+    columns.push({ key: `agent:${name}`, label: humanize(name), canonical: name, numeric: true, unit: '', decimals: 1 })
   }
   return columns
 })
@@ -128,7 +128,7 @@ const activeFilters = computed(() => filters.value.flatMap((filter) => {
 
 /** Columns the agent reports about itself rather than about the vehicle. */
 function systemColumns(): string[] {
-  return (data.value?.device_keys ?? []).map((name) => `device:${name}`)
+  return (data.value?.agent_keys ?? []).map((name) => `agent:${name}`)
 }
 
 function loadPreference(): void {
@@ -242,7 +242,7 @@ function cell(entry: HistoryEntry, column: TableColumn): string {
   const name = rest.join(':')
   const raw =
     prefix === 'metric' ? entry.metrics[name]
-    : prefix === 'device' ? entry.device[name]
+    : prefix === 'agent' ? entry.agent[name]
     : (entry as unknown as Record<string, unknown>)[column.key]
   if (raw === null || raw === undefined || raw === '') return '—'
   if (column.key === 'recorded_at') return new Date(String(raw)).toLocaleString()
@@ -257,7 +257,7 @@ function cell(entry: HistoryEntry, column: TableColumn): string {
 // The agent's columns are only known once a page has arrived, so a first visit
 // applies the default the moment they are.
 let hideSystemOnceKnown = true
-watch(() => data.value?.device_keys, (keys) => {
+watch(() => data.value?.agent_keys, (keys) => {
   if (!hideSystemOnceKnown || !keys?.length) return
   hideSystemOnceKnown = false
   preference.value = { ...preference.value, hidden: [...new Set([...preference.value.hidden, ...systemColumns()])] }

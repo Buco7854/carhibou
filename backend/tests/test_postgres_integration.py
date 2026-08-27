@@ -77,7 +77,7 @@ def test_postgres_idempotency_state_and_skip_locked(
         json={"implementation_id": "custom", "name": "Database agent"},
     ).json()
     enrolled = postgres_client.post(
-        "/api/v1/device/enroll",
+        "/api/v1/agent/enroll",
         json={
             "token": enrollment["token"],
             "implementation_id": "custom",
@@ -99,12 +99,12 @@ def test_postgres_idempotency_state_and_skip_locked(
             }
         ],
     }
-    device_headers = {"Authorization": f"Device {enrolled['credential']}"}
+    agent_headers = {"Authorization": f"Agent {enrolled['credential']}"}
     assert postgres_client.post(
-        "/api/v1/device/telemetry/batch", headers=device_headers, json=batch
+        "/api/v1/agent/telemetry/batch", headers=agent_headers, json=batch
     ).json()["accepted"] == [sample_id]
     assert postgres_client.post(
-        "/api/v1/device/telemetry/batch", headers=device_headers, json=batch
+        "/api/v1/agent/telemetry/batch", headers=agent_headers, json=batch
     ).json()["duplicates"] == [sample_id]
     with postgres_factory() as db:
         assert db.scalar(select(Telemetry).where(Telemetry.id == sample_id)) is not None

@@ -36,8 +36,8 @@ FIXED_COLUMNS: dict[str, Any] = {
 def _json_column(prefix: str) -> InstrumentedAttribute[JSONValue] | None:
     if prefix == "metric":
         return Telemetry.metrics
-    if prefix == "device":
-        return Telemetry.device_data
+    if prefix == "agent":
+        return Telemetry.agent_data
     return None
 
 
@@ -87,7 +87,7 @@ def _distinct_keys(
 def _json_keys(db: Db, where: Sequence[Any], dialect: str) -> tuple[list[str], list[str]]:
     return (
         _distinct_keys(db, Telemetry.metrics, where, dialect),
-        _distinct_keys(db, Telemetry.device_data, where, dialect),
+        _distinct_keys(db, Telemetry.agent_data, where, dialect),
     )
 
 
@@ -257,7 +257,7 @@ def history_entries(
             .offset(offset)
         )
     )
-    metric_keys, device_keys = _json_keys(db, where, dialect)
+    metric_keys, agent_keys = _json_keys(db, where, dialect)
     return HistoryEntriesResponse(
         vehicle_id=vehicle_id,
         start=resolved_start,
@@ -266,7 +266,7 @@ def history_entries(
         limit=limit,
         offset=offset,
         metric_keys=metric_keys,
-        device_keys=device_keys,
+        agent_keys=agent_keys,
         entries=[
             HistoryEntry(
                 id=row.id,
@@ -279,7 +279,7 @@ def history_entries(
                 heading=row.heading,
                 accuracy=row.accuracy,
                 metrics=row.metrics,
-                device=row.device_data,
+                agent=row.agent_data,
             )
             for row in rows
         ],

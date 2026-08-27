@@ -88,7 +88,7 @@ def test_environment_bootstrap_is_idempotent_and_never_adds_future_users(
     assert logged_in.status_code == 200
 
 
-def test_local_identity_and_device_auth_realms_are_isolated(
+def test_local_identity_and_agent_auth_realms_are_isolated(
     registered: tuple[TestClient, str],
 ) -> None:
     client, csrf = registered
@@ -103,7 +103,7 @@ def test_local_identity_and_device_auth_realms_are_isolated(
         json={"implementation_id": "custom", "name": "Agent"},
     ).json()
     enrolled = client.post(
-        "/api/v1/device/enroll",
+        "/api/v1/agent/enroll",
         json={
             "token": enrollment["token"],
             "implementation_id": "custom",
@@ -113,11 +113,11 @@ def test_local_identity_and_device_auth_realms_are_isolated(
         },
     ).json()
 
-    device_header = {"Authorization": f"Device {enrolled['credential']}"}
+    agent_header = {"Authorization": f"Agent {enrolled['credential']}"}
     client.cookies.clear()
-    assert client.get("/api/v1/auth/me", headers=device_header).status_code == 401
-    assert client.get("/api/v1/device/config").status_code == 401
-    assert client.get("/api/v1/device/config", headers=device_header).status_code == 200
+    assert client.get("/api/v1/auth/me", headers=agent_header).status_code == 401
+    assert client.get("/api/v1/agent/config").status_code == 401
+    assert client.get("/api/v1/agent/config", headers=agent_header).status_code == 200
 
 
 def test_active_session_revocation_and_password_change(client: TestClient) -> None:

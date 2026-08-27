@@ -5,7 +5,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 
-def _vehicle_and_device(client: TestClient, csrf: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def _vehicle_and_agent(client: TestClient, csrf: str) -> tuple[dict[str, Any], dict[str, Any]]:
     response = client.post(
         "/api/v1/vehicles",
         headers={"X-CSRF-Token": csrf},
@@ -35,9 +35,9 @@ def _vehicle_and_device(client: TestClient, csrf: str) -> tuple[dict[str, Any], 
         "hostname": "simulator",
         "hardware": {"model": "simulated-pi-zero"},
     }
-    enrolled = client.post("/api/v1/device/enroll", json=enroll_data)
+    enrolled = client.post("/api/v1/agent/enroll", json=enroll_data)
     assert enrolled.status_code == 201, enrolled.text
-    assert client.post("/api/v1/device/enroll", json=enroll_data).status_code == 400
+    assert client.post("/api/v1/agent/enroll", json=enroll_data).status_code == 400
     return vehicle, enrolled.json()
 
 
@@ -45,7 +45,7 @@ def test_idempotent_telemetry_current_state_history_and_dashboard(
     registered: tuple[TestClient, str],
 ) -> None:
     client, csrf = registered
-    vehicle, enrolled = _vehicle_and_device(client, csrf)
+    vehicle, enrolled = _vehicle_and_agent(client, csrf)
     sample_id = str(uuid4())
     recorded = datetime.now(UTC) - timedelta(seconds=5)
     batch = {
@@ -62,15 +62,15 @@ def test_idempotent_telemetry_current_state_history_and_dashboard(
                     "heading": 120,
                 },
                 "metrics": {"battery.soc": 70, "battery.pack_voltage": 330.5},
-                "device": {"mobile_signal": -82},
+                "agent": {"mobile_signal": -82},
             }
         ],
     }
-    headers = {"Authorization": f"Device {enrolled['credential']}"}
-    first = client.post("/api/v1/device/telemetry/batch", headers=headers, json=batch)
+    headers = {"Authorization": f"Agent {enrolled['credential']}"}
+    first = client.post("/api/v1/agent/telemetry/batch", headers=headers, json=batch)
     assert first.status_code == 200, first.text
     assert first.json()["accepted"] == [sample_id]
-    retry = client.post("/api/v1/device/telemetry/batch", headers=headers, json=batch)
+    retry = client.post("/api/v1/agent/telemetry/batch", headers=headers, json=batch)
     assert retry.status_code == 200
     assert retry.json()["accepted"] == []
     assert retry.json()["duplicates"] == [sample_id]
@@ -79,8 +79,8 @@ def test_idempotent_telemetry_current_state_history_and_dashboard(
     assert current.status_code == 200
     assert current.json()["state"]["metrics"]["battery.soc"] == 70
     assert current.json()["state"]["position"]["latitude"] == 48.12345
-    devices = client.get("/api/v1/devices").json()
-    assert devices[0]["online"] is True
+    agents = client.get("/api/v1/agents").json()
+    assert agents[0]["online"] is True
 
     history = client.get(f"/api/v1/vehicles/{vehicle['id']}/history")
     assert history.status_code == 200, history.text
@@ -127,7 +127,7 @@ def test_vehicle_deletion_removes_owned_data_and_unpins_dashboard_widgets(
     registered: tuple[TestClient, str],
 ) -> None:
     client, csrf = registered
-    vehicle, enrolled = _vehicle_and_device(client, csrf)
+    vehicle, enrolled = _vehicle_and_agent(client, csrf)
     credential = enrolled["credential"]
     telemetry = {
         "boot_id": str(uuid4()),
@@ -138,14 +138,14 @@ def test_vehicle_deletion_removes_owned_data_and_unpins_dashboard_widgets(
                 "recorded_at": datetime.now(UTC).isoformat(),
                 "position": None,
                 "metrics": {"vehicle.speed": 12},
-                "device": {},
+                "agent": {},
             }
         ],
     }
     assert (
         client.post(
-            "/api/v1/device/telemetry/batch",
-            headers={"Authorization": f"Device {credential}"},
+            "/api/v1/agent/telemetry/batch",
+            headers={"Authorization": f"Agent {credential}"},
             json=telemetry,
         ).status_code
         == 200
@@ -187,14 +187,14 @@ def test_vehicle_deletion_removes_owned_data_and_unpins_dashboard_widgets(
 
     assert deleted.status_code == 204, deleted.text
     assert client.get(f"/api/v1/vehicles/{vehicle['id']}").status_code == 404
-    assert client.get("/api/v1/devices").json() == []
+    assert client.get("/api/v1/agents").json() == []
     assert client.get("/api/v1/hooks").json() == []
     widgets = client.get("/api/v1/dashboards").json()[0]["layout"]["widgets"]
     assert "vehicle_id" not in widgets[0]
     assert (
         client.post(
-            "/api/v1/device/telemetry/batch",
-            headers={"Authorization": f"Device {credential}"},
+            "/api/v1/agent/telemetry/batch",
+            headers={"Authorization": f"Agent {credential}"},
             json=telemetry,
         ).status_code
         == 401

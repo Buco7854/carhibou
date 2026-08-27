@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 import agent
 from agent.vehicle_agent.profile_decoder import ProfileError, VehicleProfileDecoder
 from backend.app.access.services import is_admin
+from backend.app.agents.models import Agent
 from backend.app.common.ids import new_id
-from backend.app.devices.models import Device
 from backend.app.users.models import User
 from backend.app.vehicle_profiles.models import VehicleProfile
 from backend.app.vehicle_profiles.schemas import (
@@ -156,12 +156,12 @@ def create_profile(db: Session, creator_id: str, data: VehicleProfileWrite) -> V
     return profile
 
 
-def _bump_assigned_devices(db: Session, profile_id: str) -> None:
+def _bump_assigned_agents(db: Session, profile_id: str) -> None:
     vehicle_ids = select(Vehicle.id).where(Vehicle.vehicle_profile == profile_id)
     db.execute(
-        update(Device)
-        .where(Device.vehicle_id.in_(vehicle_ids))
-        .values(config_version=Device.config_version + 1)
+        update(Agent)
+        .where(Agent.vehicle_id.in_(vehicle_ids))
+        .values(config_version=Agent.config_version + 1)
     )
 
 
@@ -172,11 +172,11 @@ def update_profile(db: Session, profile: VehicleProfile, data: VehicleProfileWri
     definition = _definition(profile.id, data)
     definition["version"] = current_version + 1
     profile.definition = definition
-    _bump_assigned_devices(db, profile.id)
+    _bump_assigned_agents(db, profile.id)
 
 
 def delete_profile(db: Session, profile: VehicleProfile) -> None:
-    _bump_assigned_devices(db, profile.id)
+    _bump_assigned_agents(db, profile.id)
     db.execute(
         update(Vehicle).where(Vehicle.vehicle_profile == profile.id).values(vehicle_profile=None)
     )
@@ -188,7 +188,7 @@ def assign_profile(db: Session, vehicle: Vehicle, profile_id: str | None) -> Non
         return
     vehicle.vehicle_profile = profile_id
     db.execute(
-        update(Device)
-        .where(Device.vehicle_id == vehicle.id)
-        .values(config_version=Device.config_version + 1)
+        update(Agent)
+        .where(Agent.vehicle_id == vehicle.id)
+        .values(config_version=Agent.config_version + 1)
     )

@@ -16,7 +16,7 @@ withDefaults(defineProps<{ name: string; size?: number }>(), { size: 20 })
     <template v-else-if="name === 'hooks'">
       <path d="M8 3v5a4 4 0 0 0 8 0V3M6 3h4m4 0h4M12 12v4a4 4 0 0 0 4 4h2" /><circle cx="19" cy="20" r="2" />
     </template>
-    <template v-else-if="name === 'devices'">
+    <template v-else-if="name === 'agent'">
       <rect x="7" y="3" width="10" height="18" rx="2.5" /><path d="M10 6h4m-3 12h2" />
     </template>
     <template v-else-if="name === 'settings'">

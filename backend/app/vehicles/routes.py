@@ -7,8 +7,8 @@ from fastapi.responses import FileResponse
 from backend.app.access.constants import OPERATE
 from backend.app.access.dependencies import OperateVehicle, RequireAdminWrite, ViewVehicle
 from backend.app.access.services import access_level, is_admin
+from backend.app.agents.services import reset_vehicle_telemetry
 from backend.app.auth.dependencies import CurrentUser, Db
-from backend.app.devices.services import reset_vehicle_telemetry
 from backend.app.vehicle_profiles.schemas import VehicleProfileSelection
 from backend.app.vehicle_profiles.services import assign_profile, profile_definition
 from backend.app.vehicles.models import VehiclePhoto

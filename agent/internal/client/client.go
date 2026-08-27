@@ -24,7 +24,7 @@ type Client struct {
 }
 
 type EnrollmentResponse struct {
-	DeviceID   string              `json:"device_id"`
+	AgentID    string              `json:"agent_id"`
 	VehicleID  string              `json:"vehicle_id"`
 	Credential string              `json:"credential"`
 	Config     store.Configuration `json:"config"`
@@ -75,25 +75,25 @@ func Enroll(serverURL, token, hostname, version string, hardware map[string]any,
 		return EnrollmentResponse{}, err
 	}
 	var response EnrollmentResponse
-	err = api.request(http.MethodPost, "/api/v1/device/enroll", enrollmentRequest{
+	err = api.request(http.MethodPost, "/api/v1/agent/enroll", enrollmentRequest{
 		Token: token, ImplementationID: "carhibou.go", ProtocolVersion: 1,
 		AgentVersion: version, Hostname: hostname, Hardware: hardware,
 	}, &response, false)
 	if err != nil {
-		return response, fmt.Errorf("device enrollment failed: %w", err)
+		return response, fmt.Errorf("agent enrollment failed: %w", err)
 	}
-	if response.DeviceID == "" || response.VehicleID == "" || response.Credential == "" {
-		return response, fmt.Errorf("device enrollment response is incomplete")
+	if response.AgentID == "" || response.VehicleID == "" || response.Credential == "" {
+		return response, fmt.Errorf("agent enrollment response is incomplete")
 	}
 	if err := response.Config.Validate(); err != nil {
-		return response, fmt.Errorf("device enrollment configuration is invalid: %w", err)
+		return response, fmt.Errorf("agent enrollment configuration is invalid: %w", err)
 	}
 	return response, nil
 }
 
 func (client *Client) FetchConfiguration() (store.Configuration, error) {
 	var configuration store.Configuration
-	if err := client.request(http.MethodGet, "/api/v1/device/config", nil, &configuration, true); err != nil {
+	if err := client.request(http.MethodGet, "/api/v1/agent/config", nil, &configuration, true); err != nil {
 		return configuration, fmt.Errorf("configuration sync failed: %w", err)
 	}
 	return configuration, nil
@@ -108,7 +108,7 @@ func (client *Client) Upload(bootID string, samples []model.Sample) ([]string, e
 		Accepted   []string `json:"accepted"`
 		Duplicates []string `json:"duplicates"`
 	}
-	if err := client.request(http.MethodPost, "/api/v1/device/telemetry/batch", payload, &response, true); err != nil {
+	if err := client.request(http.MethodPost, "/api/v1/agent/telemetry/batch", payload, &response, true); err != nil {
 		return nil, fmt.Errorf("telemetry upload failed: %w", err)
 	}
 	return append(response.Accepted, response.Duplicates...), nil
@@ -168,7 +168,7 @@ func (client *Client) request(method, path string, body, destination any, authen
 func (client *Client) headers(request *http.Request, authenticated bool) {
 	request.Header.Set("User-Agent", fmt.Sprintf("Carhibou-Agent/%s (%s/%s)", client.version, runtime.GOOS, runtime.GOARCH))
 	if authenticated {
-		request.Header.Set("Authorization", "Device "+client.credential)
+		request.Header.Set("Authorization", "Agent "+client.credential)
 	}
 }
 

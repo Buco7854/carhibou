@@ -20,10 +20,10 @@ buttons explaining themselves — absence is the design language here).
 - Per card, operate-only: the profile select (viewers see the profile name as
   plain text, or nothing when unset), "Clear data", photo add/change/remove.
 
-### Agents page (devices)
+### Data sources page (agents)
 - The enrollment form's vehicle select lists only vehicles with
   `access === 'operate'`; "Add agent" hidden when that list is empty.
-- Per row, operate-only (look the vehicle up by `device.vehicle_id`):
+- Per row, operate-only (look the vehicle up by `agent.vehicle_id`):
   Settings, rotate, revoke, delete.
 
 ### Hooks

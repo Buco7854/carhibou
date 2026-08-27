@@ -7,7 +7,7 @@ the first public release.
 
 ### Added
 
-- Complete FastAPI/PostgreSQL modular monolith with local sessions, device enrollment,
+- Complete FastAPI/PostgreSQL modular monolith with local sessions, agent enrollment,
   idempotent telemetry, current state, history, dashboards and diagnostics.
 - Privileged Python hook system with durable jobs, isolated execution, revisions,
   persistent state, encrypted secrets, helpers and execution history.

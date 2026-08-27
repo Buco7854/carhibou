@@ -31,7 +31,7 @@ Go agent runs near each vehicle.
 ## Start here
 
 1. [Install the server](/getting-started/installation) with Docker Compose.
-2. Add a vehicle and [enroll its agent](/user-guide/devices).
+2. Add a vehicle and [configure a data source](/user-guide/data-sources).
 3. Configure a backup before collecting journeys you care about.
 
 Carhibou is pre-1.0. Hardware support is described by the evidence in the

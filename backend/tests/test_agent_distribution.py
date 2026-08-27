@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app.devices import protocol
+from backend.app.agents import protocol
 
 
 def test_standalone_agent_installer_is_distributed(client: TestClient) -> None:

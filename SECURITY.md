@@ -26,12 +26,12 @@ that privileged hooks are intentionally allowed to reach.
   Provision the administrator before exposing an empty instance so another network
   client cannot win the one-time setup race.
 - Authentication identities are separate from users/ownership so OIDC can be linked
-  later. Device credentials use a distinct `Authorization: Device` realm and cannot
+  later. Agent credentials use a distinct `Authorization: Agent` realm and cannot
   authorize human routes. Tests enforce this isolation.
 - Enrollment tokens are random, hashed, short-lived, single-use and vehicle-bound.
   Permanent credentials are shown only at enrollment/rotation and never placed in an
   installer URL. Revoke a tracker after suspected credential theft.
-- TLS is mandatory outside localhost. A stolen active device credential can impersonate
+- TLS is mandatory outside localhost. A stolen active agent credential can impersonate
   that tracker and submit telemetry until revoked; it cannot read account data.
 - Hook secrets use Fernet authenticated encryption under `CARHIBOU_MASTER_KEY`. Values
   are write-only in the API/UI and centrally redacted from hook logs/errors. Arbitrary

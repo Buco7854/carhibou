@@ -5,12 +5,12 @@ from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.agents.models import Agent
 from backend.app.auth.models import BrowserSession
 from backend.app.auth.security import hash_token, tokens_equal
 from backend.app.common.database import get_db
 from backend.app.common.settings import get_settings
 from backend.app.common.time import as_utc, utcnow
-from backend.app.devices.models import Device
 from backend.app.users.models import User
 
 Db = Annotated[Session, Depends(get_db)]
@@ -66,21 +66,21 @@ def current_user_write(
 CurrentUserWrite = Annotated[AuthenticatedUser, Depends(current_user_write)]
 
 
-def current_device(
+def current_agent(
     db: Db,
     authorization: Annotated[str | None, Header()] = None,
-) -> Device:
-    if not authorization or not authorization.startswith("Device "):
+) -> Agent:
+    if not authorization or not authorization.startswith("Agent "):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="device credential required"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="agent credential required"
         )
-    raw = authorization.removeprefix("Device ").strip()
-    device = db.scalar(select(Device).where(Device.credential_hash == hash_token(raw)))
-    if not device or device.revoked_at is not None:
+    raw = authorization.removeprefix("Agent ").strip()
+    agent = db.scalar(select(Agent).where(Agent.credential_hash == hash_token(raw)))
+    if not agent or agent.revoked_at is not None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid device credential"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid agent credential"
         )
-    return device
+    return agent
 
 
-CurrentDevice = Annotated[Device, Depends(current_device)]
+CurrentAgent = Annotated[Agent, Depends(current_agent)]

@@ -18,8 +18,8 @@ class HTTPSBatchTransport:
     def __init__(self, server_url: str, credential: str, boot_id: str, timeout: float = 20):
         server_url = validate_server_url(server_url)
         UUID(boot_id)
-        self.endpoint = server_url + "/api/v1/device/telemetry/batch"
-        self.config_endpoint = server_url + "/api/v1/device/config"
+        self.endpoint = server_url + "/api/v1/agent/telemetry/batch"
+        self.config_endpoint = server_url + "/api/v1/agent/config"
         self.credential = credential
         self.boot_id = boot_id
         self.timeout = timeout
@@ -33,7 +33,7 @@ class HTTPSBatchTransport:
             data=body,
             method="POST",
             headers={
-                "Authorization": f"Device {self.credential}",
+                "Authorization": f"Agent {self.credential}",
                 "Content-Type": "application/json",
                 "User-Agent": f"Carhibou-Agent/{__version__}",
             },
@@ -54,7 +54,7 @@ class HTTPSBatchTransport:
             self.config_endpoint,
             method="GET",
             headers={
-                "Authorization": f"Device {self.credential}",
+                "Authorization": f"Agent {self.credential}",
                 "User-Agent": f"Carhibou-Agent/{__version__}",
             },
         )

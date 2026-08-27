@@ -26,11 +26,11 @@ class TelemetrySample(BaseModel):
     recorded_at: datetime
     position: Position | None = None
     metrics: dict[str, MetricValue] = Field(default_factory=dict)
-    device: dict[str, MetricValue] = Field(default_factory=dict)
+    agent: dict[str, MetricValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_metric_names(self) -> "TelemetrySample":
-        for name in (*self.metrics, *self.device):
+        for name in (*self.metrics, *self.agent):
             if not name or len(name) > 120 or any(ch.isspace() for ch in name):
                 raise ValueError(f"invalid metric name: {name!r}")
         return self

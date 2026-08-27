@@ -18,7 +18,7 @@ narrow screen, the layout becomes a stable single-column stack and disables move
 content remains readable.
 
 Available widgets include the vehicle selector, media, telemetry, map, metric card,
-energy gauge, status, time series, comparison chart, device health and hook activity.
+energy gauge, status, time series, comparison chart, agent health and hook activity.
 Charts retain their one-, seven- or thirty-day range.
 
 Widgets set to **Selected vehicle** follow the searchable selector immediately. A widget

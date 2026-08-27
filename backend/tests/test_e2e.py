@@ -64,7 +64,7 @@ def test_complete_simulator_dashboard_and_hook_scenario(
             json={"implementation_id": "custom", "name": "Journey simulator"},
         ).json()
         enrolled = client.post(
-            "/api/v1/device/enroll",
+            "/api/v1/agent/enroll",
             json={
                 "token": enrollment["token"],
                 "implementation_id": "custom",
@@ -101,8 +101,8 @@ def test_complete_simulator_dashboard_and_hook_scenario(
         boot_time = datetime.now(UTC) - timedelta(seconds=10)
         samples = [journey.sample(index, boot_time).as_payload() for index in range(3)]
         sent = client.post(
-            "/api/v1/device/telemetry/batch",
-            headers={"Authorization": f"Device {enrolled['credential']}"},
+            "/api/v1/agent/telemetry/batch",
+            headers={"Authorization": f"Agent {enrolled['credential']}"},
             json={"boot_id": str(uuid4()), "samples": samples},
         )
         assert sent.status_code == 200, sent.text

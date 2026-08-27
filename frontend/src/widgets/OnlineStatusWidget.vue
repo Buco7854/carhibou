@@ -38,7 +38,7 @@ const reportedAt = computed(() => {
       </dl>
       <small class="status-time">{{ t('dashboard.lastReport', { at: reportedAt }) }}</small>
     </template>
-    <DashboardWidgetEmpty v-else icon="devices" />
+    <DashboardWidgetEmpty v-else icon="agent" />
   </article>
 </template>
 

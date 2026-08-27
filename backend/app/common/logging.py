@@ -20,7 +20,7 @@ class JsonFormatter(logging.Formatter):
         for key in (
             "user_id",
             "vehicle_id",
-            "device_id",
+            "agent_id",
             "telemetry_id",
             "hook_id",
             "hook_execution_id",

@@ -4,8 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from backend.app.agents.models import Agent
 from backend.app.common.time import as_utc, utcnow
-from backend.app.devices.models import Device
 from backend.app.hooks.models import Hook, HookExecution, Trigger
 from backend.app.jobs.models import Job
 from backend.app.telemetry.models import Telemetry
@@ -20,12 +20,12 @@ class IngestionResult:
     duplicates: list[str]
 
 
-def _telemetry_model(device: Device, boot_id: str, sample: TelemetrySample) -> Telemetry:
+def _telemetry_model(agent: Agent, boot_id: str, sample: TelemetrySample) -> Telemetry:
     position = sample.position
     return Telemetry(
         id=str(sample.id),
-        vehicle_id=device.vehicle_id,
-        device_id=device.id,
+        vehicle_id=agent.vehicle_id,
+        agent_id=agent.id,
         boot_id=boot_id,
         sequence=sample.sequence,
         recorded_at=as_utc(sample.recorded_at),
@@ -36,7 +36,7 @@ def _telemetry_model(device: Device, boot_id: str, sample: TelemetrySample) -> T
         heading=position.heading if position else None,
         accuracy=position.accuracy if position else None,
         metrics=dict(sample.metrics),
-        device_data=dict(sample.device),
+        agent_data=dict(sample.agent),
     )
 
 
@@ -45,7 +45,7 @@ def _update_current_state(db: Session, telemetry: Telemetry) -> None:
     if state and as_utc(state.updated_at) > as_utc(telemetry.recorded_at):
         return
     previous_metrics = state.latest_metrics if state else {}
-    previous_device = state.device_state if state else {}
+    previous_agent = state.agent_state if state else {}
     values = {
         "telemetry_id": telemetry.id,
         "updated_at": telemetry.recorded_at,
@@ -56,7 +56,7 @@ def _update_current_state(db: Session, telemetry: Telemetry) -> None:
         "heading": telemetry.heading,
         "accuracy": telemetry.accuracy,
         "latest_metrics": {**previous_metrics, **telemetry.metrics},
-        "device_state": {**previous_device, **telemetry.device_data},
+        "agent_state": {**previous_agent, **telemetry.agent_data},
     }
     if state:
         for key, value in values.items():
@@ -80,7 +80,7 @@ def _enqueue_hooks(db: Session, samples: list[Telemetry]) -> None:
         version=2,
         occurred_at=latest.recorded_at,
         vehicle_id=latest.vehicle_id,
-        device_id=latest.device_id,
+        agent_id=latest.agent_id,
         telemetry_id=latest.id,
         payload={
             "telemetry_id": latest.id,
@@ -109,14 +109,14 @@ def _enqueue_hooks(db: Session, samples: list[Telemetry]) -> None:
         db.add(Job(type="hook.execute", payload={"execution_id": execution.id}))
 
 
-def ingest_batch(db: Session, device: Device, batch: TelemetryBatch) -> IngestionResult:
-    # Serialize ingestion per vehicle. This prevents two devices/requests from racing
+def ingest_batch(db: Session, agent: Agent, batch: TelemetryBatch) -> IngestionResult:
+    # Serialize ingestion per vehicle. This prevents two agents/requests from racing
     # the initial current-state row or rewinding merged JSON state.
-    db.execute(select(Vehicle.id).where(Vehicle.id == device.vehicle_id).with_for_update())
+    db.execute(select(Vehicle.id).where(Vehicle.id == agent.vehicle_id).with_for_update())
     result = IngestionResult(accepted=[], duplicates=[])
     stored: list[Telemetry] = []
     for sample in batch.samples:
-        telemetry = _telemetry_model(device, str(batch.boot_id), sample)
+        telemetry = _telemetry_model(agent, str(batch.boot_id), sample)
         try:
             with db.begin_nested():
                 db.add(telemetry)
@@ -129,5 +129,5 @@ def ingest_batch(db: Session, device: Device, batch: TelemetryBatch) -> Ingestio
         result.accepted.append(telemetry.id)
     stored.sort(key=lambda row: (as_utc(row.recorded_at), row.sequence))
     _enqueue_hooks(db, stored)
-    device.last_seen_at = utcnow()
+    agent.last_seen_at = utcnow()
     return result

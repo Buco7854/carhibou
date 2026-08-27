@@ -91,8 +91,8 @@ const metricDefinitions: Record<string, MetricDefinition> = {
   'vehicle.speed': {
     key: 'vehicle.speed', labelKey: 'metrics.vehicleSpeed', unit: 'km/h', icon: 'speed', decimals: 0, kind: 'number',
   },
-  'device.input_voltage': {
-    key: 'device.input_voltage', labelKey: 'metrics.inputVoltage', unit: 'V', icon: 'battery', decimals: 1, kind: 'number',
+  'agent.input_voltage': {
+    key: 'agent.input_voltage', labelKey: 'metrics.inputVoltage', unit: 'V', icon: 'battery', decimals: 1, kind: 'number',
   },
 }
 
@@ -143,7 +143,7 @@ export function vehicleActivity(vehicle: Vehicle | null | undefined): VehicleAct
     if (declared === 'ready' || declared === 'driving' || declared === 'on') return 'driving'
   }
   if (chargingState(vehicle).active) return 'charging'
-  if (state.device['vehicle_in_use'] === true) return 'driving'
+  if (state.agent['vehicle_in_use'] === true) return 'driving'
   return 'parked'
 }
 
@@ -197,7 +197,7 @@ const conventionalOrder = [
   'engine.intake_temperature',
   'engine.maf',
   'fuel.level',
-  'device.input_voltage',
+  'agent.input_voltage',
   'battery.soc',
   'battery.pack_voltage',
   'battery.power',

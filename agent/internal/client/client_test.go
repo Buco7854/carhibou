@@ -14,10 +14,10 @@ func TestExplicitHTTPEnrollmentAndBatchTransport(t *testing.T) {
 	var enrollment enrollmentRequest
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
-		case "/api/v1/device/enroll":
+		case "/api/v1/agent/enroll":
 			json.NewDecoder(request.Body).Decode(&enrollment)
-			json.NewEncoder(response).Encode(map[string]any{"device_id": "device-1", "vehicle_id": "vehicle-1", "credential": "secret", "config": map[string]any{"version": 1, "sampling": map[string]any{"default_seconds": 5}, "upload": map[string]any{"default_seconds": 30}, "vehicle_profile": nil}})
-		case "/api/v1/device/telemetry/batch":
+			json.NewEncoder(response).Encode(map[string]any{"agent_id": "agent-1", "vehicle_id": "vehicle-1", "credential": "secret", "config": map[string]any{"version": 1, "sampling": map[string]any{"default_seconds": 5}, "upload": map[string]any{"default_seconds": 30}, "vehicle_profile": nil}})
+		case "/api/v1/agent/telemetry/batch":
 			authorization = request.Header.Get("Authorization")
 			var body struct {
 				Samples []model.Sample `json:"samples"`
@@ -40,7 +40,7 @@ func TestExplicitHTTPEnrollmentAndBatchTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(accepted) != 1 || accepted[0] != sample.ID || authorization != "Device secret" {
+	if len(accepted) != 1 || accepted[0] != sample.ID || authorization != "Agent secret" {
 		t.Fatalf("unexpected upload: %#v %q", accepted, authorization)
 	}
 	if enrollment.ImplementationID != "carhibou.go" || enrollment.ProtocolVersion != 1 || enrollment.AgentVersion != "test" {

@@ -22,6 +22,6 @@ class VehicleState(Base):
     heading: Mapped[float | None] = mapped_column(Float)
     accuracy: Mapped[float | None] = mapped_column(Float)
     latest_metrics: Mapped[JSONValue] = mapped_column(JSONType, default=dict)
-    device_state: Mapped[JSONValue] = mapped_column(JSONType, default=dict)
+    agent_state: Mapped[JSONValue] = mapped_column(JSONType, default=dict)
 
     vehicle = relationship("Vehicle", back_populates="state")

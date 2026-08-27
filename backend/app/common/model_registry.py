@@ -1,9 +1,10 @@
 """Import all models so Alembic and relationship resolution see one metadata graph."""
 
 from backend.app.access.models import AppSetting, VehicleAccessGrant
+from backend.app.agents.models import Agent, AgentEnrollmentToken
 from backend.app.auth.models import AuthenticationIdentity, BrowserSession
+from backend.app.connectors.models import Connector
 from backend.app.dashboards.models import Dashboard
-from backend.app.devices.models import Device, EnrollmentToken
 from backend.app.hooks.models import Hook, HookExecution, HookRevision, HookState, Trigger
 from backend.app.jobs.models import Job, WorkerHeartbeat
 from backend.app.secrets.models import Secret
@@ -17,9 +18,10 @@ __all__ = [
     "AuthenticationIdentity",
     "AppSetting",
     "BrowserSession",
+    "Connector",
     "Dashboard",
-    "Device",
-    "EnrollmentToken",
+    "Agent",
+    "AgentEnrollmentToken",
     "Hook",
     "HookExecution",
     "HookRevision",

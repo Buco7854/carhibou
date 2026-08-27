@@ -79,7 +79,7 @@ class SimulatedCZeroJourney:
                 "charging.active": point.charging,
                 "charging.power": 5.9 if point.charging else 0,
             },
-            device={"mobile_signal": point.mobile_signal, "provider": "simulator"},
+            agent={"mobile_signal": point.mobile_signal, "provider": "simulator"},
         )
 
     def __iter__(self):  # type: ignore[no-untyped-def]

@@ -17,7 +17,7 @@ be expressed as static steps.
   rejects another version before consuming an enrollment token.
 - Enrollment tokens are bound to one `implementation_id`. A token minted for one
   implementation cannot enroll another.
-- Devices persist all three values. Human API responses expose them and provide a computed
+- Agents persist all three values. Human API responses expose them and provide a computed
   compatibility state.
 
 ## Manifest catalog
@@ -51,9 +51,9 @@ guided setup returns the server URL, one-time token, protocol version, and proto
 - The one-time token response contains ordered setup steps, not a special-case install
   command field.
 
-## Device protocol
+## Agent protocol
 
-- Device enrollment requires `token`, `implementation_id`, `protocol_version`,
+- Agent enrollment requires `token`, `implementation_id`, `protocol_version`,
   `agent_version`, `hostname`, and optional hardware facts.
 - A mismatched implementation or protocol is rejected without consuming the token.
 - Existing credential realm separation, telemetry/config endpoints, revocation, and

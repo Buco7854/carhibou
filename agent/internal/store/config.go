@@ -117,7 +117,7 @@ func rootCause(err error) error {
 
 type Credentials struct {
 	ServerURL         string `json:"server_url"`
-	DeviceID          string `json:"device_id"`
+	AgentID           string `json:"agent_id"`
 	VehicleID         string `json:"vehicle_id"`
 	Credential        string `json:"credential"`
 	AllowInsecureHTTP bool   `json:"allow_insecure_http,omitempty"`

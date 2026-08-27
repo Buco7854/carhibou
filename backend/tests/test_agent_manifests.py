@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from backend.app.devices import manifests
-from backend.app.devices.manifests import ManifestError, discover_manifests
+from backend.app.agents import manifests
+from backend.app.agents.manifests import ManifestError, discover_manifests
 
 MANIFEST = """
 schema = 1
@@ -64,6 +64,7 @@ def test_valid_manifest_preserves_order_and_protocol(tmp_path: Path) -> None:
         ("schema = 1", "schema = 2"),
         ("schema = 1", "schema = true"),
         ('id = "community.example"', 'id = "Invalid id"'),
+        ('id = "community.example"', 'id = "connector.community"'),
         ('name = "Example agent"', "name = 4"),
         ("protocol_version = 1", "protocol_version = 0"),
         ("protocol_version = 1", "protocol_version = true"),

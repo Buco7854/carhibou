@@ -12,7 +12,7 @@ export interface VehicleState {
   online: boolean
   position: Position | null
   metrics: Record<string, unknown>
-  device: Record<string, unknown>
+  agent: Record<string, unknown>
 }
 
 export type VehicleAccessLevel = 'view' | 'operate'
@@ -109,7 +109,7 @@ export interface HistoryEntry {
   heading: number | null
   accuracy: number | null
   metrics: Record<string, unknown>
-  device: Record<string, unknown>
+  agent: Record<string, unknown>
 }
 
 export interface HistoryEntries {
@@ -120,7 +120,7 @@ export interface HistoryEntries {
   limit: number
   offset: number
   metric_keys: string[]
-  device_keys: string[]
+  agent_keys: string[]
   entries: HistoryEntry[]
 }
 
@@ -192,7 +192,7 @@ export interface Diagnostics {
   pending_jobs: number
   failed_jobs: number
   hook_failures: number
-  stale_devices: number
+  stale_agents: number
   workers: Array<{ id: string; version: string; seen_at: string }>
 }
 

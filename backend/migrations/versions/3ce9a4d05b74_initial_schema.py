@@ -204,7 +204,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_vehicles_created_by"), "vehicles", ["created_by"], unique=False)
     op.create_table(
-        "device_enrollment_tokens",
+        "agent_enrollment_tokens",
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("token_hash", sa.String(length=64), nullable=False),
         sa.Column("vehicle_id", sa.String(length=36), nullable=False),
@@ -220,31 +220,31 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["vehicle_id"],
             ["vehicles.id"],
-            name=op.f("fk_device_enrollment_tokens_vehicle_id_vehicles"),
+            name=op.f("fk_agent_enrollment_tokens_vehicle_id_vehicles"),
             ondelete="CASCADE",
         ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_device_enrollment_tokens")),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_agent_enrollment_tokens")),
     )
     op.create_index(
-        op.f("ix_device_enrollment_tokens_expires_at"),
-        "device_enrollment_tokens",
+        op.f("ix_agent_enrollment_tokens_expires_at"),
+        "agent_enrollment_tokens",
         ["expires_at"],
         unique=False,
     )
     op.create_index(
-        op.f("ix_device_enrollment_tokens_token_hash"),
-        "device_enrollment_tokens",
+        op.f("ix_agent_enrollment_tokens_token_hash"),
+        "agent_enrollment_tokens",
         ["token_hash"],
         unique=True,
     )
     op.create_index(
-        op.f("ix_device_enrollment_tokens_vehicle_id"),
-        "device_enrollment_tokens",
+        op.f("ix_agent_enrollment_tokens_vehicle_id"),
+        "agent_enrollment_tokens",
         ["vehicle_id"],
         unique=False,
     )
     op.create_table(
-        "devices",
+        "agents",
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("vehicle_id", sa.String(length=36), nullable=False),
         sa.Column("name", sa.String(length=120), nullable=False),
@@ -272,14 +272,44 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["vehicle_id"],
             ["vehicles.id"],
-            name=op.f("fk_devices_vehicle_id_vehicles"),
+            name=op.f("fk_agents_vehicle_id_vehicles"),
             ondelete="CASCADE",
         ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_devices")),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_agents")),
     )
-    op.create_index(op.f("ix_devices_credential_hash"), "devices", ["credential_hash"], unique=True)
-    op.create_index(op.f("ix_devices_last_seen_at"), "devices", ["last_seen_at"], unique=False)
-    op.create_index(op.f("ix_devices_vehicle_id"), "devices", ["vehicle_id"], unique=False)
+    op.create_index(op.f("ix_agents_credential_hash"), "agents", ["credential_hash"], unique=True)
+    op.create_index(op.f("ix_agents_last_seen_at"), "agents", ["last_seen_at"], unique=False)
+    op.create_index(op.f("ix_agents_vehicle_id"), "agents", ["vehicle_id"], unique=False)
+    op.create_table(
+        "connectors",
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("vehicle_id", sa.String(length=36), nullable=False),
+        sa.Column("name", sa.String(length=120), nullable=False),
+        sa.Column("kind", sa.String(length=100), nullable=False),
+        sa.Column("enabled", sa.Boolean(), nullable=False),
+        sa.Column(
+            "config",
+            sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
+            nullable=False,
+        ),
+        sa.Column("encrypted_password", sa.Text(), nullable=True),
+        sa.Column("config_version", sa.Integer(), nullable=False),
+        sa.Column("status", sa.String(length=20), nullable=False),
+        sa.Column("last_connected_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_message_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_sample_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_error", sa.Text(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["vehicle_id"],
+            ["vehicles.id"],
+            name=op.f("fk_connectors_vehicle_id_vehicles"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_connectors")),
+    )
+    op.create_index(op.f("ix_connectors_vehicle_id"), "connectors", ["vehicle_id"], unique=False)
     op.create_table(
         "hooks",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -396,7 +426,7 @@ def upgrade() -> None:
         "telemetry",
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("vehicle_id", sa.String(length=36), nullable=False),
-        sa.Column("device_id", sa.String(length=36), nullable=False),
+        sa.Column("agent_id", sa.String(length=36), nullable=False),
         sa.Column("boot_id", sa.String(length=36), nullable=False),
         sa.Column("sequence", sa.Integer(), nullable=False),
         sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
@@ -413,14 +443,14 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column(
-            "device_data",
+            "agent_data",
             sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(
-            ["device_id"],
-            ["devices.id"],
-            name=op.f("fk_telemetry_device_id_devices"),
+            ["agent_id"],
+            ["agents.id"],
+            name=op.f("fk_telemetry_agent_id_agents"),
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
@@ -432,7 +462,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_telemetry")),
     )
     op.create_index(
-        "ix_telemetry_device_recorded", "telemetry", ["device_id", "recorded_at"], unique=False
+        "ix_telemetry_agent_recorded", "telemetry", ["agent_id", "recorded_at"], unique=False
     )
     op.create_index(
         "ix_telemetry_vehicle_recorded", "telemetry", ["vehicle_id", "recorded_at"], unique=False
@@ -444,7 +474,7 @@ def upgrade() -> None:
         sa.Column("version", sa.Integer(), nullable=False),
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("vehicle_id", sa.String(length=36), nullable=True),
-        sa.Column("device_id", sa.String(length=36), nullable=True),
+        sa.Column("agent_id", sa.String(length=36), nullable=True),
         sa.Column("telemetry_id", sa.String(length=36), nullable=True),
         sa.Column(
             "payload",
@@ -453,9 +483,9 @@ def upgrade() -> None:
         ),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
-            ["device_id"],
-            ["devices.id"],
-            name=op.f("fk_triggers_device_id_devices"),
+            ["agent_id"],
+            ["agents.id"],
+            name=op.f("fk_triggers_agent_id_agents"),
             ondelete="SET NULL",
         ),
         sa.ForeignKeyConstraint(
@@ -493,7 +523,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column(
-            "device_state",
+            "agent_state",
             sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
             nullable=False,
         ),
@@ -578,7 +608,7 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_triggers_occurred_at"), table_name="triggers")
     op.drop_table("triggers")
     op.drop_index("ix_telemetry_vehicle_recorded", table_name="telemetry")
-    op.drop_index("ix_telemetry_device_recorded", table_name="telemetry")
+    op.drop_index("ix_telemetry_agent_recorded", table_name="telemetry")
     op.drop_table("telemetry")
     op.drop_table("hook_state")
     op.drop_index(op.f("ix_hook_revisions_hook_id"), table_name="hook_revisions")
@@ -589,20 +619,22 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_hooks_vehicle_id"), table_name="hooks")
     op.drop_index(op.f("ix_hooks_created_by"), table_name="hooks")
     op.drop_table("hooks")
-    op.drop_index(op.f("ix_devices_vehicle_id"), table_name="devices")
-    op.drop_index(op.f("ix_devices_last_seen_at"), table_name="devices")
-    op.drop_index(op.f("ix_devices_credential_hash"), table_name="devices")
-    op.drop_table("devices")
+    op.drop_index(op.f("ix_connectors_vehicle_id"), table_name="connectors")
+    op.drop_table("connectors")
+    op.drop_index(op.f("ix_agents_vehicle_id"), table_name="agents")
+    op.drop_index(op.f("ix_agents_last_seen_at"), table_name="agents")
+    op.drop_index(op.f("ix_agents_credential_hash"), table_name="agents")
+    op.drop_table("agents")
     op.drop_index(
-        op.f("ix_device_enrollment_tokens_vehicle_id"), table_name="device_enrollment_tokens"
+        op.f("ix_agent_enrollment_tokens_vehicle_id"), table_name="agent_enrollment_tokens"
     )
     op.drop_index(
-        op.f("ix_device_enrollment_tokens_token_hash"), table_name="device_enrollment_tokens"
+        op.f("ix_agent_enrollment_tokens_token_hash"), table_name="agent_enrollment_tokens"
     )
     op.drop_index(
-        op.f("ix_device_enrollment_tokens_expires_at"), table_name="device_enrollment_tokens"
+        op.f("ix_agent_enrollment_tokens_expires_at"), table_name="agent_enrollment_tokens"
     )
-    op.drop_table("device_enrollment_tokens")
+    op.drop_table("agent_enrollment_tokens")
     op.drop_index(op.f("ix_vehicles_created_by"), table_name="vehicles")
     op.drop_table("vehicles")
     op.drop_index(op.f("ix_vehicle_profiles_created_by"), table_name="vehicle_profiles")

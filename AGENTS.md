@@ -7,7 +7,7 @@ the ARMv6-friendly Go agent uses serial devices, HTTP and a compiled-in SQLite q
 
 ## Invariants
 
-- Human cookie sessions and device credentials are separate authentication realms.
+- Human cookie sessions and agent credentials are separate authentication realms.
 - Local self-registration can create only the first administrator; later identities
   must never be created through the public registration endpoint.
 - Telemetry writes, current-state updates, trigger creation, and job enqueueing are atomic.

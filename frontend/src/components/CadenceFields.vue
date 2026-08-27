@@ -30,8 +30,8 @@ const estimate = computed(() => formatDataVolume(
 const delay = computed(() => formatDuration(drivingDelaySeconds(model.value), locale.value))
 
 const fields = [
-  { key: 'sampling_seconds', labelKey: 'devices.samplingSeconds' },
-  { key: 'upload_seconds', labelKey: 'devices.uploadSeconds' },
+  { key: 'sampling_seconds', labelKey: 'agents.samplingSeconds' },
+  { key: 'upload_seconds', labelKey: 'agents.uploadSeconds' },
 ] as const
 
 function set(key: keyof Cadence, value: number): void {
@@ -46,7 +46,7 @@ function apply(preset: Cadence): void {
 
 <template>
   <div class="cadence">
-    <div class="cadence-presets" role="group" :aria-label="t('devices.presets')">
+    <div class="cadence-presets" role="group" :aria-label="t('agents.presets')">
       <button
         v-for="preset in CADENCE_PRESETS"
         :key="preset.key"
@@ -55,14 +55,14 @@ function apply(preset: Cadence): void {
         :aria-pressed="active?.key === preset.key"
         @click="apply(preset)"
       >
-        <strong>{{ t(`devices.preset.${preset.key}`) }}</strong>
-        <small>{{ t('devices.presetSummary', { driving: preset.sampling_seconds, parked: preset.parked_sampling_seconds }) }}</small>
+        <strong>{{ t(`agents.preset.${preset.key}`) }}</strong>
+        <small>{{ t('agents.presetSummary', { driving: preset.sampling_seconds, parked: preset.parked_sampling_seconds }) }}</small>
       </button>
     </div>
 
     <div class="cadence-states">
       <fieldset class="cadence-state">
-        <legend>{{ t('devices.whileDriving') }}</legend>
+        <legend>{{ t('agents.whileDriving') }}</legend>
         <div class="cadence-fields">
           <label v-for="field in fields" :key="field.key" class="field">
             <span>{{ t(field.labelKey) }}</span>
@@ -71,7 +71,7 @@ function apply(preset: Cadence): void {
         </div>
       </fieldset>
       <fieldset class="cadence-state">
-        <legend>{{ t('devices.whileParked') }}</legend>
+        <legend>{{ t('agents.whileParked') }}</legend>
         <div class="cadence-fields">
           <label v-for="field in fields" :key="field.key" class="field">
             <span>{{ t(field.labelKey) }}</span>
@@ -81,16 +81,16 @@ function apply(preset: Cadence): void {
       </fieldset>
     </div>
 
-    <p class="field-hint">{{ t('devices.parkedHint') }}</p>
-    <p class="field-hint">{{ t('devices.uploadHint') }}</p>
+    <p class="field-hint">{{ t('agents.parkedHint') }}</p>
+    <p class="field-hint">{{ t('agents.uploadHint') }}</p>
 
     <div class="cadence-estimate">
       <strong>{{ estimate }}</strong>
-      <span>{{ t('devices.estimateHint') }}</span>
-      <span class="cadence-delay">{{ t('devices.delayHint', { delay }) }}</span>
+      <span>{{ t('agents.estimateHint') }}</span>
+      <span class="cadence-delay">{{ t('agents.delayHint', { delay }) }}</span>
       <label class="driving-hours">
-        <input v-model.number="drivingHours" class="input" type="number" min="0" max="24" step="0.5" :aria-label="t('devices.drivingHours')" />
-        <span>{{ t('devices.drivingHours') }}</span>
+        <input v-model.number="drivingHours" class="input" type="number" min="0" max="24" step="0.5" :aria-label="t('agents.drivingHours')" />
+        <span>{{ t('agents.drivingHours') }}</span>
       </label>
     </div>
   </div>

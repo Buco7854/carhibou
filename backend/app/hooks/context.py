@@ -188,7 +188,7 @@ def _sample(raw: dict[str, Any]) -> Any:
     sample = dict(raw)
     sample["recorded_at"] = _datetime(sample.get("recorded_at"))
     sample["metrics"] = MappingProxyType(sample.get("metrics", {}))
-    sample["device"] = MappingProxyType(sample.get("device", {}))
+    sample["agent"] = MappingProxyType(sample.get("agent", {}))
     return _object(sample)
 
 
@@ -206,11 +206,11 @@ class HookContext:
         vehicle = dict(data["vehicle"])
         vehicle_state = dict(vehicle.get("state", {}))
         vehicle_state["metrics"] = MappingProxyType(vehicle_state.get("metrics", {}))
-        vehicle_state["device"] = MappingProxyType(vehicle_state.get("device", {}))
+        vehicle_state["agent"] = MappingProxyType(vehicle_state.get("agent", {}))
         vehicle_state["updated_at"] = _datetime(vehicle_state.get("updated_at"))
         vehicle["state"] = vehicle_state
         self.vehicle = _object(vehicle)
-        self.device = _object(data["device"])
+        self.agent = _object(data["agent"])
         self.state = HookStateMapping(data.get("state", {}))
         self.secrets = MappingProxyType(data.get("secrets", {}))
         self.dry_run = bool(data.get("dry_run", False))

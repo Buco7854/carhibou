@@ -37,7 +37,7 @@ class StateResponse(BaseModel):
     online: bool
     position: PositionResponse | None
     metrics: dict[str, object]
-    device: dict[str, object]
+    agent: dict[str, object]
 
 
 class VehicleResponse(BaseModel):

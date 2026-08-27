@@ -32,7 +32,7 @@ export default defineConfig({
           { text: 'Access', link: '/user-guide/access' },
           { text: 'Vehicles and history', link: '/user-guide/vehicles' },
           { text: 'Dashboards', link: '/user-guide/dashboards' },
-          { text: 'Agents', link: '/user-guide/devices' },
+          { text: 'Data sources', link: '/user-guide/data-sources' },
           { text: 'Hooks and secrets', link: '/user-guide/hooks' },
         ],
       },

@@ -69,6 +69,8 @@ mako==1.4.1
     # via alembic
 markupsafe==3.0.3
     # via mako
+paho-mqtt==2.1.0
+    # via carhibou (pyproject.toml)
 psycopg==3.3.4
     # via carhibou (pyproject.toml)
 psycopg-binary==3.3.4

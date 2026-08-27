@@ -5,7 +5,7 @@ Updated: 2026-08-25
 ## Works
 
 - The modular monolith implements local session authentication, vehicle ownership,
-  one-time device enrollment, separate device credentials, idempotent telemetry,
+  one-time agent enrollment, separate agent credentials, idempotent telemetry,
   current state, bounded history, dashboards, diagnostics and explicit migrations.
   Local registration can create only the first administrator; an administrator adds
   everyone afterwards from Settings, and may suspend, promote or delete an account. The
@@ -110,7 +110,7 @@ Updated: 2026-08-25
   `devices` and `doctor` report what it chose without competing for ports it already
   holds; probing again requires stopping the service first.
 - Both position sources report how long they have been repeating a reading, published
-  as `gps_fix_age_seconds` in device health. A streamed fix ages when the receiver goes
+  as `gps_fix_age_seconds` in agent health. A streamed fix ages when the receiver goes
   quiet, and a polled one ages when the module replays its last known position with a
   frozen clock, which SIMCom firmware does once the receiver loses the sky. A reading
   older than the freshness window is dropped rather than recorded as the current
@@ -119,7 +119,7 @@ Updated: 2026-08-25
   provides checksum-verified self-updates plus confirmation-gated complete removal of the
   service, executable, credentials and queued telemetry.
   Owners can create declarative profiles in the SPA; definitions are owner-scoped,
-  server-validated, versioned with assigned devices, and validated again by the agent
+  server-validated, versioned with assigned agents, and validated again by the agent
   before replacing last-known-good configuration. Built-in profiles remain read-only.
 - Production artifacts include a non-root multi-stage image, three-service Compose,
   CI/Pages/GHCR/release workflows, operator-focused VitePress docs and backup/restore

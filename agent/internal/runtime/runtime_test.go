@@ -39,7 +39,7 @@ func TestCollectReportsHowOldAStreamedFixIs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	age, present := sample.Device["gps_fix_age_seconds"]
+	age, present := sample.Agent["gps_fix_age_seconds"]
 	if !present {
 		t.Fatal("expected the fix age to travel with the sample")
 	}
@@ -55,7 +55,7 @@ func TestCollectOmitsFixAgeForAPollingSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, present := sample.Device["gps_fix_age_seconds"]; present {
+	if _, present := sample.Agent["gps_fix_age_seconds"]; present {
 		t.Fatal("a polling source must not claim a fix age")
 	}
 }
@@ -66,7 +66,7 @@ func TestCollectOmitsFixAgeWithoutAPosition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, present := sample.Device["gps_fix_age_seconds"]; present {
+	if _, present := sample.Agent["gps_fix_age_seconds"]; present {
 		t.Fatal("no position means there is no fix age to report")
 	}
 }
@@ -87,8 +87,8 @@ func TestCollectReportsWhyTheVehicleSourcePublishedNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := sample.Device["vehicle_source_error"]; got != "adapter did not connect: no such file" {
-		t.Fatalf("expected the failure in device health, got %v", got)
+	if got := sample.Agent["vehicle_source_error"]; got != "adapter did not connect: no such file" {
+		t.Fatalf("expected the failure in agent health, got %v", got)
 	}
 
 	agent.Vehicle = failingVehicle{}
@@ -96,7 +96,7 @@ func TestCollectReportsWhyTheVehicleSourcePublishedNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, present := healthy.Device["vehicle_source_error"]; present {
+	if _, present := healthy.Agent["vehicle_source_error"]; present {
 		t.Fatal("a working source must not add an error field")
 	}
 }

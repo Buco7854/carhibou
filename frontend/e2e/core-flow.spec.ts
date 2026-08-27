@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 
 interface VehicleRecord { id: string; name: string }
 interface Enrollment { token: string }
-interface EnrolledDevice { device_id: string; credential: string }
+interface EnrolledAgent { agent_id: string; credential: string }
 interface HookRecord { id: string }
 interface HookExecution { status: string; logs: Array<Record<string, unknown>> }
 
@@ -115,7 +115,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByRole('dialog', { name:'Add signal' }).getByRole('button', { name:'Close' }).click()
   await page.getByRole('dialog', { name:'Create profile' }).getByRole('button', { name:'Close' }).click()
 
-  await page.getByRole('link', { name: 'Devices' }).click()
+  await page.getByRole('link', { name: 'Data sources' }).click()
   await page.getByRole('button', { name: 'Add agent' }).click()
   // The bundled implementation is preselected, and its hardware and setup style
   // are readable before a token is spent on it.
@@ -130,12 +130,12 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await expect(copyCommand).toHaveText('')
   await page.getByRole('dialog', { name:'Enroll an agent' }).getByRole('button', { name:'Close' }).first().click()
 
-  const enrolledResponse = await request.post('/api/v1/device/enroll', {
+  const enrolledResponse = await request.post('/api/v1/agent/enroll', {
     data: { token: enrollment.token, implementation_id: 'carhibou.go', protocol_version: 1, agent_version: 'e2e-1.0.0', hostname: 'browser-simulator', hardware: { model: 'simulated-pi-zero' } },
   })
   expect(enrolledResponse.status()).toBe(201)
-  const enrolled = await enrolledResponse.json() as EnrolledDevice
-  const isolatedHumanRequest = await request.get('/api/v1/auth/me', { headers: { Authorization: `Device ${enrolled.credential}` } })
+  const enrolled = await enrolledResponse.json() as EnrolledAgent
+  const isolatedHumanRequest = await request.get('/api/v1/auth/me', { headers: { Authorization: `Agent ${enrolled.credential}` } })
   expect(isolatedHumanRequest.status()).toBe(401)
 
   const samples = Array.from({ length: 6 }, (_, index) => ({
@@ -144,17 +144,17 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
     recorded_at: new Date(Date.now() - (5 - index) * 5_000).toISOString(),
     position: { latitude: 48.8566 + index * 0.002, longitude: 2.3522 + index * 0.003, speed: 24 + index * 7, heading: 35 + index * 8, altitude: 42, accuracy: 4.5 },
     metrics: { 'battery.soc': 82 - index, 'battery.pack_voltage': 330.5, 'battery.power': -11.8, 'charging.active': false, 'vehicle.speed': 24 + index * 7 },
-    device: { mobile_signal: -76, queue_depth: 0 },
+    agent: { mobile_signal: -76, queue_depth: 0 },
   }))
   const bootId = randomUUID()
-  const firstBatch = await request.post('/api/v1/device/telemetry/batch', {
-    headers: { Authorization: `Device ${enrolled.credential}` },
+  const firstBatch = await request.post('/api/v1/agent/telemetry/batch', {
+    headers: { Authorization: `Agent ${enrolled.credential}` },
     data: { boot_id: bootId, samples },
   })
   expect(firstBatch.status()).toBe(200)
   expect((await firstBatch.json()).accepted).toHaveLength(6)
-  const retriedBatch = await request.post('/api/v1/device/telemetry/batch', {
-    headers: { Authorization: `Device ${enrolled.credential}` },
+  const retriedBatch = await request.post('/api/v1/agent/telemetry/batch', {
+    headers: { Authorization: `Agent ${enrolled.credential}` },
     data: { boot_id: bootId, samples },
   })
   expect(retriedBatch.status()).toBe(200)
@@ -191,10 +191,10 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
     recorded_at: new Date().toISOString(),
     position: { latitude: 48.87, longitude: 2.37, speed: 18, heading: 102, altitude: 43, accuracy: 3.8 },
     metrics: { 'battery.soc': 61, 'battery.pack_voltage': 329.1, 'battery.power': -4.2, 'charging.active': false, 'vehicle.speed': 18 },
-    device: { mobile_signal: -73, queue_depth: 0 },
+    agent: { mobile_signal: -73, queue_depth: 0 },
   }
-  const liveBatch = await request.post('/api/v1/device/telemetry/batch', {
-    headers: { Authorization: `Device ${enrolled.credential}` },
+  const liveBatch = await request.post('/api/v1/agent/telemetry/batch', {
+    headers: { Authorization: `Agent ${enrolled.credential}` },
     data: { boot_id: bootId, samples: [liveSample] },
   })
   expect(liveBatch.status()).toBe(200)
@@ -264,7 +264,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.locator('.hook-list').getByRole('button', { name: /Browser state counter/ }).click()
   await expect(page.getByText('success').first()).toBeVisible()
 
-  await page.getByRole('link', { name: 'Devices' }).click()
+  await page.getByRole('link', { name: 'Data sources' }).click()
   await expect(page.getByRole('heading', { name: 'Vehicle agent' })).toBeVisible()
   await expect(page.getByText('e2e-1.0.0')).toBeVisible()
 
