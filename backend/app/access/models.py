@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.common.models import Base
@@ -7,9 +7,10 @@ from backend.app.common.types import JSONType, JSONValue
 
 class VehicleAccessGrant(Base):
     __tablename__ = "vehicle_access_grants"
+    # The composite primary key is the uniqueness guarantee: one grant per
+    # vehicle and user. No separate unique constraint restates it.
     __table_args__ = (
         CheckConstraint("level IN ('view', 'operate')", name="vehicle_access_level"),
-        UniqueConstraint("vehicle_id", "user_id"),
     )
 
     vehicle_id: Mapped[str] = mapped_column(

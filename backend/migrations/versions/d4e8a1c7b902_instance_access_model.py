@@ -108,9 +108,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint(
             "vehicle_id", "user_id", name=op.f("pk_vehicle_access_grants")
         ),
-        sa.UniqueConstraint(
-            "vehicle_id", "user_id", name=op.f("uq_vehicle_access_grants_vehicle_id")
-        ),
     )
     op.create_index(
         op.f("ix_vehicle_access_grants_user_id"),
