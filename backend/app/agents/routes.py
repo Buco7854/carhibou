@@ -127,7 +127,10 @@ def list_agents(db: Db, auth: CurrentUser) -> list[AgentResponse]:
 @human_router.put("/agents/{agent_id}", response_model=AgentResponse)
 def edit_agent(agent_id: str, data: AgentSettings, db: Db, auth: CurrentUserWrite) -> AgentResponse:
     agent = _ordinary_agent(_authorized_agent(db, auth.user, agent_id, OPERATE))
-    update_agent(agent, data)
+    try:
+        update_agent(db, agent, data)
+    except EnrollmentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.commit()
     db.refresh(agent)
     return _agent_response(agent)
@@ -182,4 +185,4 @@ def get_config(agent: CurrentAgent, db: Db) -> AgentConfig:
         raise HTTPException(status_code=404, detail="vehicle not found")
     agent.last_config_sync_at = utcnow()
     db.commit()
-    return agent_config(db, agent, vehicle)
+    return agent_config(db, agent)

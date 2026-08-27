@@ -24,7 +24,6 @@ export interface Vehicle {
   model: string
   year: number | null
   battery_nominal_capacity_kwh: number | null
-  vehicle_profile: string | null
   timezone: string
   color: string
   icon: string
@@ -54,23 +53,86 @@ export interface VehicleProfileSignal {
   maximum?: number | null
 }
 
+export type ProfileType = 'can' | 'mapping'
+
+/** `boolean` and `json` are flags, not values; `enum` takes "*" as its default. */
+export interface MappingTransform {
+  scale?: number
+  offset?: number
+  enum?: Record<string, string | number | boolean>
+  boolean?: boolean
+  json?: boolean
+}
+
+export interface MappingRule {
+  match: string
+  target: string
+  transform?: MappingTransform
+}
+
+export interface ProfileDefinition {
+  id: string
+  name: string
+  version: number
+  description?: string
+  type?: ProfileType
+  /** CAN profiles only. */
+  signals?: VehicleProfileSignal[]
+  computed_metrics?: Array<Record<string, unknown>>
+  /** Mapping profiles only. */
+  passthrough_prefix?: string
+  ignore?: string[]
+  rules?: MappingRule[]
+}
+
 export interface VehicleProfile {
   id: string
   name: string
   description: string
+  type: ProfileType
   built_in: boolean
   editable: boolean
-  definition: {
-    id: string
-    name: string
-    version: number
-    description?: string
-    signals: VehicleProfileSignal[]
-    computed_metrics?: Array<Record<string, unknown>>
-  }
+  definition: ProfileDefinition
   created_at: string | null
   updated_at: string | null
 }
+
+export interface SegmentPosition {
+  latitude: number
+  longitude: number
+}
+
+interface SegmentBase {
+  start: string
+  end: string
+  duration_seconds: number
+  soc_start?: number
+  soc_end?: number
+  energy_kwh?: number
+}
+
+export interface DriveSegment extends SegmentBase {
+  start_position?: SegmentPosition
+  end_position?: SegmentPosition
+  distance_km?: number
+  avg_speed?: number
+  max_speed?: number
+}
+
+export interface ChargeSegment extends SegmentBase {
+  position?: SegmentPosition
+  peak_power?: number
+  avg_power?: number
+}
+
+export interface Segments {
+  drives: DriveSegment[]
+  charges: ChargeSegment[]
+}
+
+export type SegmentKind = 'drive' | 'charge'
+/** The API returns no segment id, so the kind and start instant identify one. */
+export type SelectedSegment = { kind: SegmentKind; start: string; end: string }
 
 export interface User {
   id: string

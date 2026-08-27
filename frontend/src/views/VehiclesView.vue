@@ -3,10 +3,9 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import { useLiveVehicles } from '../api/live'
-import type { Vehicle, VehicleProfile } from '../api/types'
+import type { Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
-import AppSelect from '../components/AppSelect.vue'
 import VehicleMedia from '../components/VehicleMedia.vue'
 import { canOperate, isAdmin } from '../access'
 import { chargingState, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber, agentStatus, vehicleActivity } from '../vehicleDisplay'
@@ -15,11 +14,9 @@ type VehicleFilter = 'all' | 'online' | 'parked'
 
 interface VehicleForm {
   name: string
-  profileId: string | null
 }
 
 const vehicles = ref<Vehicle[]>([])
-const profiles = ref<VehicleProfile[]>([])
 const { locale, t } = useI18n()
 const showForm = ref(false)
 const deleteTarget = ref<Vehicle | null>(null)
@@ -29,13 +26,12 @@ const photoBusyId = ref('')
 const photoNotice = ref<{ kind: 'error' | 'success'; message: string } | null>(null)
 const search = ref('')
 const filter = ref<VehicleFilter>('all')
-const emptyForm = (): VehicleForm => ({ name: '', profileId: null })
+const emptyForm = (): VehicleForm => ({ name: '' })
 const form = ref<VehicleForm>(emptyForm())
 const photoTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const maxPhotoBytes = 25 * 1024 * 1024
 
 const onlineCount = computed(() => vehicles.value.filter((vehicle) => vehicle.state?.online).length)
-const profileNames = computed(() => Object.fromEntries(profiles.value.map((profile) => [profile.id, profile.name])))
 const filteredVehicles = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
   return vehicles.value.filter((vehicle) => {
@@ -88,10 +84,7 @@ function vehicleFacts(vehicle: Vehicle): string[] {
 }
 
 async function load(): Promise<void> {
-  ;[vehicles.value, profiles.value] = await Promise.all([
-    api<Vehicle[]>('/vehicles'),
-    api<VehicleProfile[]>('/vehicle-profiles'),
-  ])
+  vehicles.value = await api<Vehicle[]>('/vehicles')
 }
 
 // Every card here shows a live reading, so it follows the stream rather than
@@ -100,7 +93,7 @@ const live = useLiveVehicles()
 watch(live.vehicles, (next) => { if (next.length) vehicles.value = next })
 async function create(): Promise<void> {
   error.value = ''
-  const payload = { name: form.value.name.trim(), vehicle_profile: form.value.profileId }
+  const payload = { name: form.value.name.trim() }
   try { await api('/vehicles', { method: 'POST', body: JSON.stringify(payload) }); showForm.value = false; form.value = emptyForm(); await load() }
   catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
 }
@@ -109,16 +102,6 @@ async function clearTelemetry(vehicle: Vehicle): Promise<void> {
   if (!confirm(t('vehicles.clearDataConfirm', { name: vehicle.name }))) return
   await api(`/vehicles/${vehicle.id}/telemetry`, { method: 'DELETE' })
   await load()
-}
-
-async function assignVehicleProfile(vehicle: Vehicle, value: string | number | null): Promise<void> {
-  const profileId = typeof value === 'string' && value ? value : null
-  try {
-    await api(`/vehicles/${vehicle.id}/profile`, { method: 'PUT', body: JSON.stringify({ profile_id: profileId }) })
-    await load()
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : t('common.error')
-  }
 }
 
 async function uploadPhoto(vehicle: Vehicle, file: File): Promise<void> {
@@ -198,13 +181,6 @@ onMounted(load)
       <form class="stack-form" @submit.prevent="create">
         <p class="field-hint">{{ t('vehicles.createHint') }}</p>
         <label class="field"><span>{{ t('vehicles.name') }}</span><input v-model="form.name" class="input" required autofocus /></label>
-        <label class="field"><span>{{ t('vehicles.profile') }}</span>
-          <AppSelect v-model="form.profileId" :aria-label="t('vehicles.profile')">
-            <option :value="null">{{ t('vehicles.noProfile') }}</option>
-            <option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
-          </AppSelect>
-          <small class="field-hint">{{ t('vehicles.profileHint') }}</small>
-        </label>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <div class="form-actions"><button class="button">{{ t('vehicles.create') }}</button><button class="button ghost" type="button" @click="showForm=false">{{ t('common.cancel') }}</button></div>
       </form>
@@ -261,9 +237,8 @@ onMounted(load)
         </div>
 
         <footer>
-          <AppSelect v-if="canOperate(vehicle)" class="card-profile-select" compact :model-value="vehicle.vehicle_profile" :aria-label="t('vehicles.profile')" @update:model-value="assignVehicleProfile(vehicle,$event)"><option :value="null">{{ t('vehicles.noProfile') }}</option><option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profileNames[profile.id] }}</option></AppSelect>
-          <!-- Viewers get the fact, not the control; the span keeps the links right-aligned. -->
-          <span v-else class="card-profile-name">{{ vehicle.vehicle_profile ? profileNames[vehicle.vehicle_profile] : '' }}</span>
+          <!-- Keeps the links right-aligned now the profile control has gone. -->
+          <span class="card-footer-spacer"></span>
           <RouterLink class="link-button" :to="`/vehicles/${vehicle.id}/history`">{{ t('vehicles.history') }}</RouterLink>
           <RouterLink class="link-button" to="/data-sources">{{ t('vehicles.agent') }}</RouterLink>
           <button v-if="canOperate(vehicle)" class="link-button" type="button" @click="clearTelemetry(vehicle)">{{ t('vehicles.clearData') }}</button>
@@ -330,11 +305,8 @@ onMounted(load)
 .vehicle-facts .is-charging{color:var(--success)}
 .vehicle-facts small{flex-basis:100%;color:var(--muted);font-size:var(--font-caption)}
 
+.card-footer-spacer{margin-right:auto}
 .vehicle-card>footer{display:flex;align-items:center;gap:14px;padding:10px 16px;border-top:1px solid var(--line)}
-.card-profile-select{margin-right:auto;max-width:150px}
-.card-profile-name{margin-right:auto;overflow:hidden;color:var(--muted);font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}
-.card-profile-select :deep(.app-select-trigger){min-height:26px;padding:3px 6px 3px 8px;background:transparent;border-color:transparent;color:var(--muted);font-size:var(--font-caption)}
-.card-profile-select :deep(.app-select-trigger:hover){color:var(--text);border-color:var(--line-strong)}
 
 .empty{grid-column:1/-1}
 

@@ -4,10 +4,15 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Position } from '../api/types'
 
+export interface TrailPoint { lat: number; lng: number; speed: number | null }
+
 const props = defineProps<{
   position: Position | null | undefined
   route?: Array<[number, number]> | undefined
+  trail?: TrailPoint[] | undefined
+  marks?: number[] | undefined
 }>()
+const emit = defineEmits<{ pick: [index: number] }>()
 const element = ref<HTMLDivElement>()
 const tilesLoading = ref(true)
 const tilesUnavailable = ref(false)
@@ -17,6 +22,41 @@ let marker: L.Marker | undefined
 let startMarker: L.CircleMarker | undefined
 let polyline: L.Polyline | undefined
 let routeHalo: L.Polyline | undefined
+let trailLayers: L.Layer[] = []
+
+const SPEED_STOPS = [0, 30, 60, 90, 120]
+
+function speedColor(speed: number | null): string {
+  if (speed === null) return 'var(--muted-2)'
+  const slot = SPEED_STOPS.findIndex((stop) => speed < stop)
+  return `var(--chart-${slot <= 0 ? 4 : Math.min(slot, 4)})`
+}
+
+function drawTrail(target: L.Map, points: TrailPoint[]): void {
+  const bounds: Array<[number, number]> = []
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const from = points[index]!
+    const to = points[index + 1]!
+    const pair: Array<[number, number]> = [[from.lat, from.lng], [to.lat, to.lng]]
+    bounds.push(pair[0]!)
+    trailLayers.push(L.polyline(pair, { color: speedColor(from.speed), weight: 4, opacity: 1, lineCap: 'round' }).addTo(target))
+  }
+  const last = points.at(-1)
+  if (last) bounds.push([last.lat, last.lng])
+  points.forEach((point, index) => {
+    const dot = L.circleMarker([point.lat, point.lng], {
+      radius: props.marks?.includes(index) ? 7 : 4,
+      color: props.marks?.includes(index) ? 'var(--accent)' : 'transparent',
+      weight: 2,
+      fillColor: speedColor(point.speed),
+      fillOpacity: props.marks?.includes(index) ? 1 : 0,
+      bubblingMouseEvents: false,
+    }).addTo(target)
+    dot.on('click', () => emit('pick', index))
+    trailLayers.push(dot)
+  })
+  if (bounds.length) target.fitBounds(L.latLngBounds(bounds), { padding: [28, 28], maxZoom: 15 })
+}
 
 function positionIcon(heading: number | null | undefined): L.DivIcon {
   const direction = Number.isFinite(heading) ? Number(heading) : 0
@@ -30,13 +70,17 @@ function positionIcon(heading: number | null | undefined): L.DivIcon {
 
 function update() {
   if (!map) return
+  for (const layer of trailLayers) layer.remove()
+  trailLayers = []
   polyline?.remove()
   routeHalo?.remove()
   startMarker?.remove()
   polyline = undefined
   routeHalo = undefined
   startMarker = undefined
-  if (props.route?.length) {
+  if (props.trail?.length) {
+    drawTrail(map, props.trail)
+  } else if (props.route?.length) {
     routeHalo = L.polyline(props.route, { color: 'var(--map-route-halo)', weight: 10, opacity: 0.82, lineCap: 'round', lineJoin: 'round' }).addTo(map)
     polyline = L.polyline(props.route, { color: 'var(--accent)', weight: 4, opacity: 1, lineCap: 'round', lineJoin: 'round' }).addTo(map)
     const routeStart = props.route[0]
@@ -72,7 +116,7 @@ onMounted(() => {
   update()
   requestAnimationFrame(() => map?.invalidateSize())
 })
-watch(() => [props.position, props.route], update, { deep: true })
+watch(() => [props.position, props.route, props.trail, props.marks], update, { deep: true })
 onBeforeUnmount(() => map?.remove())
 </script>
 

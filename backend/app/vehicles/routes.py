@@ -9,8 +9,6 @@ from backend.app.access.dependencies import OperateVehicle, RequireAdminWrite, V
 from backend.app.access.services import access_level, is_admin
 from backend.app.agents.services import reset_vehicle_telemetry
 from backend.app.auth.dependencies import CurrentUser, Db
-from backend.app.vehicle_profiles.schemas import VehicleProfileSelection
-from backend.app.vehicle_profiles.services import assign_profile, profile_definition
 from backend.app.vehicles.models import VehiclePhoto
 from backend.app.vehicles.photo_storage import photo_path, remove_photo_file, store_photo
 from backend.app.vehicles.photos import PhotoValidationError, validate_photo
@@ -39,8 +37,6 @@ def vehicles(db: Db, auth: CurrentUser) -> list[VehicleResponse]:
 
 @router.post("", response_model=VehicleResponse, status_code=status.HTTP_201_CREATED)
 def add_vehicle(data: VehicleCreate, db: Db, auth: RequireAdminWrite) -> VehicleResponse:
-    if data.vehicle_profile and not profile_definition(db, data.vehicle_profile):
-        raise HTTPException(status_code=422, detail="vehicle profile is not available")
     vehicle = create_vehicle(db, auth.user, data)
     db.commit()
     return serialize_vehicle(vehicle, OPERATE)
@@ -85,18 +81,6 @@ def clear_vehicle_telemetry(vehicle_id: str, db: Db, authorized: OperateVehicle)
 
     reset_vehicle_telemetry(db, authorized.vehicle.id)
     db.commit()
-
-
-@router.put("/{vehicle_id}/profile", response_model=VehicleResponse)
-def select_vehicle_profile(
-    vehicle_id: str, data: VehicleProfileSelection, db: Db, authorized: OperateVehicle
-) -> VehicleResponse:
-    model = authorized.vehicle
-    if data.profile_id and not profile_definition(db, data.profile_id):
-        raise HTTPException(status_code=422, detail="vehicle profile is not available")
-    assign_profile(db, model, data.profile_id)
-    db.commit()
-    return serialize_vehicle(model, authorized.level)
 
 
 @router.put(

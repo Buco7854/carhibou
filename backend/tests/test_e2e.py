@@ -55,13 +55,16 @@ def test_complete_simulator_dashboard_and_hook_scenario(
                 "name": "Simulated C-Zero",
                 "manufacturer": "Citroën",
                 "model": "C-Zero",
-                "vehicle_profile": "citroen-c-zero-v1",
             },
         ).json()
         enrollment = client.post(
             f"/api/v1/vehicles/{vehicle['id']}/enrollments",
             headers=browser_headers,
-            json={"implementation_id": "custom", "name": "Journey simulator"},
+            json={
+                "implementation_id": "custom",
+                "name": "Journey simulator",
+                "vehicle_profile": "citroen-c-zero-v1",
+            },
         ).json()
         enrolled = client.post(
             "/api/v1/agent/enroll",

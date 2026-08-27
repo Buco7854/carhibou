@@ -4,6 +4,7 @@ version: 6
 description: >-
   CAN mappings for compatible vehicles, taken from a script proven against a
   physical C-Zero.
+type: can
 signals:
   # 0x101 is broadcast only while the vehicle is awake, and byte 0 says which way.
   # It is decoded three times: once as a label to show, and twice as the canonical

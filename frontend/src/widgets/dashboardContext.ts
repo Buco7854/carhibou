@@ -1,12 +1,14 @@
 import { computed, inject, type ComputedRef, type InjectionKey, type Ref } from 'vue'
-import type { DashboardWidget, Vehicle } from '../api/types'
+import type { DashboardWidget, SelectedSegment, Vehicle } from '../api/types'
 import type { LiveConnectionStatus } from '../api/events'
 
 export interface DashboardRuntime {
   vehicles: Ref<Vehicle[]>
   selectedVehicleId: Ref<string>
+  selectedSegment: Ref<SelectedSegment | null>
   liveStatus: Ref<LiveConnectionStatus>
   selectVehicle: (id: string) => void
+  selectSegment: (segment: SelectedSegment | null) => void
 }
 
 export const dashboardRuntimeKey: InjectionKey<DashboardRuntime> = Symbol('dashboard-runtime')

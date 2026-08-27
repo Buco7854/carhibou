@@ -6,7 +6,7 @@ import { clientId } from '../clientId'
 import { api } from '../api/client'
 import type { LiveConnectionStatus } from '../api/events'
 import { useLiveVehicles } from '../api/live'
-import type { Dashboard, DashboardWidget, Vehicle } from '../api/types'
+import type { Dashboard, DashboardWidget, SelectedSegment, Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
@@ -29,12 +29,13 @@ const newDashboardName = ref('')
 const narrowCanvas = ref(false)
 const selectedVehicleId = ref('')
 const liveStatus = ref<LiveConnectionStatus>('connecting')
+const selectedSegment = ref<SelectedSegment | null>(null)
 const form = ref({ type:'metric-card', vehicle_id:'', metric:'vehicle.speed', metrics:'vehicle.speed', title:'', unit:'km/h', time_range_days:1, hide_when_empty:false })
 let grid: GridStack | undefined
 let resizeObserver: ResizeObserver | undefined
 let canvasColumns = 12
 let editSnapshot: Dashboard[] | null = null
-const OVERVIEW_PRESET = 'overview-v5'
+const OVERVIEW_PRESET = 'overview-v6'
 
 function cloneDashboards(value: Dashboard[]): Dashboard[] {
   return JSON.parse(JSON.stringify(value)) as Dashboard[]
@@ -105,7 +106,7 @@ function premadeLayout(vehicleId?: string): Dashboard['layout'] {
     widget(clientId('widget'), 'online-status', undefined, 0, 1, 4, 2),
     widget(clientId('widget'), 'metric-card', undefined, 4, 1, 4, 2, { metric:'vehicle.speed' }),
     widget(clientId('widget'), 'battery-gauge', undefined, 8, 1, 4, 2, hideWhenEmpty),
-    widget(clientId('widget'), 'position-map', undefined, 0, 3, 8, 6),
+    widget(clientId('widget'), 'route-map', undefined, 0, 3, 8, 6, { time_range_days:1 }),
     widget(clientId('widget'), 'charging', undefined, 8, 3, 4, 2, hideWhenEmpty),
     widget(clientId('widget'), 'telemetry-list', undefined, 8, 5, 4, 4),
     widget(clientId('widget'), 'time-series', undefined, 0, 9, 8, 4, { time_range_days:1 }),
@@ -193,7 +194,13 @@ async function load(): Promise<void> {
 }
 
 function selectVehicle(id: string): void {
-  if (vehicles.value.some((vehicle) => vehicle.id === id)) selectedVehicleId.value = id
+  if (!vehicles.value.some((vehicle) => vehicle.id === id)) return
+  selectedVehicleId.value = id
+  selectedSegment.value = null
+}
+
+function selectSegment(segment: SelectedSegment | null): void {
+  selectedSegment.value = segment
 }
 
 function connectLiveEvents(): void {
@@ -206,7 +213,7 @@ function connectLiveEvents(): void {
   }, { immediate: true })
 }
 
-provide(dashboardRuntimeKey, { vehicles, selectedVehicleId, liveStatus, selectVehicle })
+provide(dashboardRuntimeKey, { vehicles, selectedVehicleId, selectedSegment, liveStatus, selectVehicle, selectSegment })
 
 async function selectDashboard(id: string): Promise<void> {
   if (id === activeId.value || editing.value) return

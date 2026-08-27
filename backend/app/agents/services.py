@@ -19,7 +19,7 @@ from backend.app.auth.security import hash_token, new_opaque_token
 from backend.app.common.time import as_utc, utcnow
 from backend.app.connectors.constants import CONNECTOR_IMPLEMENTATION_PREFIX
 from backend.app.telemetry.models import Telemetry
-from backend.app.vehicle_profiles.services import profile_definition
+from backend.app.vehicle_profiles.services import can_profile_definition
 from backend.app.vehicle_state.models import VehicleState
 from backend.app.vehicles.models import Vehicle
 
@@ -28,7 +28,7 @@ class EnrollmentError(Exception):
     pass
 
 
-def agent_config(db: Session, agent: Agent, vehicle: Vehicle) -> AgentConfig:
+def agent_config(db: Session, agent: Agent) -> AgentConfig:
     return AgentConfig(
         version=agent.config_version,
         sampling={
@@ -39,8 +39,8 @@ def agent_config(db: Session, agent: Agent, vehicle: Vehicle) -> AgentConfig:
             "default_seconds": agent.upload_seconds,
             "parked_seconds": agent.parked_upload_seconds,
         },
-        vehicle_profile=vehicle.vehicle_profile,
-        vehicle_profile_definition=profile_definition(db, vehicle.vehicle_profile),
+        vehicle_profile=agent.vehicle_profile,
+        vehicle_profile_definition=can_profile_definition(db, agent.vehicle_profile),
     )
 
 
@@ -49,6 +49,8 @@ def create_enrollment(
 ) -> tuple[str, AgentEnrollmentToken]:
     if data.implementation_id.startswith(CONNECTOR_IMPLEMENTATION_PREFIX):
         raise EnrollmentError("connector implementation ids cannot be enrolled")
+    if data.vehicle_profile and not can_profile_definition(db, data.vehicle_profile):
+        raise EnrollmentError("CAN profile is not available")
     raw = new_opaque_token("venroll")
     now = utcnow()
     model = AgentEnrollmentToken(
@@ -56,6 +58,7 @@ def create_enrollment(
         vehicle_id=vehicle.id,
         intended_name=data.name,
         implementation_id=data.implementation_id,
+        vehicle_profile=data.vehicle_profile,
         created_at=now,
         expires_at=now + timedelta(minutes=data.ttl_minutes),
         sampling_seconds=data.sampling_seconds,
@@ -99,6 +102,7 @@ def enroll(db: Session, request: EnrollRequest) -> EnrollResponse:
         agent_version=request.agent_version,
         hostname=request.hostname,
         hardware=request.hardware,
+        vehicle_profile=token.vehicle_profile,
         sampling_seconds=token.sampling_seconds,
         upload_seconds=token.upload_seconds,
         parked_sampling_seconds=token.parked_sampling_seconds,
@@ -111,11 +115,11 @@ def enroll(db: Session, request: EnrollRequest) -> EnrollResponse:
         agent_id=agent.id,
         vehicle_id=vehicle.id,
         credential=credential,
-        config=agent_config(db, agent, vehicle),
+        config=agent_config(db, agent),
     )
 
 
-def update_agent(agent: Agent, data: AgentSettings) -> bool:
+def update_agent(db: Session, agent: Agent, data: AgentSettings) -> bool:
     """Apply agent settings, reporting whether the agent has to be told.
 
     Renaming is a label change the agent never sees, so only a cadence change
@@ -124,15 +128,18 @@ def update_agent(agent: Agent, data: AgentSettings) -> bool:
     and re-validate.
     """
 
+    if data.vehicle_profile and not can_profile_definition(db, data.vehicle_profile):
+        raise EnrollmentError("CAN profile is not available")
     agent.name = data.name
-    cadence = (
+    configuration = (
+        "vehicle_profile",
         "sampling_seconds",
         "upload_seconds",
         "parked_sampling_seconds",
         "parked_upload_seconds",
     )
-    changed = any(getattr(agent, field) != getattr(data, field) for field in cadence)
-    for field in cadence:
+    changed = any(getattr(agent, field) != getattr(data, field) for field in configuration)
+    for field in configuration:
         setattr(agent, field, getattr(data, field))
     if changed:
         agent.config_version += 1

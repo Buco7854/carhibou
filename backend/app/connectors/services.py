@@ -13,6 +13,7 @@ from backend.app.connectors.constants import (
 from backend.app.connectors.models import Connector
 from backend.app.connectors.schemas import ConnectorCreate, ConnectorResponse, ConnectorUpdate
 from backend.app.secrets.crypto import decrypt_secret, encrypt_secret
+from backend.app.vehicle_profiles.services import mapping_profile_definition
 from backend.app.vehicles.models import Vehicle
 
 
@@ -32,10 +33,13 @@ def connector_response(connector: Connector) -> ConnectorResponse:
 def create_connector(db: Session, vehicle: Vehicle, data: ConnectorCreate) -> Connector:
     if data.kind != TESLAMATE_KIND:
         raise ValueError("connector kind is not available")
+    if not mapping_profile_definition(db, data.mapping_profile):
+        raise ValueError("mapping profile is not available")
     connector = Connector(
         vehicle_id=vehicle.id,
         name=data.name,
         kind=data.kind,
+        mapping_profile=data.mapping_profile,
         enabled=True,
         config=data.config.model_dump(mode="json"),
         encrypted_password=encrypt_secret(data.password) if data.password else None,
@@ -66,8 +70,11 @@ def create_connector(db: Session, vehicle: Vehicle, data: ConnectorCreate) -> Co
 
 
 def update_connector(db: Session, connector: Connector, data: ConnectorUpdate) -> None:
+    if not mapping_profile_definition(db, data.mapping_profile):
+        raise ValueError("mapping profile is not available")
     connector.name = data.name
     connector.enabled = data.enabled
+    connector.mapping_profile = data.mapping_profile
     connector.config = data.config.model_dump(mode="json")
     if data.password is not None:
         connector.encrypted_password = encrypt_secret(data.password) if data.password else None

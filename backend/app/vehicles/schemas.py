@@ -13,7 +13,6 @@ class VehicleCreate(BaseModel):
     year: int | None = Field(default=None, ge=1886, le=2200)
     vin: str | None = Field(default=None, min_length=17, max_length=17)
     battery_nominal_capacity_kwh: float | None = Field(default=None, gt=0, le=1000)
-    vehicle_profile: str | None = Field(default=None, max_length=120)
     timezone: str = Field(default="UTC", max_length=64)
     color: str = Field(default="#62d4a7", pattern=r"^#[0-9a-fA-F]{6}$")
 
@@ -50,7 +49,6 @@ class VehicleResponse(BaseModel):
     year: int | None
     vin: str | None
     battery_nominal_capacity_kwh: float | None
-    vehicle_profile: str | None
     timezone: str
     color: str
     icon: str

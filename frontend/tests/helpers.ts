@@ -20,7 +20,6 @@ export const vehicle = {
   model: 'C-Zero',
   year: 2018,
   battery_nominal_capacity_kwh: 16,
-  vehicle_profile: 'citroen-c-zero-v1',
   timezone: 'UTC',
   color: '#65e0ad',
   icon: 'car',
@@ -53,7 +52,7 @@ export const agentImplementations = [
 /** The identity and compatibility fields every agent row now carries. */
 export const agentIdentity = {
   implementation_id: 'carhibou.go', protocol_version: 1, agent_version: '0.1.0',
-  compatibility: 'compatible' as const,
+  compatibility: 'compatible' as const, vehicle_profile: null as string | null,
 }
 
 export const connectorKinds = [
@@ -68,7 +67,7 @@ export const connectorKinds = [
 export function connectorRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'connector-1', vehicle_id: 'vehicle-1', name: 'Garage broker', kind: 'teslamate.mqtt',
-    enabled: true, masked: '••••••••', config_version: 1, status: 'connected', last_connected_at: '2026-01-01T00:00:00Z',
+    enabled: true, masked: '••••••••', mapping_profile: 'teslamate-mqtt-v1', config_version: 1, status: 'connected', last_connected_at: '2026-01-01T00:00:00Z',
     last_message_at: '2026-01-01T00:05:00Z', last_sample_at: '2026-01-01T00:05:00Z', last_error: '',
     created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
     config: {
@@ -76,5 +75,40 @@ export function connectorRow(overrides: Record<string, unknown> = {}) {
       username: 'carhibou', namespace: '', car_id: 1, sample_seconds: 10,
     },
     ...overrides,
+  }
+}
+
+export const canProfile = {
+  id: 'citroen-c-zero-v1', name: 'C-Zero', description: '', type: 'can' as const, built_in: true, editable: false,
+  definition: { id: 'citroen-c-zero-v1', name: 'C-Zero', version: 1, type: 'can' as const, signals: [{ name: 'battery.soc', source: { type: 'can' as const, can_id: 884 }, decoder: { byte_offset: 0, data_type: 'uint8' as const } }] },
+  created_at: null, updated_at: null,
+}
+
+export const mappingProfile = {
+  id: 'teslamate-mqtt-v1', name: 'TeslaMate (MQTT)', description: 'Bundled mapping', type: 'mapping' as const, built_in: true, editable: false,
+  definition: {
+    id: 'teslamate-mqtt-v1', name: 'TeslaMate (MQTT)', version: 1, type: 'mapping' as const,
+    passthrough_prefix: 'teslamate', ignore: ['latitude', 'longitude'],
+    rules: [
+      { match: 'battery_level', target: 'battery.soc' },
+      { match: 'charging_state', target: 'charging.active', transform: { enum: { Charging: true, '*': false } } },
+    ],
+  },
+  created_at: null, updated_at: null,
+}
+
+export function drive(overrides: Record<string, unknown> = {}) {
+  return {
+    start: '2026-08-27T08:00:00Z', end: '2026-08-27T08:40:00Z', duration_seconds: 2400,
+    start_position: { latitude: 48.85, longitude: 2.35 }, end_position: { latitude: 48.87, longitude: 2.37 },
+    distance_km: 24.4, avg_speed: 37, max_speed: 96, soc_start: 82, soc_end: 71, energy_kwh: 4.6, ...overrides,
+  }
+}
+
+export function charge(overrides: Record<string, unknown> = {}) {
+  return {
+    start: '2026-08-27T19:00:00Z', end: '2026-08-27T21:00:00Z', duration_seconds: 7200,
+    position: { latitude: 48.85, longitude: 2.35 },
+    soc_start: 40, soc_end: 80, energy_kwh: 12.5, peak_power: 11.2, avg_power: 6.3, ...overrides,
   }
 }

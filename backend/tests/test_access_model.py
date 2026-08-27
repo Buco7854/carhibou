@@ -13,6 +13,7 @@ PNG = base64.b64decode(
 
 def _profile(name: str) -> dict[str, object]:
     return {
+        "type": "can",
         "name": name,
         "description": "Permission model fixture",
         "signals": [
@@ -147,6 +148,19 @@ def test_four_personas_enforce_the_complete_access_model(
         assert session.get(f"/api/v1/vehicles/{v2['id']}/history").status_code == 404
         assert session.get(f"/api/v1/vehicles/{v2['id']}/history/entries").status_code == 404
 
+    segment_params = {"start": datetime.now(UTC).isoformat()}
+    for persona, expected_status in (
+        ("admin", 200),
+        ("operator", 200),
+        ("viewer", 200),
+        ("stranger", 404),
+    ):
+        session, _csrf = sessions[persona]
+        assert (
+            session.get(f"/api/v1/vehicles/{v1['id']}/segments", params=segment_params).status_code
+            == expected_status
+        )
+
     enrollment = admin.post(
         f"/api/v1/vehicles/{v1['id']}/enrollments",
         headers=admin_headers,
@@ -193,7 +207,6 @@ def test_four_personas_enforce_the_complete_access_model(
 
     mutation_cases = [
         ("delete", f"/api/v1/vehicles/{v1['id']}/telemetry", None),
-        ("put", f"/api/v1/vehicles/{v1['id']}/profile", {"profile_id": None}),
         (
             "put",
             f"/api/v1/agents/{agent_id}",
@@ -335,9 +348,16 @@ def test_four_personas_enforce_the_complete_access_model(
     )
     assert (
         admin.put(
-            f"/api/v1/vehicles/{v1['id']}/profile",
+            f"/api/v1/agents/{agent_id}",
             headers=admin_headers,
-            json={"profile_id": own_profile.json()["id"]},
+            json={
+                "name": "V1 agent",
+                "vehicle_profile": own_profile.json()["id"],
+                "sampling_seconds": 5,
+                "upload_seconds": 5,
+                "parked_sampling_seconds": 300,
+                "parked_upload_seconds": 300,
+            },
         ).status_code
         == 200
     )
@@ -349,7 +369,12 @@ def test_four_personas_enforce_the_complete_access_model(
     )
     assert deleted_profile.status_code == 204
     assert deleted_profile.content == b""
-    assert admin.get(f"/api/v1/vehicles/{v1['id']}").json()["vehicle_profile"] is None
+    assert (
+        next(row for row in admin.get("/api/v1/agents").json() if row["id"] == agent_id)[
+            "vehicle_profile"
+        ]
+        is None
+    )
 
     hook = admin.post(
         "/api/v1/hooks",

@@ -155,6 +155,7 @@ def upgrade() -> None:
         sa.Column("created_by", sa.String(length=36), nullable=True),
         sa.Column("name", sa.String(length=120), nullable=False),
         sa.Column("description", sa.String(length=1000), nullable=False),
+        sa.Column("type", sa.String(length=20), nullable=False),
         sa.Column(
             "definition",
             sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
@@ -183,7 +184,6 @@ def upgrade() -> None:
         sa.Column("year", sa.Integer(), nullable=True),
         sa.Column("vin", sa.String(length=17), nullable=True),
         sa.Column("battery_nominal_capacity_kwh", sa.Float(), nullable=True),
-        sa.Column("vehicle_profile", sa.String(length=120), nullable=True),
         sa.Column("timezone", sa.String(length=64), nullable=False),
         sa.Column(
             "display_preferences",
@@ -210,6 +210,7 @@ def upgrade() -> None:
         sa.Column("vehicle_id", sa.String(length=36), nullable=False),
         sa.Column("intended_name", sa.String(length=120), nullable=False),
         sa.Column("implementation_id", sa.String(length=100), nullable=False),
+        sa.Column("vehicle_profile", sa.String(length=120), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
@@ -259,6 +260,7 @@ def upgrade() -> None:
             sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
             nullable=False,
         ),
+        sa.Column("vehicle_profile", sa.String(length=120), nullable=True),
         sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_config_sync_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("config_version", sa.Integer(), nullable=False),
@@ -286,6 +288,7 @@ def upgrade() -> None:
         sa.Column("vehicle_id", sa.String(length=36), nullable=False),
         sa.Column("name", sa.String(length=120), nullable=False),
         sa.Column("kind", sa.String(length=100), nullable=False),
+        sa.Column("mapping_profile", sa.String(length=120), nullable=False),
         sa.Column("enabled", sa.Boolean(), nullable=False),
         sa.Column(
             "config",

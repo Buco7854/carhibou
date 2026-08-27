@@ -1,0 +1,265 @@
+from datetime import datetime, timedelta
+from math import asin, cos, radians, sin, sqrt
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import select
+
+from backend.app.access.dependencies import ViewVehicle
+from backend.app.auth.dependencies import Db
+from backend.app.common.time import as_utc, utcnow
+from backend.app.telemetry.models import Telemetry
+
+router = APIRouter(prefix="/vehicles/{vehicle_id}/segments", tags=["history"])
+JOIN_GAP = timedelta(seconds=180)
+MINIMUM_DRIVE = timedelta(seconds=60)
+MAXIMUM_RANGE = timedelta(days=92)
+DRIVING_STATES = {"drive", "driving", "moving", "ready", "in_use"}
+
+
+class SegmentPosition(BaseModel):
+    latitude: float
+    longitude: float
+
+
+class DriveSegment(BaseModel):
+    start: datetime
+    end: datetime
+    duration_seconds: float
+    start_position: SegmentPosition | None = None
+    end_position: SegmentPosition | None = None
+    distance_km: float | None = None
+    avg_speed: float | None = None
+    max_speed: float | None = None
+    soc_start: float | None = None
+    soc_end: float | None = None
+    energy_kwh: float | None = None
+
+
+class ChargeSegment(BaseModel):
+    start: datetime
+    end: datetime
+    duration_seconds: float
+    position: SegmentPosition | None = None
+    soc_start: float | None = None
+    soc_end: float | None = None
+    energy_kwh: float | None = None
+    peak_power: float | None = None
+    avg_power: float | None = None
+
+
+class SegmentsResponse(BaseModel):
+    drives: list[DriveSegment]
+    charges: list[ChargeSegment]
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _position(row: Telemetry) -> SegmentPosition | None:
+    if row.latitude is None or row.longitude is None:
+        return None
+    return SegmentPosition(latitude=row.latitude, longitude=row.longitude)
+
+
+def _distance(left: SegmentPosition, right: SegmentPosition) -> float:
+    earth_km = 6371.0088
+    latitude = radians(right.latitude - left.latitude)
+    longitude = radians(right.longitude - left.longitude)
+    start = radians(left.latitude)
+    end = radians(right.latitude)
+    value = sin(latitude / 2) ** 2 + cos(start) * cos(end) * sin(longitude / 2) ** 2
+    return 2 * earth_km * asin(sqrt(value))
+
+
+def _drive_evidence(row: Telemetry, previous: Telemetry | None) -> bool:
+    in_use = row.metrics.get("vehicle.in_use")
+    if isinstance(in_use, bool):
+        return in_use
+    state = row.metrics.get("vehicle.state")
+    if isinstance(state, str) and state.strip().lower() in DRIVING_STATES:
+        return True
+    if row.gps_speed is not None and row.gps_speed > 1:
+        return True
+    charging = row.metrics.get("charging.active")
+    current_position = _position(row)
+    previous_position = _position(previous) if previous else None
+    return bool(
+        charging is False
+        and current_position
+        and previous_position
+        and _distance(previous_position, current_position) > 0
+    )
+
+
+def _charge_evidence(row: Telemetry) -> bool:
+    if row.metrics.get("charging.active") is True:
+        return True
+    power = _number(row.metrics.get("charging.power"))
+    return power is not None and power > 0
+
+
+def _groups(rows: list[Telemetry], evidence: list[bool]) -> list[list[Telemetry]]:
+    positive = [index for index, active in enumerate(evidence) if active]
+    if not positive:
+        return []
+    groups: list[list[int]] = [[positive[0]]]
+    for index in positive[1:]:
+        previous = groups[-1][-1]
+        if as_utc(rows[index].recorded_at) - as_utc(rows[previous].recorded_at) < JOIN_GAP:
+            groups[-1].append(index)
+        else:
+            groups.append([index])
+    return [rows[group[0] : group[-1] + 1] for group in groups]
+
+
+def _metric_edges(rows: list[Telemetry], key: str) -> tuple[float | None, float | None]:
+    values = [_number(row.metrics.get(key)) for row in rows]
+    present = [value for value in values if value is not None]
+    return (present[0], present[-1]) if present else (None, None)
+
+
+def _positions(rows: list[Telemetry]) -> list[SegmentPosition]:
+    return [position for row in rows if (position := _position(row)) is not None]
+
+
+def _distance_km(rows: list[Telemetry]) -> float | None:
+    start, end = _metric_edges(rows, "vehicle.odometer")
+    if start is not None and end is not None and end >= start:
+        return end - start
+    positions = _positions(rows)
+    if len(positions) < 2:
+        return None
+    return sum(
+        _distance(left, right) for left, right in zip(positions, positions[1:], strict=False)
+    )
+
+
+def _speeds(rows: list[Telemetry]) -> list[float]:
+    values = []
+    for row in rows:
+        speed = _number(row.metrics.get("vehicle.speed"))
+        if speed is None:
+            speed = row.gps_speed
+        if speed is not None:
+            values.append(speed)
+    return values
+
+
+def _power_integral(rows: list[Telemetry]) -> tuple[float | None, float | None]:
+    energy = 0.0
+    seconds = 0.0
+    for left, right in zip(rows, rows[1:], strict=False):
+        left_power = _number(left.metrics.get("charging.power"))
+        right_power = _number(right.metrics.get("charging.power"))
+        if left_power is None or right_power is None:
+            continue
+        interval = (as_utc(right.recorded_at) - as_utc(left.recorded_at)).total_seconds()
+        if interval <= 0:
+            continue
+        energy += (left_power + right_power) / 2 * interval / 3600
+        seconds += interval
+    if not seconds:
+        return None, None
+    return energy, energy / (seconds / 3600)
+
+
+def _drive_segment(rows: list[Telemetry], capacity: float | None) -> DriveSegment | None:
+    start = as_utc(rows[0].recorded_at)
+    end = as_utc(rows[-1].recorded_at)
+    duration = end - start
+    if duration < MINIMUM_DRIVE:
+        return None
+    positions = _positions(rows)
+    speeds = _speeds(rows)
+    soc_start, soc_end = _metric_edges(rows, "battery.soc")
+    energy = None
+    if capacity is not None and soc_start is not None and soc_end is not None:
+        energy = capacity * (soc_start - soc_end) / 100
+    return DriveSegment(
+        start=start,
+        end=end,
+        duration_seconds=duration.total_seconds(),
+        start_position=positions[0] if positions else None,
+        end_position=positions[-1] if positions else None,
+        distance_km=_distance_km(rows),
+        avg_speed=sum(speeds) / len(speeds) if speeds else None,
+        max_speed=max(speeds) if speeds else None,
+        soc_start=soc_start,
+        soc_end=soc_end,
+        energy_kwh=energy,
+    )
+
+
+def _charge_segment(rows: list[Telemetry]) -> ChargeSegment:
+    start = as_utc(rows[0].recorded_at)
+    end = as_utc(rows[-1].recorded_at)
+    soc_start, soc_end = _metric_edges(rows, "battery.soc")
+    added_start, added_end = _metric_edges(rows, "teslamate.charge_energy_added")
+    integrated, average = _power_integral(rows)
+    energy = (
+        added_end - added_start
+        if added_start is not None and added_end is not None and added_end >= added_start
+        else integrated
+    )
+    powers = [
+        power for row in rows if (power := _number(row.metrics.get("charging.power"))) is not None
+    ]
+    positions = _positions(rows)
+    return ChargeSegment(
+        start=start,
+        end=end,
+        duration_seconds=(end - start).total_seconds(),
+        position=positions[0] if positions else None,
+        soc_start=soc_start,
+        soc_end=soc_end,
+        energy_kwh=energy,
+        peak_power=max(powers) if powers else None,
+        avg_power=average,
+    )
+
+
+@router.get("", response_model=SegmentsResponse, response_model_exclude_none=True)
+def segments(
+    vehicle_id: str,
+    start: datetime,
+    db: Db,
+    authorized: ViewVehicle,
+    end: datetime | None = None,
+) -> SegmentsResponse:
+    resolved_start = as_utc(start)
+    resolved_end = as_utc(end) if end else utcnow()
+    if resolved_start >= resolved_end:
+        raise HTTPException(status_code=400, detail="start must be earlier than end")
+    if resolved_end - resolved_start > MAXIMUM_RANGE:
+        raise HTTPException(status_code=400, detail="segment range cannot exceed 92 days")
+    rows = list(
+        db.scalars(
+            select(Telemetry)
+            .where(
+                Telemetry.vehicle_id == vehicle_id,
+                Telemetry.recorded_at >= resolved_start,
+                Telemetry.recorded_at <= resolved_end,
+            )
+            .order_by(Telemetry.recorded_at, Telemetry.id)
+        )
+    )
+    drives = [
+        segment
+        for group in _groups(
+            rows,
+            [
+                _drive_evidence(row, rows[index - 1] if index else None)
+                for index, row in enumerate(rows)
+            ],
+        )
+        if (segment := _drive_segment(group, authorized.vehicle.battery_nominal_capacity_kwh))
+        is not None
+    ]
+    charges = [
+        _charge_segment(group) for group in _groups(rows, [_charge_evidence(row) for row in rows])
+    ]
+    return SegmentsResponse(drives=drives, charges=charges)

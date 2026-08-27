@@ -8,9 +8,10 @@ the same state, history and hook pipeline.
 
 Enrollment starts by choosing an agent implementation from the server catalog. Review its
 hardware summary and whether setup is one command or a guided sequence before creating a
-token. Then name the agent and select its sampling cadence. The one-time token becomes a
-permanent random agent credential stored with mode `0600`; it can authenticate only agent
-routes.
+token. Then name the agent, choose an optional CAN profile, and select its sampling cadence.
+The selected profile controls which vehicle-specific signals the agent decodes and is used
+for the data estimate shown in the enrollment form. The one-time token becomes a permanent
+random agent credential stored with mode `0600`; it can authenticate only agent routes.
 
 ![Enrolled agents with their cadence](/screens/agents.png)
 
@@ -29,7 +30,8 @@ month parked. The agent reports its decision as `vehicle_in_use`, with
 Presets upload each reading as soon as it is sampled. Lowering sample resolution saves
 more data without making the dashboard stale. A longer upload interval can batch samples
 and reduce request overhead, but delays their visibility; most savings disappear beyond
-about 30 seconds. Estimates use the selected signal count and expected driving hours.
+about 30 seconds. Estimates use the selected CAN profile's signal count and expected driving
+hours.
 
 ## How parked state is decided
 
@@ -45,8 +47,8 @@ The agent tries evidence in this order, allowing any source to be absent:
 Driving cadence remains active for three minutes after the last evidence, avoiding a
 slowdown at brief stops. A newly started agent begins parked.
 
-**Settings** changes cadence and creates a new configuration version. Apply it without
-waiting for the next five-minute sync:
+**Settings** changes the agent's CAN profile or cadence and creates a new configuration
+version. Apply it without waiting for the next five-minute sync:
 
 ```sh
 sudo carhibou-agent config --pull
@@ -101,6 +103,7 @@ the vehicle and **TeslaMate (MQTT)**, then provide:
   a broker whose certificate you have verified by another means;
 - the optional broker username and password;
 - the optional TeslaMate namespace and the numeric car id, normally `1`;
+- a mapping profile, normally the bundled `teslamate-mqtt-v1` profile;
 - a sample interval from 1 to 3600 seconds.
 
 The password is write-only. A mask indicates that one is stored, and leaving the password
@@ -111,3 +114,6 @@ Common TeslaMate values use Carhibou keys such as `battery.soc`, `battery.power`
 `vehicle.odometer`, `vehicle.range`, `charging.active` and the four tyre pressure keys.
 Position values feed the normal map and route history. Other values remain available under
 the `teslamate.` prefix, such as `teslamate.inside_temp`, for history and dashboards.
+Changing the mapping profile restarts that connector session with a new configuration
+version. CAN profiles can be selected only for agents, while mapping profiles can be
+selected only for connectors.

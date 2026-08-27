@@ -4,7 +4,7 @@ import i18n from '../src/i18n'
 import { auth } from '../src/api/auth'
 import DataSourcesView from '../src/views/DataSourcesView.vue'
 import { metricDefinition, metricLabel } from '../src/vehicleDisplay'
-import { adminUser, agentImplementations, connectorKinds, connectorRow, agentIdentity, jsonResponse, memberUser, vehicle } from './helpers'
+import { adminUser, agentImplementations, canProfile, connectorKinds, connectorRow, agentIdentity, jsonResponse, mappingProfile, memberUser, vehicle } from './helpers'
 
 const enrolledAgent = {
   id: 'agent-1', vehicle_id: vehicle.id, name: 'Pi', credential_version: 1, ...agentIdentity,
@@ -18,7 +18,7 @@ function mockApi(options: { agents?: unknown[]; connectors?: unknown[]; vehicles
     if (url.endsWith('/connector-kinds')) return Promise.resolve(jsonResponse(connectorKinds))
     if (url.endsWith('/connectors')) return Promise.resolve(jsonResponse(options.connectors ?? []))
     if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse(agentImplementations))
-    if (url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([]))
+    if (url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([canProfile, mappingProfile]))
     if (url.endsWith('/agents')) return Promise.resolve(jsonResponse(options.agents ?? []))
     return Promise.resolve(jsonResponse(options.vehicles ?? [vehicle]))
   })
@@ -108,6 +108,7 @@ describe('external data connectors', () => {
     expect(JSON.parse(created?.[1]?.body as string)).toEqual({
       kind: 'teslamate.mqtt',
       name: 'Garage broker',
+      mapping_profile: 'teslamate-mqtt-v1',
       config: {
         host: 'mqtt.local', port: 8883, tls: true, tls_accept_invalid_certs: true,
         username: 'carhibou', namespace: 'garage', car_id: 2, sample_seconds: 30,
@@ -147,7 +148,7 @@ describe('external data connectors', () => {
     await flushPromises()
     const kept = body(fetchMock, 'PUT', '/connectors/connector-1')
     expect(kept).not.toHaveProperty('password')
-    expect(kept).toEqual({ name: 'Garage broker', enabled: true, config: connectorRow().config })
+    expect(kept).toEqual({ name: 'Garage broker', enabled: true, mapping_profile: 'teslamate-mqtt-v1', config: connectorRow().config })
 
     await wrapper.get('.connector-row .source-actions .button').trigger('click')
     await field(wrapper, 'Password').setValue('replacement')
@@ -184,7 +185,7 @@ describe('external data connectors', () => {
     await wrapper.findAll('.connector-row .source-actions .button')[1]!.trigger('click')
     await flushPromises()
     expect(body(fetchMock, 'PUT', '/connectors/connector-1')).toEqual({
-      name: 'Garage broker', enabled: false, config: connectorRow().config,
+      name: 'Garage broker', enabled: false, mapping_profile: 'teslamate-mqtt-v1', config: connectorRow().config,
     })
   })
 

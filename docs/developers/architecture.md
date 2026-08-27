@@ -71,13 +71,23 @@ Shadow agents have unusable credentials and are hidden from agent listings. The
 tokens and agent enrollment requests cannot claim it. Connector settings, enablement and
 deletion are available only through connector routes.
 
-Source mappings are data at the transport boundary. A mapping receives a source topic and
-value and emits canonical metrics, position fields, or namespaced passthrough metrics. The
-TeslaMate mapping translates stable display keys and keeps other values below `teslamate.`.
-It ignores deprecated duplicate position and route topics in favor of the JSON topics.
-Scalar strings are coerced independently, JSON objects are flattened by one level, and a bad
-value drops only that value. Mapping notes are recorded without changing a healthy MQTT
-session to an error state.
+Source mappings are typed profiles at the transport boundary. A shared mapping engine
+receives a source key and value and emits canonical metrics, position fields or namespaced
+passthrough metrics. Profile validation fails closed on unknown fields, duplicate matches,
+invalid targets and incompatible transforms. Runtime coercion is fail-open per value, so a
+bad value is omitted while the session continues processing other keys.
+
+Connectors reference a mapping profile separately from their connection settings. Editing
+a referenced profile or selecting another one increments the connector configuration
+version and restarts only that session. Agents reference CAN profiles instead, and receive
+their projected decoder definition through the existing versioned configuration. Profile
+types cannot be exchanged between those two source kinds.
+
+The bundled `teslamate-mqtt-v1` profile translates stable TeslaMate keys and keeps other
+values below `teslamate.`. It ignores deprecated duplicate position and route topics in
+favor of the JSON topics. Scalar strings are coerced independently, JSON objects are
+flattened by one level, and mapping notes do not change a healthy MQTT session to an error
+state.
 
 TeslaMate publishes retained QoS 1 values on change, so the first subscription delivers a
 snapshot followed by deltas. A session accumulates those changes into one telemetry sample
@@ -125,6 +135,14 @@ the time-series store at the intended scale.
 The bounded history endpoint downsamples route and chart points. The entries endpoint
 returns paginated raw rows; numeric sorting and filtering of JSON metrics leaves
 non-numeric values as NULL instead of failing.
+
+The segments endpoint derives drives and charges on read from those raw rows, so it does
+not depend on history downsampling and stores no session records. It joins evidence gaps
+under 180 seconds, discards drives shorter than 60 seconds and caps queries at 92 days.
+Drive evidence follows explicit in-use state, driving state, speed and position movement.
+Distance prefers odometer change and falls back to GPS haversine distance. Charge energy
+prefers the source's accumulated energy and falls back to trapezoidal power integration.
+Missing source metrics omit only their optional response fields.
 
 Authenticated browsers receive current-state snapshots from
 `GET /api/v1/events/stream`. This same-origin SSE stream reads PostgreSQL rather than

@@ -19,6 +19,7 @@ class Connector(TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(String(120))
     kind: Mapped[str] = mapped_column(String(100))
+    mapping_profile: Mapped[str] = mapped_column(String(120))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     config: Mapped[JSONValue] = mapped_column(JSONType)
     encrypted_password: Mapped[str | None] = mapped_column(Text)

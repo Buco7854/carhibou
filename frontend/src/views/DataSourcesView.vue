@@ -14,11 +14,11 @@ type SetupStepKind = 'command'|'value'|'link'|'manual'
 interface AgentImplementation { id:string; name:string; hardware:string; protocol_version:number; setup_kind:'command'|'guided'; docs_url:string }
 interface SetupStep { kind:SetupStepKind; text:string; command:string; value:string; url:string }
 interface Enrollment { token:string; expires_at:string; setup_steps:SetupStep[] }
-interface Agent { id:string; vehicle_id:string; name:string; credential_version:number; implementation_id:string; protocol_version:number; agent_version:string; compatibility:'compatible'|'incompatible'; hostname:string|null; hardware:Record<string,unknown>; sampling_seconds:number; upload_seconds:number; parked_sampling_seconds:number; parked_upload_seconds:number; online:boolean; last_seen_at:string|null; last_config_sync_at:string|null; config_version:number; revoked_at:string|null; created_at:string }
+interface Agent { id:string; vehicle_id:string; name:string; vehicle_profile:string|null; credential_version:number; implementation_id:string; protocol_version:number; agent_version:string; compatibility:'compatible'|'incompatible'; hostname:string|null; hardware:Record<string,unknown>; sampling_seconds:number; upload_seconds:number; parked_sampling_seconds:number; parked_upload_seconds:number; online:boolean; last_seen_at:string|null; last_config_sync_at:string|null; config_version:number; revoked_at:string|null; created_at:string }
 type ConnectorStatus = 'disabled'|'connecting'|'connected'|'error'
 interface ConnectorKind { id:string; name:string; description:string; docs_url:string }
 interface ConnectorConfig { host:string; port:number; tls:boolean; tls_accept_invalid_certs:boolean; username:string; namespace:string; car_id:number; sample_seconds:number }
-interface Connector { id:string; vehicle_id:string; name:string; kind:string; enabled:boolean; config:ConnectorConfig; masked:string; config_version:number; status:ConnectorStatus; last_connected_at:string|null; last_message_at:string|null; last_sample_at:string|null; last_error:string; created_at:string; updated_at:string }
+interface Connector { id:string; vehicle_id:string; name:string; kind:string; enabled:boolean; mapping_profile:string; config:ConnectorConfig; masked:string; config_version:number; status:ConnectorStatus; last_connected_at:string|null; last_message_at:string|null; last_sample_at:string|null; last_error:string; created_at:string; updated_at:string }
 
 const BUNDLED_IMPLEMENTATION = 'carhibou.go'
 const CUSTOM_IMPLEMENTATION = 'custom'
@@ -27,6 +27,7 @@ const CUSTOM_IMPLEMENTATION = 'custom'
 const PROTOCOL_DOCS_URL = '/api/docs'
 // A connector owns a shadow agent so telemetry keeps its foreign key, but the
 // data source is what an operator manages, so the agents list leaves it out.
+const BUNDLED_MAPPING_PROFILE = 'teslamate-mqtt-v1'
 const CONNECTOR_PREFIX = 'connector.'
 const SAMPLE_SECONDS_MIN = 1
 const SAMPLE_SECONDS_MAX = 3600
@@ -48,7 +49,9 @@ const selectedVehicle = ref('')
 const selectedImplementation = ref('')
 const agentName = ref('Vehicle agent')
 const enrollmentCadence = ref<Cadence>(presetCadence('standard'))
-const profileSignals = ref<Record<string,number>>({})
+const profiles = ref<VehicleProfile[]>([])
+const enrollmentProfile = ref<string|null>(null)
+const draftProfile = ref<string|null>(null)
 const editing = ref<Agent|null>(null)
 const draftName = ref('')
 const draftCadence = ref<Cadence>(presetCadence('standard'))
@@ -69,6 +72,7 @@ const connectorKind = ref('')
 const connectorVehicle = ref('')
 const connectorName = ref('')
 const connectorConfig = ref<ConnectorConfig>({ ...DEFAULT_CONNECTOR_CONFIG })
+const connectorMappingProfile = ref('')
 const connectorPassword = ref('')
 const connectorSaving = ref(false)
 const connectorError = ref('')
@@ -88,6 +92,9 @@ function implementationName(id:string):string {
 }
 const enrolledAgents = computed(() => agents.value.filter((agent) => !agent.implementation_id.startsWith(CONNECTOR_PREFIX)))
 const chosenKind = computed(() => connectorKinds.value.find((item) => item.id === connectorKind.value))
+function profileName(id:string):string {
+  return profiles.value.find((item) => item.id === id)?.name ?? id
+}
 function connectorKindName(id:string):string {
   return connectorKinds.value.find((item) => item.id === id)?.name ?? id
 }
@@ -100,18 +107,19 @@ function moment(value:string|null):string {
 // A manifest may leave a step's text empty when the payload speaks for itself,
 // so every kind still needs a sentence a reader can act on.
 function stepText(step:SetupStep):string { return step.text || t(`agents.stepDefaults.${step.kind}`) }
-// A profile's signals travel in every sample, so the data estimate is only
-// honest if it knows how many the chosen vehicle decodes.
-function signalCount(vehicleId:string):number {
-  const profile = vehicles.value.find((item) => item.id === vehicleId)?.vehicle_profile
-  return profile ? profileSignals.value[profile] ?? 0 : 0
+const canProfiles = computed(() => profiles.value.filter((profile) => profile.type === 'can'))
+const mappingProfiles = computed(() => profiles.value.filter((profile) => profile.type === 'mapping'))
+// The estimate follows the profile chosen in this form, not the stored one.
+function signalCount(profileId:string|null):number {
+  const profile = profiles.value.find((item) => item.id === profileId)
+  return profile?.definition.signals?.length ?? 0
 }
 
 async function load() {
   try {
     // Connectors are an optional subsystem: a server without them still has a
     // working agents page, so their absence empties that section and no more.
-    const [loadedAgents, loadedVehicles, profiles, catalog, loadedConnectors, kinds] = await Promise.all([
+    const [loadedAgents, loadedVehicles, loadedProfiles, catalog, loadedConnectors, kinds] = await Promise.all([
       api<Agent[]>('/agents'), api<Vehicle[]>('/vehicles'), api<VehicleProfile[]>('/vehicle-profiles'), api<AgentImplementation[]>('/agent-implementations'),
       api<Connector[]>('/connectors').catch(() => [] as Connector[]), api<ConnectorKind[]>('/connector-kinds').catch(() => [] as ConnectorKind[]),
     ])
@@ -120,7 +128,7 @@ async function load() {
     implementations.value = catalog
     connectors.value = loadedConnectors
     connectorKinds.value = kinds
-    profileSignals.value = Object.fromEntries(profiles.map((profile) => [profile.id, profile.definition.signals.length]))
+    profiles.value = loadedProfiles
     if (!selectedVehicle.value && enrollableVehicles.value[0]) selectedVehicle.value = enrollableVehicles.value[0].id
     if (!catalog.some((item) => item.id === selectedImplementation.value)) {
       selectedImplementation.value = catalog.find((item) => item.id === BUNDLED_IMPLEMENTATION)?.id ?? catalog[0]?.id ?? ''
@@ -133,6 +141,7 @@ function openEnrollment() {
   mintedFor.value = null
   enrollmentError.value = ''
   copiedKey.value = ''
+  enrollmentProfile.value = null
   if (!enrollableVehicles.value.some((vehicle) => vehicle.id === selectedVehicle.value)) {
     selectedVehicle.value = enrollableVehicles.value[0]?.id ?? ''
   }
@@ -146,7 +155,7 @@ async function createEnrollment() {
   creating.value = true
   enrollmentError.value = ''
   try {
-    enrollment.value = await api<Enrollment>(`/vehicles/${selectedVehicle.value}/enrollments`, { method:'POST', body:JSON.stringify({ implementation_id:selectedImplementation.value, name:agentName.value, ...enrollmentCadence.value }) })
+    enrollment.value = await api<Enrollment>(`/vehicles/${selectedVehicle.value}/enrollments`, { method:'POST', body:JSON.stringify({ implementation_id:selectedImplementation.value, name:agentName.value, vehicle_profile:enrollmentProfile.value, ...enrollmentCadence.value }) })
     mintedFor.value = chosenImplementation.value ?? null
   } catch (reason) { enrollmentError.value = reason instanceof Error ? reason.message : t('common.error') }
   finally { creating.value = false }
@@ -155,6 +164,7 @@ function openSettings(agent:Agent) {
   error.value = ''
   editing.value = agent
   draftName.value = agent.name
+  draftProfile.value = agent.vehicle_profile
   draftCadence.value = {
     sampling_seconds:agent.sampling_seconds,
     upload_seconds:agent.upload_seconds,
@@ -167,7 +177,7 @@ async function saveSettings() {
   saving.value = true
   error.value = ''
   try {
-    await api(`/agents/${editing.value.id}`, { method:'PUT', body:JSON.stringify({ name:draftName.value, ...draftCadence.value }) })
+    await api(`/agents/${editing.value.id}`, { method:'PUT', body:JSON.stringify({ name:draftName.value, vehicle_profile:draftProfile.value, ...draftCadence.value }) })
     editing.value = null
     await load()
   } catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
@@ -196,11 +206,13 @@ function openConnector(connector:Connector|null) {
     connectorKind.value = connector.kind
     connectorVehicle.value = connector.vehicle_id
     connectorName.value = connector.name
+    connectorMappingProfile.value = connector.mapping_profile
     connectorConfig.value = { ...DEFAULT_CONNECTOR_CONFIG, ...connector.config }
   } else {
     connectorKind.value = connectorKinds.value[0]?.id ?? ''
     connectorVehicle.value = enrollableVehicles.value[0]?.id ?? ''
     connectorName.value = connectorKinds.value[0]?.name ?? 'Data source'
+    connectorMappingProfile.value = BUNDLED_MAPPING_PROFILE
     connectorConfig.value = { ...DEFAULT_CONNECTOR_CONFIG }
   }
   connectorOpen.value = true
@@ -209,7 +221,7 @@ function openConnector(connector:Connector|null) {
 // sub-toggle never outlives the toggle it hangs from.
 watch(() => connectorConfig.value.tls, (secure) => { if (!secure) connectorConfig.value.tls_accept_invalid_certs = false })
 function connectorPayload():Record<string,unknown> {
-  const body:Record<string,unknown> = { name:connectorName.value, config:{ ...connectorConfig.value } }
+  const body:Record<string,unknown> = { name:connectorName.value, mapping_profile:connectorMappingProfile.value, config:{ ...connectorConfig.value } }
   if (connectorPassword.value) body.password = connectorPassword.value
   return body
 }
@@ -229,7 +241,7 @@ async function saveConnector() {
 // Enabling is a config write like any other, so it travels as the same full body
 // the form sends rather than through a second, narrower endpoint.
 async function setConnectorEnabled(connector:Connector, enabled:boolean) {
-  await api(`/connectors/${connector.id}`, { method:'PUT', body:JSON.stringify({ name:connector.name, enabled, config:{ ...connector.config } }) })
+  await api(`/connectors/${connector.id}`, { method:'PUT', body:JSON.stringify({ name:connector.name, enabled, mapping_profile:connector.mapping_profile, config:{ ...connector.config } }) })
   await load()
 }
 async function removeConnector(connector:Connector) {
@@ -276,7 +288,9 @@ onMounted(load)
           </div>
           <label class="field"><span>{{ t('agents.vehicle') }}</span><AppSelect v-model="selectedVehicle" searchable :search-placeholder="t('vehicles.search')" :no-results-text="t('vehicles.noMatch')"><option v-for="vehicle in enrollableVehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.name }}</option></AppSelect></label>
           <label class="field"><span>{{ t('agents.name') }}</span><input v-model="agentName" class="input" /></label>
-          <CadenceFields v-model="enrollmentCadence" :signal-count="signalCount(selectedVehicle)" />
+          <label class="field"><span>{{ t('agents.profile') }}</span><AppSelect v-model="enrollmentProfile" :aria-label="t('agents.profile')"><option :value="null">{{ t('agents.noProfile') }}</option><option v-for="profile in canProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option></AppSelect></label>
+          <p class="field-hint">{{ t('agents.profileHint') }}</p>
+          <CadenceFields v-model="enrollmentCadence" :signal-count="signalCount(enrollmentProfile)" />
           <p class="field-hint">{{ t('agents.cadenceHint') }}</p>
           <p v-if="enrollmentError" class="error" role="alert">{{ enrollmentError }}</p>
         </div>
@@ -301,7 +315,9 @@ onMounted(load)
     <AppModal :open="Boolean(editing)" :title="t('agents.settings')" @close="editing=null">
       <form v-if="editing" class="stack-form" @submit.prevent="saveSettings">
         <label class="field"><span>{{ t('agents.name') }}</span><input v-model="draftName" class="input" required autofocus /></label>
-        <CadenceFields v-model="draftCadence" :signal-count="signalCount(editing.vehicle_id)" />
+        <label class="field"><span>{{ t('agents.profile') }}</span><AppSelect v-model="draftProfile" :aria-label="t('agents.profile')"><option :value="null">{{ t('agents.noProfile') }}</option><option v-for="profile in canProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option></AppSelect></label>
+        <p class="field-hint">{{ t('agents.profileHint') }}</p>
+        <CadenceFields v-model="draftCadence" :signal-count="signalCount(draftProfile)" />
         <p class="field-hint">{{ t('agents.cadenceHint') }}</p>
         <p class="field-hint">{{ t('agents.cadenceApplyHint') }}</p>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -334,6 +350,7 @@ onMounted(load)
           <div><dt>{{ t('agents.hardware') }}</dt><dd>{{ agent.hostname ?? '—' }}</dd></div>
           <div><dt>{{ t('agents.lastSeen') }}</dt><dd>{{ moment(agent.last_seen_at) }}</dd></div>
           <div><dt>{{ t('agents.cadence') }}</dt><dd>{{ t('agents.cadenceValue',{driving:agent.sampling_seconds,parked:agent.parked_sampling_seconds}) }}</dd></div>
+          <div><dt>{{ t('agents.profile') }}</dt><dd>{{ agent.vehicle_profile ? profileName(agent.vehicle_profile) : t('agents.noProfile') }}</dd></div>
         </dl>
         <div v-if="canOperateAgent(agent)" class="source-actions">
           <button class="button secondary" :disabled="!!agent.revoked_at" @click="openSettings(agent)">{{ t('agents.settings') }}</button>
@@ -396,6 +413,8 @@ onMounted(load)
         </div>
         <label class="field"><span>{{ t('agents.vehicle') }}</span><AppSelect v-model="connectorVehicle" :disabled="Boolean(connectorEditing)" searchable :search-placeholder="t('vehicles.search')" :no-results-text="t('vehicles.noMatch')"><option v-for="vehicle in enrollableVehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.name }}</option></AppSelect></label>
         <label class="field"><span>{{ t('agents.name') }}</span><input v-model="connectorName" class="input" required /></label>
+        <label class="field"><span>{{ t('connectors.mappingProfile') }}</span><AppSelect v-model="connectorMappingProfile" :aria-label="t('connectors.mappingProfile')"><option v-for="profile in mappingProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option></AppSelect></label>
+        <p class="field-hint">{{ t('connectors.mappingProfileHint') }}</p>
         <p class="field-hint">{{ t('connectors.brokerHint') }}</p>
         <div class="form-grid">
           <label class="field"><span>{{ t('connectors.host') }}</span><input v-model="connectorConfig.host" class="input" required placeholder="homeassistant.local" /></label>

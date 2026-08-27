@@ -23,6 +23,7 @@ class EnrollmentCreate(BaseModel):
 
     implementation_id: str = Field(min_length=1, max_length=100)
     name: str = Field(default="Vehicle agent", min_length=1, max_length=120)
+    vehicle_profile: str | None = Field(default=None, max_length=120)
     ttl_minutes: int = Field(default=30, ge=5, le=1440)
     sampling_seconds: int = SAMPLING_SECONDS
     upload_seconds: int = UPLOAD_SECONDS
@@ -34,6 +35,7 @@ class AgentSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)
+    vehicle_profile: str | None = Field(default=None, max_length=120)
     sampling_seconds: int = SAMPLING_SECONDS
     upload_seconds: int = UPLOAD_SECONDS
     parked_sampling_seconds: int = PARKED_SAMPLING_SECONDS
@@ -113,6 +115,7 @@ class AgentResponse(BaseModel):
     compatibility: Literal["compatible", "incompatible"]
     hostname: str | None
     hardware: dict[str, object]
+    vehicle_profile: str | None
     sampling_seconds: int
     upload_seconds: int
     parked_sampling_seconds: int

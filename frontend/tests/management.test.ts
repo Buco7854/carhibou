@@ -8,6 +8,7 @@ import DashboardsView from '../src/views/DashboardsView.vue'
 import DataSourcesView from '../src/views/DataSourcesView.vue'
 import ProfilesView from '../src/views/ProfilesView.vue'
 import VehiclesView from '../src/views/VehiclesView.vue'
+import { widgetRegistry } from '../src/widgets/registry'
 import { adminUser, agentImplementations, connectorKinds, agentIdentity, jsonResponse, vehicle } from './helpers'
 
 vi.mock('gridstack', () => ({
@@ -136,7 +137,7 @@ describe('vehicle and dashboard management', () => {
     expect(body.implementation_id).toBe('custom')
     // The enrollment schema forbids unknown fields, so the cadence preset's own
     // key must never travel with the four intervals it carries.
-    expect(Object.keys(body).sort()).toEqual(['implementation_id', 'name', 'parked_sampling_seconds', 'parked_upload_seconds', 'sampling_seconds', 'upload_seconds'])
+    expect(Object.keys(body).sort()).toEqual(['implementation_id', 'name', 'parked_sampling_seconds', 'parked_upload_seconds', 'sampling_seconds', 'upload_seconds', 'vehicle_profile'])
 
     const steps = wrapper.findAll('.setup-steps li')
     expect(steps).toHaveLength(4)
@@ -166,7 +167,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('filters the vehicle catalog by search and live status locally', async () => {
-    const parked = { ...vehicle, id:'vehicle-2', name:'Nimbus', battery_nominal_capacity_kwh:null, vehicle_profile:null, state:{ ...vehicle.state, online:false, metrics:{'fuel.level':48,'engine.rpm':900} } }
+    const parked = { ...vehicle, id:'vehicle-2', name:'Nimbus', battery_nominal_capacity_kwh:null, state:{ ...vehicle.state, online:false, metrics:{'fuel.level':48,'engine.rpm':900} } }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(jsonResponse(url.endsWith('/vehicle-profiles') ? [] : [vehicle, parked]))))
     const wrapper = mount(VehiclesView, { global:{plugins:[i18n],stubs:{Teleport:true,RouterLink:{template:'<a><slot /></a>'}}} })
     await flushPromises()
@@ -185,9 +186,9 @@ describe('vehicle and dashboard management', () => {
     expect(wrapper.get('.vehicle-card').text()).toContain('Niveau de carburant')
   })
 
-  it('creates vehicles from a name and an optional profile, without optional specifications', async () => {
+  it('creates vehicles from a name alone, with no profile field and no optional specifications', async () => {
     const fetchMock = vi.fn().mockImplementation((_url: string, options?: RequestInit) => {
-      if (_url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([{ id:'citroen-c-zero-v1', name:'C-Zero', description:'', built_in:true, definition:{ id:'citroen-c-zero-v1', name:'C-Zero', version:1, signals:[] }, created_at:null, updated_at:null }]))
+      if (_url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([{ id:'citroen-c-zero-v1', name:'C-Zero', description:'', type:'can', built_in:true, editable:false, definition:{ id:'citroen-c-zero-v1', name:'C-Zero', version:1, signals:[] }, created_at:null, updated_at:null }]))
       if (options?.method === 'POST') return Promise.resolve(jsonResponse(vehicle, 201))
       return Promise.resolve(jsonResponse([]))
     })
@@ -197,24 +198,15 @@ describe('vehicle and dashboard management', () => {
     await wrapper.get('.header-actions .button:not(.secondary)').trigger('click')
     expect(wrapper.text()).not.toContain('Propulsion')
     expect(wrapper.find('input[type="number"][step=".1"]').exists()).toBe(false)
+    // The decoding profile belongs to the agent now, so the vehicle form has none.
+    expect(wrapper.text()).not.toContain('Decoding profile')
+    expect(wrapper.findAllComponents(AppSelect)).toHaveLength(0)
 
-    // A profile is offered but nothing is preselected: a vehicle without one still
-    // records position and agent health.
     await wrapper.get('input[required]').setValue('Touring')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
-    const first = JSON.parse(fetchMock.mock.calls.find((call) => call[1]?.method === 'POST')?.[1]?.body as string)
-    expect(first).not.toHaveProperty('propulsion_type')
-    expect(first).not.toHaveProperty('battery_nominal_capacity_kwh')
-    expect(first.vehicle_profile).toBeNull()
-
-    await wrapper.get('.header-actions .button:not(.secondary)').trigger('click')
-    await wrapper.get('input[required]').setValue('Second')
-    wrapper.findAllComponents(AppSelect)[0]!.vm.$emit('update:modelValue', 'citroen-c-zero-v1')
-    await wrapper.get('form').trigger('submit')
-    await flushPromises()
-    const second = JSON.parse(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST').at(-1)?.[1]?.body as string)
-    expect(second.vehicle_profile).toBe('citroen-c-zero-v1')
+    const created = JSON.parse(fetchMock.mock.calls.find((call) => call[1]?.method === 'POST')?.[1]?.body as string)
+    expect(created).toEqual({ name: 'Touring' })
   })
 
   it('sets an agent cadence at enrollment and edits it afterwards', async () => {
@@ -384,7 +376,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('suggests dashboard metrics that are actually reported by the selected vehicle', async () => {
-    const thermal = { ...vehicle, battery_nominal_capacity_kwh:null, vehicle_profile:null, state:{...vehicle.state,metrics:{'fuel.level':52,'engine.rpm':1400}} }
+    const thermal = { ...vehicle, battery_nominal_capacity_kwh:null, state:{...vehicle.state,metrics:{'fuel.level':52,'engine.rpm':1400}} }
     const dashboard = { id:'dash-1',name:'My dashboard',is_default:true,layout:{preset:'test-fixture',widgets:[]},created_at:'',updated_at:'' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
@@ -402,7 +394,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('adapts the energy gauge to fuel for a combustion vehicle', async () => {
-    const thermal = { ...vehicle, battery_nominal_capacity_kwh:null, vehicle_profile:null, state:{...vehicle.state,metrics:{'fuel.level':52,'engine.rpm':1400}} }
+    const thermal = { ...vehicle, battery_nominal_capacity_kwh:null, state:{...vehicle.state,metrics:{'fuel.level':52,'engine.rpm':1400}} }
     const dashboard = { id:'dash-1',name:'My dashboard',is_default:true,layout:{preset:'test-fixture',widgets:[{id:'energy',type:'battery-gauge',vehicle_id:thermal.id,x:0,y:0,w:3,h:3}]},created_at:'',updated_at:'' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
@@ -437,14 +429,16 @@ describe('vehicle and dashboard management', () => {
     const body = JSON.parse(createCall?.[1]?.body as string)
     expect(body.name).toBe('Overview')
     expect(body.is_default).toBe(true)
-    expect(body.layout.preset).toBe('overview-v5')
+    expect(body.layout.preset).toBe('overview-v6')
     // Ordered by the questions somebody opening this has: what is the car doing,
     // how fast, how much is left, where is it. Status comes first because it
     // carries both the vehicle's state and the agent's, separately.
     expect(body.layout.widgets.map((row: {type:string}) => row.type)).toEqual([
       'vehicle-selector', 'online-status', 'metric-card', 'battery-gauge',
-      'position-map', 'charging', 'telemetry-list', 'time-series', 'vehicle-media',
+      'route-map', 'charging', 'telemetry-list', 'time-series', 'vehicle-media',
     ])
+    // The route map replaces the plain position map, which stays available to add.
+    expect(widgetRegistry['position-map']).toBeDefined()
     const speed = body.layout.widgets.find((row: {type:string}) => row.type === 'metric-card')
     expect(speed.metric).toBe('vehicle.speed')
     // Energy, charging and the photo opt out for vehicles that cannot report them.
@@ -455,7 +449,7 @@ describe('vehicle and dashboard management', () => {
 
   it('updates dynamic widgets from the vehicle selector and persists card deletion', async () => {
     const secondVehicle = { ...vehicle, id:'vehicle-2', name:'Nimbus', state:{...vehicle.state,metrics:{'fuel.level':25}} }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v5',widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v6',widgets:[
       {id:'selector',type:'vehicle-selector',x:0,y:0,w:12,h:1},
       {id:'fuel',type:'metric-card',metric:'fuel.level',x:0,y:1,w:3,h:2},
     ]}, created_at:'', updated_at:'' }
@@ -540,7 +534,7 @@ describe('vehicle and dashboard management', () => {
 
     expect(wrapper.get('h1').text()).toBe('Telemetry profiles')
     expect(wrapper.find('.profile-editor').exists()).toBe(false)
-    await wrapper.get('.page-header .button').trigger('click')
+    await wrapper.get('.page-header .button:not(.secondary)').trigger('click')
     expect(wrapper.get('[role="dialog"]').attributes('aria-label')).toBe('Create profile')
     expect(wrapper.get('.profile-editor').isVisible()).toBe(true)
   })
@@ -548,7 +542,7 @@ describe('vehicle and dashboard management', () => {
   it('hides opted-in widgets for a vehicle that cannot report them, and keeps the rest', async () => {
     // A standard OBD-II diesel: no traction battery, and no fuel-level PID support.
     const diesel = { ...vehicle, id:'vehicle-2', name:'Golf', photo_url:null, state:{ ...vehicle.state, metrics:{ 'engine.rpm':1800 } } }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v5', widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v6', widgets:[
       { id:'selector', type:'vehicle-selector', x:0, y:0, w:12, h:1 },
       { id:'energy', type:'battery-gauge', x:0, y:1, w:4, h:2, settings:{ hide_when_empty:true } },
       { id:'charge', type:'charging', x:4, y:1, w:4, h:2, settings:{ hide_when_empty:true } },

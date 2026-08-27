@@ -12,7 +12,7 @@ import { adminUser, agentImplementations, connectorKinds, agentIdentity, jsonRes
 const stubs = { Teleport: true, RouterLink: { template: '<a><slot /></a>' } }
 
 const profile = {
-  id: 'citroen-c-zero-v1', name: 'C-Zero', description: '', built_in: true, editable: false,
+  id: 'citroen-c-zero-v1', name: 'C-Zero', description: '', type: 'can', built_in: true, editable: false,
   definition: { id: 'citroen-c-zero-v1', name: 'C-Zero', version: 1, signals: [] },
   created_at: null, updated_at: null,
 }
@@ -29,9 +29,8 @@ describe('permission-gated controls', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('Add vehicle')
+    // The decoding profile moved to the agent, so no vehicle card carries it.
     expect(wrapper.find('.card-profile-select').exists()).toBe(false)
-    // The assigned profile is a fact the viewer may read, just not change.
-    expect(wrapper.get('.card-profile-name').text()).toBe('C-Zero')
     expect(wrapper.text()).not.toContain('Clear data')
     expect(wrapper.find('.vehicle-card footer .danger').exists()).toBe(false)
     expect(wrapper.find('input[type="file"]').exists()).toBe(false)
@@ -44,7 +43,6 @@ describe('permission-gated controls', () => {
     const wrapper = mount(VehiclesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
 
-    expect(wrapper.find('.card-profile-select').exists()).toBe(true)
     expect(wrapper.text()).toContain('Clear data')
     expect(wrapper.find('input[type="file"]').exists()).toBe(true)
     // Creating and deleting vehicles stays with the administrator.
@@ -90,7 +88,7 @@ describe('permission-gated controls', () => {
     const wrapper = mount(ProfilesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
 
-    expect(wrapper.get('.header-actions .button').text()).toContain('New profile')
+    expect(wrapper.get('.header-actions .button:not(.secondary)').text()).toContain('New CAN profile')
     expect(wrapper.find('.empty-profile').exists()).toBe(true)
   })
 

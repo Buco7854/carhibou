@@ -6,10 +6,12 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { resolvedTheme } from '../theme'
 
-const props = defineProps<{
-  series: Array<{ name: string; unit?: string; data: Array<[string, number]> }>
+const props = withDefaults(defineProps<{
+  series: Array<{ name: string; unit?: string; data: Array<[string | number, number]> }>
   height?: number | string
-}>()
+  xType?: 'time' | 'value'
+  xUnit?: string
+}>(), { xType: 'time', xUnit: '' })
 const element = ref<HTMLDivElement>()
 echarts.use([LineChart, DataZoomComponent, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 let chart: echarts.EChartsType | undefined
@@ -38,8 +40,8 @@ function render() {
       : { show: false },
     grid: { left: 12, right: 16, top: multiple ? 34 : 12, bottom: 6, containLabel: true },
     xAxis: {
-      type: 'time',
-      axisLabel: { color: muted, fontFamily: 'IBM Plex Sans', fontSize: 11 },
+      type: props.xType,
+      axisLabel: { color: muted, fontFamily: 'IBM Plex Sans', fontSize: 11, formatter: props.xUnit ? `{value} ${props.xUnit}` : undefined },
       axisLine: { lineStyle: { color: line } },
       axisTick: { show: false },
       splitLine: { show: false },
@@ -69,7 +71,7 @@ onMounted(() => {
   observer.observe(element.value!)
   render()
 })
-watch(() => props.series, render, { deep: true })
+watch(() => [props.series, props.xType, props.xUnit], render, { deep: true })
 watch(resolvedTheme, () => window.requestAnimationFrame(render))
 onBeforeUnmount(() => { observer?.disconnect(); chart?.dispose() })
 </script>

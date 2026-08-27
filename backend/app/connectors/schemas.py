@@ -5,6 +5,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
+from backend.app.connectors.constants import TESLAMATE_MAPPING_PROFILE
+
 
 class MqttConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -61,6 +63,7 @@ class ConnectorCreate(BaseModel):
 
     kind: Literal["teslamate.mqtt"]
     name: str = Field(min_length=1, max_length=120)
+    mapping_profile: str = Field(default=TESLAMATE_MAPPING_PROFILE, min_length=1, max_length=120)
     config: MqttConfig
     password: str | None = Field(default=None, max_length=10000)
 
@@ -70,6 +73,7 @@ class ConnectorUpdate(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     enabled: bool
+    mapping_profile: str = Field(default=TESLAMATE_MAPPING_PROFILE, min_length=1, max_length=120)
     config: MqttConfig
     password: str | None = Field(default=None, max_length=10000)
 
@@ -88,6 +92,7 @@ class ConnectorResponse(BaseModel):
     vehicle_id: str
     name: str
     kind: str
+    mapping_profile: str
     enabled: bool
     config: MqttConfig
     masked: str

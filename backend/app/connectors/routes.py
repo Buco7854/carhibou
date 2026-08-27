@@ -71,7 +71,10 @@ def edit_connector(
     connector_id: str, data: ConnectorUpdate, db: Db, auth: CurrentUserWrite
 ) -> ConnectorResponse:
     connector = _authorized_connector(db, auth.user, connector_id)
-    update_connector(db, connector, data)
+    try:
+        update_connector(db, connector, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     db.refresh(connector)
     return connector_response(connector)

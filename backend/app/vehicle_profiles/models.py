@@ -15,4 +15,5 @@ class VehicleProfile(TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(1000), default="")
+    type: Mapped[str] = mapped_column(String(20))
     definition: Mapped[JSONValue] = mapped_column(JSONType)

@@ -1,0 +1,64 @@
+id: teslamate-mqtt-v1
+name: TeslaMate MQTT v1
+version: 1
+description: Canonical and namespaced mappings for TeslaMate MQTT vehicle topics.
+type: mapping
+passthrough_prefix: teslamate
+ignore:
+  - latitude
+  - longitude
+  - active_route_destination
+  - active_route_latitude
+  - active_route_longitude
+rules:
+  - match: battery_level
+    target: battery.soc
+    transform: {scale: 1, offset: 0}
+  - match: power
+    target: battery.power
+    transform: {scale: 1, offset: 0}
+  - match: odometer
+    target: vehicle.odometer
+    transform: {scale: 1, offset: 0}
+  - match: charger_power
+    target: charging.power
+    transform: {scale: 1, offset: 0}
+  - match: est_battery_range_km
+    target: vehicle.range
+    transform: {scale: 1, offset: 0}
+  - match: tpms_pressure_fl
+    target: tyre.front_left_pressure
+    transform: {scale: 1, offset: 0}
+  - match: tpms_pressure_fr
+    target: tyre.front_right_pressure
+    transform: {scale: 1, offset: 0}
+  - match: tpms_pressure_rl
+    target: tyre.rear_left_pressure
+    transform: {scale: 1, offset: 0}
+  - match: tpms_pressure_rr
+    target: tyre.rear_right_pressure
+    transform: {scale: 1, offset: 0}
+  - match: state
+    target: vehicle.state
+  - match: charging_state
+    target: charging.active
+    transform:
+      enum:
+        Charging: true
+        charging: true
+        "*": false
+  - match: location
+    target: position
+    transform: {json: true}
+  - match: elevation
+    target: position.altitude
+    transform: {scale: 1, offset: 0}
+  - match: heading
+    target: position.heading
+    transform: {scale: 1, offset: 0}
+  - match: speed
+    target: position.speed
+    transform: {scale: 1, offset: 0}
+  - match: active_route
+    target: teslamate.active_route
+    transform: {json: true}

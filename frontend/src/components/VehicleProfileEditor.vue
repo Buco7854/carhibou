@@ -21,7 +21,7 @@ interface SignalDraft {
   maximum: string
 }
 
-const props = defineProps<{ open: boolean; profile?: VehicleProfile | null }>()
+const props = defineProps<{ open: boolean; profile?: VehicleProfile | null; clone?: boolean }>()
 const emit = defineEmits<{ saved: []; close: [] }>()
 const { t } = useI18n()
 const saving = ref(false)
@@ -31,7 +31,7 @@ const signalOpen = ref(false)
 const signalIndex = ref<number | null>(null)
 const form = ref({ name: '', description: '', signals: [] as SignalDraft[] })
 const signal = ref<SignalDraft>(blankSignal())
-const editing = computed(() => Boolean(props.profile))
+const editing = computed(() => Boolean(props.profile) && !props.clone)
 const dataTypes: ProfileDataType[] = ['uint8', 'uint16', 'uint32', 'int8', 'int16', 'int32', 'boolean', 'bytes']
 
 function blankSignal(): SignalDraft {
@@ -39,7 +39,7 @@ function blankSignal(): SignalDraft {
 }
 
 function profileSignals(profile: VehicleProfile): SignalDraft[] {
-  return profile.definition.signals.map((item) => ({
+  return (profile.definition.signals ?? []).map((item) => ({
     name: item.name,
     display_name: item.display_name ?? '',
     can_id: `0x${item.source.can_id.toString(16).toUpperCase()}`,
@@ -56,7 +56,7 @@ function profileSignals(profile: VehicleProfile): SignalDraft[] {
 
 function reset(): void {
   form.value = props.profile
-    ? { name: props.profile.name, description: props.profile.description, signals: profileSignals(props.profile) }
+    ? { name: props.clone ? t('profiles.cloneName', { name: props.profile.name }) : props.profile.name, description: props.profile.description, signals: profileSignals(props.profile) }
     : { name: '', description: '', signals: [] }
   error.value = ''
   signalError.value = ''
@@ -121,7 +121,7 @@ async function save(): Promise<void> {
   try {
     await api(editing.value ? `/vehicle-profiles/${props.profile!.id}` : '/vehicle-profiles', {
       method: editing.value ? 'PUT' : 'POST',
-      body: JSON.stringify({ name: form.value.name.trim(), description: form.value.description.trim(), signals, computed_metrics: [] }),
+      body: JSON.stringify({ name: form.value.name.trim(), description: form.value.description.trim(), type: 'can', signals, computed_metrics: [] }),
     })
     emit('saved')
     emit('close')
@@ -132,7 +132,7 @@ async function save(): Promise<void> {
   }
 }
 
-watch(() => [props.open, props.profile?.id] as const, ([open]) => { if (open) reset() }, { immediate: true })
+watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => { if (open) reset() }, { immediate: true })
 </script>
 
 <template>

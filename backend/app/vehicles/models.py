@@ -19,7 +19,6 @@ class Vehicle(TimestampMixin, Base):
     year: Mapped[int | None] = mapped_column(Integer)
     vin: Mapped[str | None] = mapped_column(String(17))
     battery_nominal_capacity_kwh: Mapped[float | None] = mapped_column(Float)
-    vehicle_profile: Mapped[str | None] = mapped_column(String(120))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     display_preferences: Mapped[JSONValue] = mapped_column(JSONType, default=dict)
     color: Mapped[str] = mapped_column(String(20), default="#62d4a7")

@@ -6,6 +6,7 @@ from backend.app.auth.services import create_local_user
 
 def profile_payload(*, scale: float = 0.5) -> dict[str, object]:
     return {
+        "type": "can",
         "name": "My documented EV",
         "description": "Signals verified against my own vehicle",
         "signals": [
@@ -29,6 +30,23 @@ def profile_payload(*, scale: float = 0.5) -> dict[str, object]:
     }
 
 
+def mapping_payload(*, target: str = "battery.soc") -> dict[str, object]:
+    return {
+        "type": "mapping",
+        "name": "Broker mapping",
+        "description": "Maps a documented source stream",
+        "passthrough_prefix": "source",
+        "ignore": ["deprecated"],
+        "rules": [
+            {
+                "match": "battery",
+                "target": target,
+                "transform": {"scale": 1, "offset": 0},
+            }
+        ],
+    }
+
+
 def test_owner_profile_reaches_agent_and_updates_config_version(
     registered: tuple[TestClient, str],
 ) -> None:
@@ -47,17 +65,14 @@ def test_owner_profile_reaches_agent_and_updates_config_version(
     assert profile["definition"]["signals"][0]["display_name"] == "Battery level"
 
     vehicle = client.post("/api/v1/vehicles", headers=headers, json={"name": "Owner EV"}).json()
-    assigned = client.put(
-        f"/api/v1/vehicles/{vehicle['id']}/profile",
-        headers=headers,
-        json={"profile_id": profile["id"]},
-    )
-    assert assigned.status_code == 200
-
     enrollment = client.post(
         f"/api/v1/vehicles/{vehicle['id']}/enrollments",
         headers=headers,
-        json={"implementation_id": "custom", "name": "Pi agent"},
+        json={
+            "implementation_id": "custom",
+            "name": "Pi agent",
+            "vehicle_profile": profile["id"],
+        },
     ).json()
     enrolled = client.post(
         "/api/v1/agent/enroll",
@@ -101,12 +116,29 @@ def test_owner_profile_reaches_agent_and_updates_config_version(
     assert config.json()["version"] == 2
     assert config.json()["vehicle_profile_definition"]["signals"][0]["decoder"]["scale"] == 0.25
 
+    agent_id = agent["agent_id"]
+    settings = {
+        "name": "Pi agent",
+        "vehicle_profile": "citroen-c-zero-v1",
+        "sampling_seconds": 5,
+        "upload_seconds": 5,
+        "parked_sampling_seconds": 300,
+        "parked_upload_seconds": 300,
+    }
+    selected = client.put(f"/api/v1/agents/{agent_id}", headers=headers, json=settings)
+    assert selected.status_code == 200, selected.text
+    assert selected.json()["config_version"] == 3
+    assert selected.json()["vehicle_profile"] == "citroen-c-zero-v1"
+    settings["vehicle_profile"] = profile["id"]
+    selected = client.put(f"/api/v1/agents/{agent_id}", headers=headers, json=settings)
+    assert selected.status_code == 200, selected.text
+    assert selected.json()["config_version"] == 4
+
     removed = client.delete(f"/api/v1/vehicle-profiles/{profile['id']}", headers=headers)
     assert removed.status_code == 204
-    vehicle_after = client.get(f"/api/v1/vehicles/{vehicle['id']}").json()
-    assert vehicle_after["vehicle_profile"] is None
+    assert "vehicle_profile" not in client.get(f"/api/v1/vehicles/{vehicle['id']}").json()
     config_after = client.get("/api/v1/agent/config", headers=agent_headers).json()
-    assert config_after["version"] == 3
+    assert config_after["version"] == 5
     assert config_after["vehicle_profile"] is None
     assert config_after["vehicle_profile_definition"] is None
 
@@ -131,6 +163,104 @@ def test_profile_validation_rejects_guessed_or_malformed_signal_definitions(
         json={"name": "No guessed mapping", "vehicle_profile": "made-up-profile"},
     )
     assert vehicle.status_code == 422
+
+    actual_vehicle = client.post(
+        "/api/v1/vehicles",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "Profile-free vehicle"},
+    ).json()
+    enrollment = client.post(
+        f"/api/v1/vehicles/{actual_vehicle['id']}/enrollments",
+        headers={"X-CSRF-Token": csrf},
+        json={"implementation_id": "custom", "vehicle_profile": "made-up-profile"},
+    )
+    assert enrollment.status_code == 400
+    mapping = client.post(
+        "/api/v1/vehicle-profiles",
+        headers={"X-CSRF-Token": csrf},
+        json=mapping_payload(),
+    ).json()
+    wrong_type = client.post(
+        f"/api/v1/vehicles/{actual_vehicle['id']}/enrollments",
+        headers={"X-CSRF-Token": csrf},
+        json={"implementation_id": "custom", "vehicle_profile": mapping["id"]},
+    )
+    assert wrong_type.status_code == 400
+
+
+def test_mapping_profile_api_is_typed_and_versions_referencing_connectors(
+    registered: tuple[TestClient, str],
+) -> None:
+    client, csrf = registered
+    headers = {"X-CSRF-Token": csrf}
+    profile_response = client.post(
+        "/api/v1/vehicle-profiles", headers=headers, json=mapping_payload()
+    )
+    assert profile_response.status_code == 201, profile_response.text
+    profile = profile_response.json()
+    assert profile["type"] == "mapping"
+    assert profile["definition"]["type"] == "mapping"
+    assert profile["definition"]["rules"][0]["target"] == "battery.soc"
+
+    vehicle = client.post("/api/v1/vehicles", headers=headers, json={"name": "Mapped"}).json()
+    connector_config = {
+        "host": "mqtt.example.test",
+        "port": 1883,
+        "tls": False,
+        "tls_accept_invalid_certs": False,
+        "username": "",
+        "namespace": "",
+        "car_id": 1,
+        "sample_seconds": 10,
+    }
+    connector_response = client.post(
+        f"/api/v1/vehicles/{vehicle['id']}/connectors",
+        headers=headers,
+        json={
+            "kind": "teslamate.mqtt",
+            "name": "Mapped broker",
+            "mapping_profile": profile["id"],
+            "config": connector_config,
+        },
+    )
+    assert connector_response.status_code == 201, connector_response.text
+    connector = connector_response.json()
+    assert connector["mapping_profile"] == profile["id"]
+    assert connector["config_version"] == 1
+
+    changed = client.put(
+        f"/api/v1/vehicle-profiles/{profile['id']}",
+        headers=headers,
+        json=mapping_payload(target="battery.level"),
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["definition"]["version"] == 2
+    listed = client.get("/api/v1/connectors").json()[0]
+    assert listed["config_version"] == 2
+
+    wrong_type = client.put(
+        f"/api/v1/vehicle-profiles/{profile['id']}",
+        headers=headers,
+        json=profile_payload(),
+    )
+    assert wrong_type.status_code == 422
+    invalid_selection = client.put(
+        f"/api/v1/connectors/{connector['id']}",
+        headers=headers,
+        json={
+            "name": "Mapped broker",
+            "enabled": True,
+            "mapping_profile": "citroen-c-zero-v1",
+            "config": connector_config,
+        },
+    )
+    assert invalid_selection.status_code == 400
+
+    removed = client.delete(f"/api/v1/vehicle-profiles/{profile['id']}", headers=headers)
+    assert removed.status_code == 204
+    reset = client.get("/api/v1/connectors").json()[0]
+    assert reset["mapping_profile"] == "teslamate-mqtt-v1"
+    assert reset["config_version"] == 3
 
 
 def test_custom_profiles_are_global_but_only_the_creator_can_edit(

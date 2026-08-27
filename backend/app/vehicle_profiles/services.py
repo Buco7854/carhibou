@@ -11,14 +11,19 @@ from agent.vehicle_agent.profile_decoder import ProfileError, VehicleProfileDeco
 from backend.app.access.services import is_admin
 from backend.app.agents.models import Agent
 from backend.app.common.ids import new_id
+from backend.app.connectors.constants import DEFAULT_MAPPING_PROFILES
+from backend.app.connectors.models import Connector
 from backend.app.users.models import User
+from backend.app.vehicle_profiles.mapping import MappingEngine
 from backend.app.vehicle_profiles.models import VehicleProfile
 from backend.app.vehicle_profiles.schemas import (
-    ProfileDefinition,
+    PROFILE_DEFINITION_ADAPTER,
+    CanProfileDefinition,
+    CanProfileWrite,
+    MappingProfileDefinition,
     VehicleProfileResponse,
     VehicleProfileWrite,
 )
-from backend.app.vehicles.models import Vehicle
 
 
 class VehicleProfileError(ValueError):
@@ -31,27 +36,47 @@ def built_in_definitions() -> dict[str, dict[str, object]]:
     definitions: dict[str, dict[str, object]] = {}
     for path in sorted(directory.glob("*.yaml")):
         loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-        definition = ProfileDefinition.model_validate(loaded)
-        dumped = definition.model_dump(exclude_none=True)
-        VehicleProfileDecoder(dumped)
+        definition = PROFILE_DEFINITION_ADAPTER.validate_python(loaded)
+        dumped = definition.model_dump(exclude_none=True, by_alias=True)
+        if definition.id in definitions:
+            raise VehicleProfileError(f"duplicate built-in profile id {definition.id!r}")
+        if isinstance(definition, CanProfileDefinition):
+            VehicleProfileDecoder(dumped)
+        else:
+            MappingEngine(definition)
         definitions[definition.id] = dumped
     return definitions
 
 
 def _definition(profile_id: str, data: VehicleProfileWrite) -> dict[str, object]:
-    definition = ProfileDefinition(
+    if isinstance(data, CanProfileWrite):
+        definition = CanProfileDefinition(
+            id=profile_id,
+            name=data.name,
+            version=1,
+            description=data.description,
+            type="can",
+            signals=data.signals,
+            computed_metrics=data.computed_metrics,
+        )
+        dumped = definition.model_dump(exclude_none=True)
+        try:
+            VehicleProfileDecoder(dumped)
+        except (ProfileError, KeyError, TypeError, ValueError) as exc:
+            raise VehicleProfileError(str(exc)) from exc
+        return dumped
+    mapping_definition = MappingProfileDefinition(
         id=profile_id,
         name=data.name,
         version=1,
         description=data.description,
-        signals=[signal.model_dump(exclude_none=True) for signal in data.signals],
-        computed_metrics=data.computed_metrics,
-    ).model_dump(exclude_none=True)
-    try:
-        VehicleProfileDecoder(definition)
-    except (ProfileError, KeyError, TypeError, ValueError) as exc:
-        raise VehicleProfileError(str(exc)) from exc
-    return definition
+        type="mapping",
+        passthrough_prefix=data.passthrough_prefix,
+        ignore=data.ignore,
+        rules=data.rules,
+    )
+    MappingEngine(mapping_definition)
+    return mapping_definition.model_dump(exclude_none=True, by_alias=True)
 
 
 def list_vehicle_profiles(db: Session, user: User) -> list[VehicleProfileResponse]:
@@ -60,25 +85,14 @@ def list_vehicle_profiles(db: Session, user: User) -> list[VehicleProfileRespons
             id=profile_id,
             name=str(definition["name"]),
             description=str(definition.get("description", "")),
+            type=str(definition["type"]),
             built_in=True,
             editable=False,
             definition=deepcopy(definition),
         )
         for profile_id, definition in built_in_definitions().items()
     ]
-    custom = [
-        VehicleProfileResponse(
-            id=profile.id,
-            name=profile.name,
-            description=profile.description,
-            built_in=False,
-            editable=can_edit_profile(user, profile),
-            definition=deepcopy(profile.definition),
-            created_at=profile.created_at,
-            updated_at=profile.updated_at,
-        )
-        for profile in db.scalars(select(VehicleProfile).order_by(VehicleProfile.created_at))
-    ]
+    custom = [serialize_profile(profile, user) for profile in db.scalars(select(VehicleProfile))]
     return [*built_ins, *custom]
 
 
@@ -95,6 +109,7 @@ def serialize_profile(profile: VehicleProfile, user: User) -> VehicleProfileResp
         id=profile.id,
         name=profile.name,
         description=profile.description,
+        type=profile.type,
         built_in=False,
         editable=can_edit_profile(user, profile),
         definition=deepcopy(profile.definition),
@@ -104,16 +119,16 @@ def serialize_profile(profile: VehicleProfile, user: User) -> VehicleProfileResp
 
 
 # The keys a decoder reads. A profile also carries what people need to recognise
-# it in the interface - its name, family, version and per-signal display names and
-# descriptions - and none of that reaches a decoder. Sending it anyway more than
-# doubled the configuration an agent downloads on every sync and holds in memory
-# while parsing, which is worth avoiding on a single-core 512MB board.
+# it in the interface, including its name, version and per-signal display names,
+# and none of that reaches a decoder. Sending it anyway more than doubled the
+# configuration an agent downloads on every sync and holds in memory while
+# parsing, which is worth avoiding on a single-core 512MB board.
 _AGENT_SIGNAL_KEYS = frozenset({"name", "source", "decoder", "unit", "minimum", "maximum"})
 _AGENT_COMPUTED_KEYS = frozenset({"name", "operation", "inputs", "unit", "scale"})
 
 
 def agent_definition(definition: dict[str, object]) -> dict[str, object]:
-    """Project a profile down to the fields an agent's decoder actually reads."""
+    """Project a CAN profile down to the fields an agent's decoder actually reads."""
 
     signals = definition.get("signals")
     computed = definition.get("computed_metrics")
@@ -132,14 +147,33 @@ def agent_definition(definition: dict[str, object]) -> dict[str, object]:
     return projected
 
 
-def profile_definition(db: Session, profile_id: str | None) -> dict[str, object] | None:
+def full_profile_definition(
+    db: Session, profile_id: str | None, expected_type: str
+) -> dict[str, object] | None:
     if not profile_id:
         return None
-    built_in = built_in_definitions().get(profile_id)
-    if built_in:
-        return agent_definition(built_in)
+    definition = built_in_definitions().get(profile_id)
+    if definition:
+        return deepcopy(definition) if definition.get("type") == expected_type else None
     profile = profile_by_id(db, profile_id)
-    return agent_definition(profile.definition) if profile else None
+    if not profile or profile.type != expected_type:
+        return None
+    return deepcopy(profile.definition)
+
+
+def can_profile_definition(db: Session, profile_id: str | None) -> dict[str, object] | None:
+    definition = full_profile_definition(db, profile_id, "can")
+    return agent_definition(definition) if definition else None
+
+
+def mapping_profile_definition(
+    db: Session, profile_id: str | None
+) -> MappingProfileDefinition | None:
+    definition = full_profile_definition(db, profile_id, "mapping")
+    if not definition:
+        return None
+    parsed = PROFILE_DEFINITION_ADAPTER.validate_python(definition)
+    return parsed if isinstance(parsed, MappingProfileDefinition) else None
 
 
 def create_profile(db: Session, creator_id: str, data: VehicleProfileWrite) -> VehicleProfile:
@@ -149,6 +183,7 @@ def create_profile(db: Session, creator_id: str, data: VehicleProfileWrite) -> V
         created_by=creator_id,
         name=data.name,
         description=data.description,
+        type=data.type,
         definition=_definition(profile_id, data),
     )
     db.add(profile)
@@ -157,38 +192,46 @@ def create_profile(db: Session, creator_id: str, data: VehicleProfileWrite) -> V
 
 
 def _bump_assigned_agents(db: Session, profile_id: str) -> None:
-    vehicle_ids = select(Vehicle.id).where(Vehicle.vehicle_profile == profile_id)
     db.execute(
         update(Agent)
-        .where(Agent.vehicle_id.in_(vehicle_ids))
+        .where(Agent.vehicle_profile == profile_id)
         .values(config_version=Agent.config_version + 1)
     )
 
 
+def _bump_assigned_connectors(db: Session, profile_id: str) -> None:
+    db.execute(
+        update(Connector)
+        .where(Connector.mapping_profile == profile_id)
+        .values(config_version=Connector.config_version + 1)
+    )
+
+
 def update_profile(db: Session, profile: VehicleProfile, data: VehicleProfileWrite) -> None:
+    if data.type != profile.type:
+        raise VehicleProfileError("profile type cannot be changed")
     profile.name = data.name
     profile.description = data.description
     current_version = int(profile.definition.get("version", 1))
     definition = _definition(profile.id, data)
     definition["version"] = current_version + 1
     profile.definition = definition
-    _bump_assigned_agents(db, profile.id)
+    if profile.type == "can":
+        _bump_assigned_agents(db, profile.id)
+    else:
+        _bump_assigned_connectors(db, profile.id)
 
 
 def delete_profile(db: Session, profile: VehicleProfile) -> None:
-    _bump_assigned_agents(db, profile.id)
-    db.execute(
-        update(Vehicle).where(Vehicle.vehicle_profile == profile.id).values(vehicle_profile=None)
-    )
+    if profile.type == "can":
+        db.execute(
+            update(Agent)
+            .where(Agent.vehicle_profile == profile.id)
+            .values(vehicle_profile=None, config_version=Agent.config_version + 1)
+        )
+    else:
+        connectors = db.scalars(select(Connector).where(Connector.mapping_profile == profile.id))
+        for connector in connectors:
+            connector.mapping_profile = DEFAULT_MAPPING_PROFILES[connector.kind]
+            connector.config_version += 1
     db.delete(profile)
-
-
-def assign_profile(db: Session, vehicle: Vehicle, profile_id: str | None) -> None:
-    if profile_id == vehicle.vehicle_profile:
-        return
-    vehicle.vehicle_profile = profile_id
-    db.execute(
-        update(Agent)
-        .where(Agent.vehicle_id == vehicle.id)
-        .values(config_version=Agent.config_version + 1)
-    )

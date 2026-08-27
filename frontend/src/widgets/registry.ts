@@ -1,11 +1,16 @@
 import BatteryGaugeWidget from './BatteryGaugeWidget.vue'
+import ChargeCurveWidget from './ChargeCurveWidget.vue'
 import ChargingWidget from './ChargingWidget.vue'
+import ActivityFeedWidget from './ActivityFeedWidget.vue'
 import AgentHealthWidget from './AgentHealthWidget.vue'
 import HookActivityWidget from './HookActivityWidget.vue'
 import MetricCardWidget from './MetricCardWidget.vue'
 import MultiSeriesWidget from './MultiSeriesWidget.vue'
+import PeriodStatsWidget from './PeriodStatsWidget.vue'
 import OnlineStatusWidget from './OnlineStatusWidget.vue'
 import PositionMapWidget from './PositionMapWidget.vue'
+import RouteMapWidget from './RouteMapWidget.vue'
+import SegmentStatsWidget from './SegmentStatsWidget.vue'
 import TimeSeriesWidget from './TimeSeriesWidget.vue'
 import TelemetryListWidget from './TelemetryListWidget.vue'
 import VehicleMediaWidget from './VehicleMediaWidget.vue'
@@ -29,6 +34,11 @@ const definitions: DashboardWidgetDefinition[] = [
   { type:'multi-series', titleKey:'dashboards.multiSeries', component:MultiSeriesWidget, defaultSize:{w:6,h:3}, needsMetric:false, needsMetrics:true, configSchema:{fields:['vehicle_id','metrics','title','time_range_days']} },
   { type:'online-status', titleKey:'dashboards.onlineStatus', component:OnlineStatusWidget, defaultSize:{w:3,h:2}, needsMetric:false, configSchema:{fields:['vehicle_id','title']}, isEmpty:(_widget, vehicle) => !vehicle?.state },
   { type:'agent-health', titleKey:'dashboards.agentHealth', component:AgentHealthWidget, defaultSize:{w:3,h:4}, needsMetric:false, configSchema:{fields:['vehicle_id','title']}, isEmpty:(_widget, vehicle) => Object.keys(vehicle?.state?.agent ?? {}).length === 0 },
+  { type:'route-map', titleKey:'insights.routeMap', component:RouteMapWidget, defaultSize:{w:8,h:6}, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => !vehicle?.state?.position },
+  { type:'activity-feed', titleKey:'insights.activityFeed', component:ActivityFeedWidget, defaultSize:{w:4,h:5}, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']} },
+  { type:'segment-stats', titleKey:'insights.segmentStats', component:SegmentStatsWidget, defaultSize:{w:4,h:3}, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']} },
+  { type:'charge-curve', titleKey:'insights.chargeCurve', component:ChargeCurveWidget, defaultSize:{w:6,h:3}, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => chargingState(vehicle).active === null },
+  { type:'period-stats', titleKey:'insights.periodStats', component:PeriodStatsWidget, defaultSize:{w:6,h:3}, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']} },
   { type:'hook-activity', titleKey:'dashboards.hookActivity', component:HookActivityWidget, defaultSize:{w:4,h:3}, needsMetric:false, configSchema:{fields:['title']} },
 ]
 

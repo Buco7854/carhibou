@@ -15,12 +15,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.agents.models import Agent
 from backend.app.common.time import utcnow
-from backend.app.connectors.mappings.teslamate import map_message
 from backend.app.connectors.models import Connector
 from backend.app.connectors.schemas import MqttConfig
 from backend.app.connectors.services import connector_password
 from backend.app.telemetry.schemas import Position, TelemetryBatch, TelemetrySample
 from backend.app.telemetry.services import ingest_batch
+from backend.app.vehicle_profiles.mapping import MappingEngine
+from backend.app.vehicle_profiles.schemas import MappingProfileDefinition
+from backend.app.vehicle_profiles.services import mapping_profile_definition
 
 logger = logging.getLogger(__name__)
 STATUS_WRITE_SECONDS = 3.0
@@ -32,6 +34,7 @@ class ConnectorDefinition:
     id: str
     config_version: int
     config: MqttConfig
+    mapping_profile: MappingProfileDefinition
     password: str | None
 
 
@@ -61,6 +64,7 @@ class MqttConnectorSession:
         self.definition = definition
         self._session_factory = session_factory
         self._client_factory = client_factory
+        self._mapping = MappingEngine(definition.mapping_profile)
         self._monotonic = monotonic
         self._stop = threading.Event()
         self._disconnected = threading.Event()
@@ -134,7 +138,7 @@ class MqttConnectorSession:
         key = topic.removeprefix(self.topic_prefix)
         if not key or "/" in key:
             return
-        mapped = map_message(key, payload)
+        mapped = self._mapping.map(key, payload)
         self._metrics.update(mapped.metrics)
         self._position.update(mapped.position)
         if (mapped.metrics or mapped.position) and self._window_started is None:
@@ -313,6 +317,9 @@ class ConnectorSupervisor:
             for connector in rows:
                 try:
                     config = MqttConfig.model_validate(connector.config)
+                    profile = mapping_profile_definition(db, connector.mapping_profile)
+                    if not profile:
+                        raise ValueError("mapping profile is not available")
                     password = connector_password(connector)
                 except Exception as exc:
                     connector.status = "error"
@@ -322,6 +329,7 @@ class ConnectorSupervisor:
                     id=connector.id,
                     config_version=connector.config_version,
                     config=config,
+                    mapping_profile=profile,
                     password=password,
                 )
             db.commit()

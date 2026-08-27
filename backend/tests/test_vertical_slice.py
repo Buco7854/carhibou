@@ -15,7 +15,6 @@ def _vehicle_and_agent(client: TestClient, csrf: str) -> tuple[dict[str, Any], d
             "model": "C-Zero",
             "year": 2018,
             "battery_nominal_capacity_kwh": 16,
-            "vehicle_profile": "citroen-c-zero-v1",
         },
     )
     assert response.status_code == 201, response.text
@@ -23,7 +22,11 @@ def _vehicle_and_agent(client: TestClient, csrf: str) -> tuple[dict[str, Any], d
     enrollment = client.post(
         f"/api/v1/vehicles/{vehicle['id']}/enrollments",
         headers={"X-CSRF-Token": csrf},
-        json={"implementation_id": "custom", "name": "Pi Zero simulator"},
+        json={
+            "implementation_id": "custom",
+            "name": "Pi Zero simulator",
+            "vehicle_profile": "citroen-c-zero-v1",
+        },
     )
     assert enrollment.status_code == 201, enrollment.text
     token = enrollment.json()["token"]
