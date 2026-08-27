@@ -1,7 +1,9 @@
 import shlex
 from datetime import timedelta
+from typing import cast
 
 from sqlalchemy import delete, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from backend.app.auth.security import hash_token, new_opaque_token
@@ -143,9 +145,12 @@ def reset_vehicle_telemetry(db: Session, vehicle_id: str) -> int:
     readings, or the vehicle would keep showing a reading nothing now supports.
     """
 
-    deleted = db.execute(delete(Telemetry).where(Telemetry.vehicle_id == vehicle_id))
+    deleted = cast(
+        CursorResult[tuple[()]],
+        db.execute(delete(Telemetry).where(Telemetry.vehicle_id == vehicle_id)),
+    )
     db.execute(delete(VehicleState).where(VehicleState.vehicle_id == vehicle_id))
-    return int(getattr(deleted, "rowcount", 0) or 0)
+    return deleted.rowcount
 
 
 def rotate_credential(device: Device) -> str:
