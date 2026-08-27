@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 ARG CARHIBOU_VERSION=0.1.0
 
-FROM --platform=$BUILDPLATFORM node:22.23.2-bookworm-slim AS frontend-build
+FROM --platform=$BUILDPLATFORM node:26.6.0-bookworm-slim AS frontend-build
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
