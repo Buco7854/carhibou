@@ -9,7 +9,6 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app.access.constants import OPERATE
 from backend.app.access.services import access_level
 from backend.app.auth.dependencies import CurrentUser, Db
 from backend.app.auth.models import BrowserSession
@@ -41,12 +40,16 @@ def load_vehicle_snapshot(
             or not user.is_active
         ):
             return None
-        return [
-            serialize_vehicle(vehicle, access_level(db, user, vehicle.id) or OPERATE).model_dump(
-                mode="json"
-            )
-            for vehicle in list_vehicles(db, user)
-        ]
+        # access_level is re-resolved per vehicle rather than assumed: a grant
+        # revoked between listing and serializing drops the vehicle from this
+        # frame instead of being reported at a level the user no longer holds.
+        snapshots = []
+        for vehicle in list_vehicles(db, user):
+            level = access_level(db, user, vehicle.id)
+            if level is None:
+                continue
+            snapshots.append(serialize_vehicle(vehicle, level).model_dump(mode="json"))
+        return snapshots
 
 
 def format_sse(event: str, data: dict[str, object], event_id: str | None = None) -> str:
