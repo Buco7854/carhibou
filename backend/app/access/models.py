@@ -9,9 +9,7 @@ class VehicleAccessGrant(Base):
     __tablename__ = "vehicle_access_grants"
     # The composite primary key is the uniqueness guarantee: one grant per
     # vehicle and user. No separate unique constraint restates it.
-    __table_args__ = (
-        CheckConstraint("level IN ('view', 'operate')", name="vehicle_access_level"),
-    )
+    __table_args__ = (CheckConstraint("level IN ('view', 'operate')", name="vehicle_access_level"),)
 
     vehicle_id: Mapped[str] = mapped_column(
         ForeignKey("vehicles.id", ondelete="CASCADE"), primary_key=True
