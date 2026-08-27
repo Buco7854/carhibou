@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     sh build-release.sh "$CARHIBOU_VERSION" /out
 
-FROM --platform=$BUILDPLATFORM python:3.13.15-slim-bookworm AS wheel-build
+FROM --platform=$BUILDPLATFORM python:3.14.6-slim-bookworm AS wheel-build
 WORKDIR /src
 RUN --mount=type=cache,target=/root/.cache/pip pip install build==1.3.0 setuptools==80.9.0
 COPY pyproject.toml README.md ./
@@ -26,7 +26,7 @@ COPY backend/ backend/
 COPY agent/ agent/
 RUN python -m build --wheel --no-isolation
 
-FROM python:3.13.15-slim-bookworm AS python-deps
+FROM python:3.14.6-slim-bookworm AS python-deps
 WORKDIR /install
 COPY requirements-backend.lock ./
 COPY --from=wheel-build /src/dist/*.whl /tmp/dist/
@@ -47,7 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       pip install --prefix=/install --constraint requirements-backend.lock $CARHIBOU_HOOK_PACKAGES; \
     fi
 
-FROM python:3.13.15-slim-bookworm AS runtime
+FROM python:3.14.6-slim-bookworm AS runtime
 ARG CARHIBOU_VERSION
 LABEL org.opencontainers.image.title="Carhibou" \
       org.opencontainers.image.description="Self-hosted vehicle telemetry and programmability platform"
