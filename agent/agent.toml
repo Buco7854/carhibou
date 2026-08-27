@@ -1,0 +1,10 @@
+# Carhibou's bundled Go agent. The release artifact remains built by Docker; this
+# manifest describes its identity and setup experience to the server catalog.
+schema = 1
+
+[implementation]
+id = "carhibou.go"
+name = "Carhibou Go agent"
+hardware = "Raspberry Pi and other Linux boards (ARMv6, ARMv7, ARM64, AMD64)"
+protocol_version = 1
+setup_kind = "command"

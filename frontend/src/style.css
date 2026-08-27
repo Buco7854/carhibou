@@ -1,0 +1,338 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-synthesis: none;
+  font-feature-settings: "cv02", "cv03", "cv05";
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* The type scale, smallest to largest. Labels and captions are quiet so the
+     readings can be loud: a metric value is the one thing on a card set larger
+     than body text, and it is always tabular. */
+  --font-micro: 11px;     /* a chip or badge — the only step below caption */
+  --font-caption: 12px;   /* labels, captions, table headers — weight 500 */
+  --font-body: 13px;      /* running text and controls — weight 400 */
+  --font-section: 15px;   /* section headings inside a page — weight 600 */
+  --font-card-title: 16px; /* the title of a card — weight 600 */
+  --font-subtitle: 18px;  /* a dialog or standalone form heading — weight 600 */
+  --font-page-title: 24px; /* one per page — weight 600 */
+  --font-value: 28px;     /* a widget's metric value — weight 500, tabular */
+  --font-value-sm: 22px;  /* a card's inline reading — weight 500, tabular */
+  --font-value-xs: 15px;  /* a value inside a list row — weight 500, tabular */
+
+  --workspace: #f5f5f2;
+  --text: #1a1c19;
+  --panel: #ffffff;
+  --panel-2: #efefea;
+  --sidebar: #ecece7;
+  --input: #ffffff;
+  --line: #e0e0d8;
+  --line-strong: #c6c6bc;
+  --muted: #61645d;
+  --muted-2: #6b6e65;
+  --scroll-thumb: rgba(26, 28, 25, .18);
+  --scroll-thumb-hover: rgba(26, 28, 25, .32);
+
+  --primary: #2a53b8;
+  --primary-hover: #1f4093;
+  --primary-contrast: #ffffff;
+
+  --accent: #2a53b8;
+  --accent-hover: #1f4093;
+  --accent-contrast: #ffffff;
+  --accent-soft: #e7ecfa;
+  --accent-rgb: 42, 83, 184;
+
+  --success: #1c7343;
+  --success-soft: #e5f1e9;
+  --warning: #8d5c14;
+  --warning-soft: #f6eddd;
+  --danger: #b93b3b;
+  --danger-soft: #f8e9e9;
+
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #4a3aa7;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+  /* Two elevations only: a resting surface is a hairline plus --shadow-soft,
+     anything floating above the page (menus, dialogs, toasts) uses --shadow. */
+  --shadow-soft: 0 1px 2px rgba(24, 28, 22, .05);
+  --shadow: 0 14px 40px rgba(24, 28, 22, .16);
+  --focus-ring: 0 0 0 3px var(--accent-soft);
+}
+
+[data-theme="dark"] {
+  --workspace: #121412;
+  --text: #f1f3ef;
+  --panel: #191b18;
+  --panel-2: #232520;
+  --sidebar: #0e100e;
+  --input: #1c1e1a;
+  --line: #2c2f2a;
+  --line-strong: #464a42;
+  --muted: #9aa096;
+  --muted-2: #888f83;
+  --scroll-thumb: rgba(241, 243, 239, .16);
+  --scroll-thumb-hover: rgba(241, 243, 239, .3);
+
+  --primary: #8fb0ff;
+  --primary-hover: #adc4ff;
+  --primary-contrast: #14181f;
+
+  --accent: #8fb0ff;
+  --accent-hover: #adc4ff;
+  --accent-contrast: #14181f;
+  --accent-soft: rgba(143, 176, 255, .15);
+  --accent-rgb: 143, 176, 255;
+
+  --success: #56c98a;
+  --success-soft: rgba(86, 201, 138, .14);
+  --warning: #d9a05c;
+  --warning-soft: rgba(217, 160, 92, .14);
+  --danger: #ef7b7b;
+  --danger-soft: rgba(239, 123, 123, .14);
+
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #9085e9;
+
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, .3);
+  --shadow: 0 16px 44px rgba(0, 0, 0, .5);
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; min-height: 100%; }
+body {
+  margin: 0; min-width: 320px; min-height: 100vh;
+  color: var(--text); background: var(--workspace);
+  font-size: 13px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: color .15s, background-color .15s;
+}
+#app { min-height: 100vh; }
+button, input, select, textarea { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { color: inherit; }
+a { color: inherit; }
+::selection { color: var(--accent-contrast); background: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* A dashboard card or a dropdown that overflows by one row should say so with a
+   hairline, not with the platform's full-width scrollbar and its own track and
+   buttons, which reads as a piece of chrome the panel did not ask for. */
+* { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
+
+/* ---------- shell ---------- */
+
+/* The rail is one viewport tall and sticky, so a taller page would expose the
+   workspace colour beneath it. Painting the column itself keeps the sidebar
+   reaching the bottom however far the content scrolls. */
+.app-shell {
+  width: 100%; min-height: 100vh; display: grid; grid-template-columns: 212px minmax(0, 1fr);
+  background: linear-gradient(to right, var(--sidebar) 0 212px, var(--workspace) 212px);
+}
+
+/* One gutter, declared once. Three breakpoints had each been setting their own
+   page padding, so how far a card sat from the edge depended on which of them was
+   in force rather than on a decision anybody made. */
+:root { --gutter: 32px; }
+@media (max-width: 1080px) { :root { --gutter: 24px; } }
+@media (max-width: 780px) { :root { --gutter: 16px; } }
+@media (max-width: 380px) { :root { --gutter: 12px; } }
+
+.sidebar {
+  position: sticky; top: 0; z-index: 60; height: 100vh; min-height: 520px;
+  display: flex; flex-direction: column; gap: 2px; padding: 16px 10px 12px;
+  overflow-y: auto; background: var(--sidebar); border-right: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 9px; height: 34px; margin: 0 4px 18px; color: var(--text); text-decoration: none; }
+.brand strong { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+
+.main-nav { display: grid; gap: 1px; }
+.main-nav a {
+  height: 31px; display: flex; align-items: center; gap: 9px; padding: 0 8px;
+  color: var(--muted); border-radius: var(--radius); text-decoration: none;
+  font-size: 13px; transition: color .12s, background-color .12s;
+}
+.main-nav a:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+.main-nav a.active, .main-nav a.router-link-active { color: var(--text); background: var(--panel); font-weight: 500; box-shadow: var(--shadow-soft); }
+.main-nav .app-icon { flex: none; }
+
+.nav-divider { height: 1px; margin: 9px 8px; background: var(--line); }
+
+.sidebar-foot { margin-top: auto; padding-top: 12px; display: grid; gap: 10px; border-top: 1px solid var(--line); }
+.account { display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: 8px; padding: 0 4px; }
+.account strong, .account small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account strong { font-size: 12px; font-weight: 500; }
+.account small { color: var(--muted); font-size: 11px; }
+.avatar { width: 26px; height: 26px; display: grid; place-items: center; color: var(--primary-contrast); background: var(--primary); border-radius: 50%; font-size: 10px; font-weight: 600; }
+.sidebar-tools { display: flex; align-items: center; gap: 4px; }
+.sidebar-tools .app-select { margin-right: auto; }
+
+.tool-button {
+  width: 30px; height: 30px; display: grid; place-items: center;
+  color: var(--muted); background: transparent; border: 1px solid transparent;
+  border-radius: var(--radius); cursor: pointer; transition: color .12s, background-color .12s;
+}
+.tool-button:hover { color: var(--text); background: color-mix(in srgb, var(--text) 7%, transparent); }
+
+.workspace { min-width: 0; min-height: 100vh; }
+.main-content { min-width: 0; padding: 30px var(--gutter) 64px; }
+.page { width: 100%; max-width: 1340px; margin: 0 auto; }
+
+/* ---------- page structure ---------- */
+
+.page-header { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.page-header h1 { margin: 0; font-size: var(--font-page-title); font-weight: 600; letter-spacing: -.015em; line-height: 1.2; }
+.page-header p { max-width: 62ch; margin: 5px 0 0; color: var(--muted); font-size: var(--font-body); }
+.header-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-variant-ligatures: none; }
+
+.section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.section-head h2 { margin: 0; font-size: var(--font-section); font-weight: 600; letter-spacing: -.01em; }
+.section-head .count { color: var(--muted); font-size: var(--font-caption); font-variant-numeric: tabular-nums; }
+
+/* ---------- surfaces ---------- */
+
+.panel { color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-soft); }
+
+/* ---------- controls ---------- */
+
+.button {
+  height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 12px; color: var(--primary-contrast); background: var(--primary);
+  border: 1px solid var(--primary); border-radius: var(--radius);
+  font-size: 13px; font-weight: 500; text-decoration: none; white-space: nowrap; cursor: pointer;
+  transition: background-color .12s, border-color .12s, color .12s;
+}
+.button:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.button.secondary { color: var(--text); background: var(--panel); border-color: var(--line-strong); }
+.button.secondary:hover { background: var(--panel-2); border-color: var(--muted-2); }
+.button.ghost { color: var(--muted); background: transparent; border-color: transparent; }
+.button.ghost:hover { color: var(--text); background: var(--panel-2); border-color: transparent; }
+.button.danger { color: #fff; background: var(--danger); border-color: var(--danger); }
+.button.danger:hover { background: color-mix(in srgb, var(--danger) 85%, #000); border-color: color-mix(in srgb, var(--danger) 85%, #000); }
+.button:disabled { opacity: .5; cursor: not-allowed; }
+
+.icon-button { display: inline-grid; place-items: center; width: 28px; height: 28px; color: var(--muted); background: transparent; border: 0; border-radius: var(--radius); cursor: pointer; transition: color .12s, background-color .12s; }
+.icon-button:hover { color: var(--text); background: var(--panel-2); }
+.icon-button:disabled { opacity: .45; cursor: not-allowed; }
+
+.link-button { padding: 0; color: var(--accent); background: none; border: 0; font-size: 13px; cursor: pointer; }
+.link-button:hover { text-decoration: underline; }
+.link-button:disabled { opacity: .45; cursor: not-allowed; text-decoration: none; }
+.link-button.danger { color: var(--danger); }
+
+/* ---------- forms ---------- */
+
+.field { display: grid; align-content: start; gap: 5px; }
+.field > label, .field > span { color: var(--text); font-size: var(--font-caption); font-weight: 500; }
+.field-hint { color: var(--muted); font-size: var(--font-caption); line-height: 1.45; }
+.input, .textarea {
+  width: 100%; min-height: 34px; padding: 7px 10px; color: var(--text); background: var(--input);
+  border: 1px solid var(--line-strong); border-radius: var(--radius); outline: none; font-size: var(--font-body);
+  transition: border-color .12s, box-shadow .12s;
+}
+.input::placeholder, .textarea::placeholder { color: var(--muted-2); }
+.input:focus, .textarea:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; }
+.form-actions { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.error { color: var(--danger); font-size: 13px; }
+.success { color: var(--success); }
+
+/* ---------- data ---------- */
+
+.status {
+  width: max-content; display: inline-flex; align-items: center; gap: 6px; padding: 3px 7px;
+  color: var(--muted); background: var(--panel-2); border-radius: 6px;
+  font-size: 12px; line-height: 1.25; white-space: nowrap;
+}
+.status::before { content: ""; width: 5px; height: 5px; flex: none; background: var(--muted-2); border-radius: 50%; }
+.status.online { color: var(--success); background: var(--success-soft); }
+.status.online::before { background: var(--success); }
+.status.failed { color: var(--danger); background: var(--danger-soft); }
+.status.failed::before { background: var(--danger); }
+
+.metric-value { font-size: var(--font-value); font-weight: 500; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.metric-unit { margin-left: 3px; color: var(--muted); font-size: var(--font-body); font-weight: 400; letter-spacing: 0; }
+
+.empty { padding: 44px 24px; color: var(--muted); text-align: center; }
+.empty h2 { margin: 0 0 5px; color: var(--text); font-size: var(--font-section); font-weight: 600; letter-spacing: -.01em; }
+/* A centred explanation reads as a paragraph, not as a banner, once it stops
+   running the full width of the panel. */
+.empty p { max-width: 56ch; margin: 0 auto; font-size: var(--font-body); }
+/* The call to action is a separate step from the sentence explaining it. */
+.empty > .button { margin-top: 20px; }
+
+/* A quiet in-panel note — "no rows", "nothing ran yet" — smaller than .empty
+   because it sits inside a composed panel rather than standing in for one. */
+.empty-note { margin: 0; padding: 24px 16px; color: var(--muted); font-size: var(--font-body); text-align: center; }
+
+.table-wrap { overflow: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: var(--font-body); }
+.table th, .table td { padding: 10px 14px; border-bottom: 1px solid var(--line); text-align: left; }
+.table th { color: var(--muted); font-size: var(--font-caption); font-weight: 500; }
+.table tbody tr:last-child td { border-bottom: 0; }
+
+.widget-card { width: 100%; min-width: 0; height: 100%; min-height: 0; padding: 14px; display: flex; flex-direction: column; overflow: hidden; color: var(--text); background: var(--panel); }
+/* The title of a widget is a label; the reading below it is the point. Muting
+   the label is what lets a 28px value carry the card without shouting. */
+.widget-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.widget-head h2 { margin: 0; overflow: hidden; color: var(--muted); font-size: var(--font-caption); font-weight: 500; letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap; }
+.widget-head small { flex: none; overflow: hidden; color: var(--muted-2); font-size: var(--font-caption); text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 1080px) and (min-width: 781px) {
+  .app-shell {
+    grid-template-columns: 56px minmax(0, 1fr);
+    background: linear-gradient(to right, var(--sidebar) 0 56px, var(--workspace) 56px);
+  }
+  .sidebar { padding-inline: 8px; }
+  .brand { justify-content: center; margin-inline: 0; }
+  .sidebar .brand strong, .sidebar .nav-label, .sidebar .account-id, .sidebar .sidebar-tools .app-select { display: none; }
+  .main-nav a { justify-content: center; padding: 0; }
+  .account { grid-template-columns: 1fr; justify-items: center; }
+  .sidebar-tools { justify-content: center; flex-wrap: wrap; }
+}
+
+@media (max-width: 780px) {
+  .app-shell { display: block; padding-bottom: 60px; background: var(--workspace); }
+  .workspace { min-height: calc(100vh - 60px); }
+  .sidebar {
+    position: fixed; top: auto; bottom: 0; z-index: 60; width: 100%; height: 60px; min-height: 0;
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; padding: 5px 6px;
+    border: 0; border-top: 1px solid var(--line);
+  }
+  .brand, .sidebar-foot, .nav-divider { display: none; }
+  .main-nav { display: contents; }
+  .main-nav a { min-width: 0; height: 100%; flex-direction: column; justify-content: center; gap: 3px; padding: 2px; font-size: 10px; text-align: center; }
+  .main-nav a.active, .main-nav a.router-link-active { background: var(--panel-2); box-shadow: none; }
+  .main-nav .nav-label { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
+  .main-nav .app-icon { width: 17px; height: 17px; }
+  .main-content { padding-block: 22px 40px; }
+  .page-header { align-items: flex-start; flex-wrap: wrap; }
+  .form-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .page-header { flex-direction: column; }
+  .header-actions { width: 100%; }
+  .header-actions > * { flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

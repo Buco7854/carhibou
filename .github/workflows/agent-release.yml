@@ -1,0 +1,36 @@
+name: Publish standalone agent artifacts
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    uses: ./.github/workflows/ci.yml
+
+  binaries:
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Test and build release matrix
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          cd agent
+          go test ./...
+          go vet ./...
+          sh build-release.sh "$VERSION"
+          test -f "dist/carhibou-agent-${VERSION}-linux-armv6"
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" agent/dist/* --clobber

@@ -1,0 +1,205 @@
+id: citroen-c-zero-v1
+name: Citroën C-Zero / Mitsubishi i-MiEV / Peugeot iOn
+version: 6
+description: >-
+  CAN mappings for compatible vehicles, taken from a script proven against a
+  physical C-Zero.
+signals:
+  # 0x101 is broadcast only while the vehicle is awake, and byte 0 says which way.
+  # It is decoded three times: once as a label to show, and twice as the canonical
+  # booleans the agent reasons about. The agent knows nothing of "ready" or
+  # "charging" as words — the profile is what translates this vehicle's raw values
+  # into meanings, which is why a vehicle that names its states differently needs
+  # a profile rather than a new release.
+  #
+  # Any other value decodes to nothing, so a state this profile does not describe
+  # leaves the agent to judge by motion instead of by a claim nobody made.
+  - name: vehicle.state
+    display_name: Vehicle state
+    source: {type: can, can_id: 0x101}
+    decoder:
+      byte_offset: 0
+      data_type: uint8
+      enum: {"4": ready, "0": charging}
+  - name: vehicle.ready
+    display_name: Ready to drive
+    source: {type: can, can_id: 0x101}
+    decoder:
+      byte_offset: 0
+      data_type: uint8
+      enum: {"4": true, "0": false}
+  - name: charging.active
+    display_name: Charging
+    source: {type: can, can_id: 0x101}
+    decoder:
+      byte_offset: 0
+      data_type: uint8
+      enum: {"0": true, "4": false}
+  - name: battery.soc
+    display_name: Battery state of charge
+    source: {type: can, can_id: 0x374}
+    decoder: {byte_offset: 1, data_type: uint8, scale: 0.5, offset: -5}
+    unit: "%"
+    minimum: 0
+    maximum: 100
+  - name: battery.current
+    display_name: Battery pack current
+    source: {type: can, can_id: 0x373}
+    decoder: {byte_offset: 2, data_type: uint16, scale: 0.01, offset: -327.68}
+    unit: A
+    minimum: -500
+    maximum: 500
+  - name: battery.pack_voltage
+    display_name: Battery pack voltage
+    source: {type: can, can_id: 0x373}
+    decoder: {byte_offset: 4, data_type: uint16, scale: 0.1}
+    unit: V
+    minimum: 100
+    maximum: 500
+  - name: vehicle.speed
+    display_name: Vehicle speed
+    source: {type: can, can_id: 0x412}
+    decoder: {byte_offset: 1, data_type: uint8}
+    unit: km/h
+    minimum: 0
+    maximum: 200
+  - name: vehicle.odometer
+    display_name: Odometer
+    source: {type: can, can_id: 0x412}
+    decoder: {byte_offset: 2, data_type: bytes, length: 3, endianness: big}
+    unit: km
+    minimum: 0
+    maximum: 2000000
+  - name: vehicle.range
+    display_name: Estimated range
+    source: {type: can, can_id: 0x346}
+    decoder: {byte_offset: 7, data_type: uint8}
+    unit: km
+    minimum: 0
+    maximum: 300
+  - name: engine.rpm
+    display_name: Motor speed
+    source: {type: can, can_id: 0x298}
+    decoder: {byte_offset: 6, data_type: uint16, offset: -10000}
+    unit: rpm
+    minimum: -10000
+    maximum: 12000
+  - name: engine.coolant_temperature
+    display_name: Motor temperature
+    source: {type: can, can_id: 0x298}
+    decoder: {byte_offset: 3, data_type: uint8, offset: -40}
+    unit: °C
+    minimum: -40
+    maximum: 200
+  - name: charging.voltage
+    display_name: Charger input voltage
+    source: {type: can, can_id: 0x389}
+    decoder: {byte_offset: 1, data_type: uint8}
+    unit: V
+    minimum: 0
+    maximum: 300
+  - name: charging.current
+    display_name: Charger input current
+    source: {type: can, can_id: 0x389}
+    decoder: {byte_offset: 6, data_type: uint8, scale: 0.1}
+    unit: A
+    minimum: 0
+    maximum: 40
+  # 0x424 carries the body state. The lights live in the two nibbles of byte 1:
+  # the upper one selects the running lights, the lower one raises main beam.
+  - name: vehicle.door_open
+    display_name: Door open
+    source: {type: can, can_id: 0x424}
+    decoder: {byte_offset: 2, data_type: boolean, bit: 0}
+  - name: vehicle.lights
+    display_name: Lights
+    source: {type: can, can_id: 0x424}
+    decoder:
+      byte_offset: 1
+      data_type: uint8
+      bit_mask: 0xF0
+      shift: 4
+      enum: {"0": "off", "4": sidelights, "6": dipped}
+  - name: vehicle.high_beam
+    display_name: Main beam
+    source: {type: can, can_id: 0x424}
+    decoder: {byte_offset: 1, data_type: boolean, bit: 2}
+  # 0x384 byte 3 collects the warning lamps.
+  - name: vehicle.handbrake
+    display_name: Handbrake
+    source: {type: can, can_id: 0x384}
+    decoder: {byte_offset: 3, data_type: boolean, bit: 0}
+  - name: tyre.warning
+    display_name: Tyre pressure warning
+    source: {type: can, can_id: 0x384}
+    decoder: {byte_offset: 3, data_type: boolean, bit: 4}
+  # 0x3D3 reports the four wheels as pressure then temperature, going clockwise
+  # from the front left rather than in the left-to-right order one might expect.
+  - name: tyre.front_left_pressure
+    display_name: Front left tyre pressure
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 0, data_type: uint8, scale: 0.0157}
+    unit: bar
+    minimum: 0
+    maximum: 5
+  - name: tyre.front_left_temperature
+    display_name: Front left tyre temperature
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 1, data_type: uint8, offset: -50}
+    unit: °C
+    minimum: -50
+    maximum: 150
+  - name: tyre.front_right_pressure
+    display_name: Front right tyre pressure
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 2, data_type: uint8, scale: 0.0157}
+    unit: bar
+    minimum: 0
+    maximum: 5
+  - name: tyre.front_right_temperature
+    display_name: Front right tyre temperature
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 3, data_type: uint8, offset: -50}
+    unit: °C
+    minimum: -50
+    maximum: 150
+  - name: tyre.rear_right_pressure
+    display_name: Rear right tyre pressure
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 4, data_type: uint8, scale: 0.0157}
+    unit: bar
+    minimum: 0
+    maximum: 5
+  - name: tyre.rear_right_temperature
+    display_name: Rear right tyre temperature
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 5, data_type: uint8, offset: -50}
+    unit: °C
+    minimum: -50
+    maximum: 150
+  - name: tyre.rear_left_pressure
+    display_name: Rear left tyre pressure
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 6, data_type: uint8, scale: 0.0157}
+    unit: bar
+    minimum: 0
+    maximum: 5
+  - name: tyre.rear_left_temperature
+    display_name: Rear left tyre temperature
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 7, data_type: uint8, offset: -50}
+    unit: °C
+    minimum: -50
+    maximum: 150
+computed_metrics:
+  # Volts times amps gives watts; scale to the kilowatts every Carhibou surface expects.
+  - name: battery.power
+    operation: multiply
+    inputs: [battery.pack_voltage, battery.current]
+    scale: 0.001
+    unit: kW
+  - name: charging.power
+    operation: multiply
+    inputs: [charging.voltage, charging.current]
+    scale: 0.001
+    unit: kW

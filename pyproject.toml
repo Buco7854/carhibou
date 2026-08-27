@@ -1,0 +1,88 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "carhibou"
+version = "0.1.0"
+description = "Self-hosted vehicle telemetry, visualization and programmability"
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+  "pyserial==3.5",
+  "PyYAML==6.0.3",
+]
+
+[project.optional-dependencies]
+backend = [
+  "alembic==1.19.1",
+  "argon2-cffi==25.1.0",
+  "authlib==1.7.2",
+  "cryptography==50.0.1",
+  "email-validator==2.3.0",
+  "fastapi==0.141.1",
+  "httpx==0.28.1",
+  "itsdangerous==2.2.0",
+  "joserfc==1.7.4",
+  "psycopg[binary]==3.3.4",
+  "pydantic-settings==2.15.0",
+  "SQLAlchemy==2.0.52",
+  "uvicorn[standard]==0.52.4",
+]
+dev = [
+  "alembic==1.19.1",
+  "argon2-cffi==25.1.0",
+  "authlib==1.7.2",
+  "build==1.5.0",
+  "cryptography==50.0.1",
+  "email-validator==2.3.0",
+  "fastapi==0.141.1",
+  "httpx==0.28.1",
+  "itsdangerous==2.2.0",
+  "joserfc==1.7.4",
+  "mypy==2.3.1",
+  "psycopg[binary]==3.3.4",
+  "pydantic-settings==2.15.0",
+  "pytest==9.1.1",
+  "pytest-cov==7.1.0",
+  "ruff==0.16.4",
+  "setuptools==84.0.0",
+  "SQLAlchemy==2.0.52",
+  "uvicorn[standard]==0.52.4",
+]
+
+[project.scripts]
+carhibou-worker = "backend.app.worker:main"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["backend*", "agent*"]
+exclude = ["backend.tests*", "agent.tests*"]
+
+[tool.setuptools.package-data]
+agent = ["profiles/*.yaml", "installer/*.sh", "agent.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests", "agent/tests"]
+addopts = "-q --strict-markers --disable-warnings"
+markers = ["postgres: requires a migrated PostgreSQL test database"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["backend/migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["backend/migrations"]
+
+[[tool.mypy.overrides]]
+module = ["authlib.*", "serial.*", "yaml.*"]
+ignore_missing_imports = true

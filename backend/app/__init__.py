@@ -1,0 +1,1 @@
+"""Carhibou modular monolith application."""
