@@ -14,7 +14,7 @@ fi
 "$RUFF" check backend agent
 "$RUFF" format --check backend agent
 "$MYPY" backend agent
-"$PYTHON" -m pytest backend/tests agent/tests
+"$PYTHON" -m pytest -m "not postgres" backend/tests agent/tests
 CARHIBOU_DATABASE_URL=sqlite:////tmp/carhibou-migration-check.sqlite3 "$PYTHON" -m alembic upgrade head
 CARHIBOU_DATABASE_URL=sqlite:////tmp/carhibou-migration-check.sqlite3 "$PYTHON" -m alembic check
 CARHIBOU_DATABASE_URL=sqlite:////tmp/carhibou-migration-check.sqlite3 "$PYTHON" -m alembic downgrade base

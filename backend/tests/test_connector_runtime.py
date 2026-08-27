@@ -224,9 +224,7 @@ def test_session_reconnects_and_recovers_status(
 ) -> None:
     _client, _csrf, data = _connector(registered)
     clients = iter((FakeClient(fail=True), FakeClient()))
-    definition = ConnectorDefinition(
-        id=data["id"], config_version=1, config=CONFIG, password=None
-    )
+    definition = ConnectorDefinition(id=data["id"], config_version=1, config=CONFIG, password=None)
     session = MqttConnectorSession(definition, db_factory, client_factory=lambda: next(clients))
     session.start()
     deadline = time.monotonic() + 3

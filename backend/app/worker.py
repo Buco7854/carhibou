@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from sqlalchemy import select, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
 from backend.app.branding import APP_VERSION
@@ -27,14 +28,26 @@ logger = logging.getLogger(__name__)
 @contextmanager
 def hook_state_lock(db: Session, hook_id: str) -> Iterator[None]:
     """Serialize executions per hook so read-modify-write state is deterministic."""
-    is_postgres = db.get_bind().dialect.name == "postgresql"
-    if is_postgres:
-        db.execute(text("SELECT pg_advisory_lock(hashtext(:hook_id))"), {"hook_id": hook_id})
-    try:
+    bind = db.get_bind()
+    if bind.dialect.name != "postgresql":
         yield
-    finally:
-        if is_postgres:
-            db.execute(text("SELECT pg_advisory_unlock(hashtext(:hook_id))"), {"hook_id": hook_id})
+        return
+
+    # The ORM session intentionally commits before the child starts, which may
+    # return its DBAPI connection to the pool. Keep the session-scoped advisory
+    # lock on a dedicated connection so acquisition and release cannot move to
+    # different pooled connections while the hook runs.
+    engine = bind.engine if isinstance(bind, Connection) else bind
+    with engine.connect() as lock_connection:
+        lock_connection.execute(
+            text("SELECT pg_advisory_lock(hashtext(:hook_id))"), {"hook_id": hook_id}
+        )
+        try:
+            yield
+        finally:
+            lock_connection.execute(
+                text("SELECT pg_advisory_unlock(hashtext(:hook_id))"), {"hook_id": hook_id}
+            )
 
 
 def _contains_secret(value: Any, secrets: list[str]) -> bool:
@@ -73,7 +86,7 @@ def execute_hook_job(db: Session, job: Job) -> None:
         job.status = "completed"
         job.completed_at = utcnow()
         return
-    # The advisory lock is session-scoped and therefore remains held across the
+    # The dedicated advisory-lock connection remains checked out across the
     # intentional commit before the child runs. PostgreSQL releases it if the
     # worker crashes and its connection closes. SQLite tests run serially.
     hook_id = execution.hook_id

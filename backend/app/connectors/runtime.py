@@ -165,8 +165,7 @@ class MqttConnectorSession:
             return False
         if (
             not force
-            and self._monotonic() - self._window_started
-            < self.definition.config.sample_seconds
+            and self._monotonic() - self._window_started < self.definition.config.sample_seconds
         ):
             return False
         position = None

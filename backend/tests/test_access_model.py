@@ -286,16 +286,12 @@ def test_four_personas_enforce_the_complete_access_model(
         _request(operator, operator_csrf, "post", f"/api/v1/agents/{agent_id}/rotate").status_code
         == 200
     )
-    assert (
-        admin.post(f"/api/v1/agents/{agent_id}/rotate", headers=admin_headers).status_code == 200
-    )
+    assert admin.post(f"/api/v1/agents/{agent_id}/rotate", headers=admin_headers).status_code == 200
     assert (
         _request(operator, operator_csrf, "post", f"/api/v1/agents/{agent_id}/revoke").status_code
         == 204
     )
-    assert (
-        admin.post(f"/api/v1/agents/{agent_id}/revoke", headers=admin_headers).status_code == 204
-    )
+    assert admin.post(f"/api/v1/agents/{agent_id}/revoke", headers=admin_headers).status_code == 204
 
     for persona in ("operator", "viewer", "stranger", "editor"):
         session, csrf = sessions[persona]
@@ -436,8 +432,7 @@ def test_four_personas_enforce_the_complete_access_model(
     assert {row["id"] for row in future_session.get("/api/v1/vehicles").json()} == {v2["id"]}
 
     assert (
-        _request(operator, operator_csrf, "delete", f"/api/v1/agents/{agent_id}").status_code
-        == 204
+        _request(operator, operator_csrf, "delete", f"/api/v1/agents/{agent_id}").status_code == 204
     )
     assert (
         admin.delete(

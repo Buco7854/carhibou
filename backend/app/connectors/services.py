@@ -29,9 +29,7 @@ def connector_response(connector: Connector) -> ConnectorResponse:
     )
 
 
-def create_connector(
-    db: Session, vehicle: Vehicle, data: ConnectorCreate
-) -> Connector:
+def create_connector(db: Session, vehicle: Vehicle, data: ConnectorCreate) -> Connector:
     if data.kind != TESLAMATE_KIND:
         raise ValueError("connector kind is not available")
     connector = Connector(
@@ -67,9 +65,7 @@ def create_connector(
     return connector
 
 
-def update_connector(
-    db: Session, connector: Connector, data: ConnectorUpdate
-) -> None:
+def update_connector(db: Session, connector: Connector, data: ConnectorUpdate) -> None:
     connector.name = data.name
     connector.enabled = data.enabled
     connector.config = data.config.model_dump(mode="json")
@@ -101,4 +97,3 @@ def connector_password(connector: Connector) -> str | None:
     if not connector.encrypted_password:
         return None
     return decrypt_secret(connector.encrypted_password)
-

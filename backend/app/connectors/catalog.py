@@ -8,4 +8,3 @@ CONNECTOR_KINDS = (
         docs_url="https://docs.teslamate.org/docs/integrations/mqtt/",
     ),
 )
-

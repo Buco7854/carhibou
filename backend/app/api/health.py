@@ -43,10 +43,7 @@ def diagnostics(auth: RequireAdmin, db: Db) -> dict[str, object]:
         "stale_agents": db.scalar(
             select(func.count(Agent.id)).where(
                 Agent.revoked_at.is_(None),
-                (
-                    Agent.last_seen_at.is_(None)
-                    | (Agent.last_seen_at < now - timedelta(minutes=10))
-                ),
+                (Agent.last_seen_at.is_(None) | (Agent.last_seen_at < now - timedelta(minutes=10))),
             )
         )
         or 0,

@@ -56,9 +56,7 @@ def connectors(db: Db, auth: CurrentUser) -> list[ConnectorResponse]:
     response_model=ConnectorResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def add_connector(
-    data: ConnectorCreate, db: Db, authorized: OperateVehicle
-) -> ConnectorResponse:
+def add_connector(data: ConnectorCreate, db: Db, authorized: OperateVehicle) -> ConnectorResponse:
     try:
         connector = create_connector(db, authorized.vehicle, data)
     except ValueError as exc:

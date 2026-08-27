@@ -30,4 +30,3 @@ class Connector(TimestampMixin, Base):
     last_error: Mapped[str] = mapped_column(Text, default="")
 
     vehicle = relationship("Vehicle", back_populates="connectors")
-

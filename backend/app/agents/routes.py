@@ -125,9 +125,7 @@ def list_agents(db: Db, auth: CurrentUser) -> list[AgentResponse]:
 
 
 @human_router.put("/agents/{agent_id}", response_model=AgentResponse)
-def edit_agent(
-    agent_id: str, data: AgentSettings, db: Db, auth: CurrentUserWrite
-) -> AgentResponse:
+def edit_agent(agent_id: str, data: AgentSettings, db: Db, auth: CurrentUserWrite) -> AgentResponse:
     agent = _ordinary_agent(_authorized_agent(db, auth.user, agent_id, OPERATE))
     update_agent(agent, data)
     db.commit()
@@ -144,9 +142,7 @@ def remove_agent(agent_id: str, db: Db, auth: CurrentUserWrite) -> None:
     nothing behind.
     """
 
-    delete_agent(
-        db, _ordinary_agent(_authorized_agent(db, auth.user, agent_id, OPERATE))
-    )
+    delete_agent(db, _ordinary_agent(_authorized_agent(db, auth.user, agent_id, OPERATE)))
     db.commit()
 
 

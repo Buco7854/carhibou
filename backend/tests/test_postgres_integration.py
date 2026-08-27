@@ -14,6 +14,7 @@ from backend.app.jobs.services import claim_job
 from backend.app.main import app
 from backend.app.telemetry.models import Telemetry
 from backend.app.vehicle_state.models import VehicleState
+from backend.app.worker import hook_state_lock
 
 pytestmark = pytest.mark.postgres
 DATABASE_URL = os.getenv("CARHIBOU_TEST_DATABASE_URL")
@@ -128,3 +129,38 @@ def test_postgres_idempotency_state_and_skip_locked(
         second.rollback()
         first.close()
         second.close()
+
+
+def test_hook_advisory_lock_survives_commit_and_pool_churn(
+    postgres_factory: sessionmaker[Session],
+) -> None:
+    del postgres_factory  # The fixture verifies and cleans the migrated database.
+    assert DATABASE_URL is not None
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=2,
+        max_overflow=1,
+        pool_timeout=1,
+    )
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    hook_id = str(uuid4())
+    parameters = {"hook_id": hook_id}
+    try:
+        for _iteration in range(12):
+            with factory() as worker_db, factory() as churn_db:
+                with hook_state_lock(worker_db, hook_id):
+                    worker_db.commit()
+                    churn_db.execute(text("SELECT 1"))
+                    worker_db.execute(text("SELECT 1"))
+                with engine.connect() as probe:
+                    acquired = probe.scalar(
+                        text("SELECT pg_try_advisory_lock(hashtext(:hook_id))"), parameters
+                    )
+                    if acquired:
+                        probe.execute(
+                            text("SELECT pg_advisory_unlock(hashtext(:hook_id))"), parameters
+                        )
+                assert acquired is True
+    finally:
+        engine.dispose()
