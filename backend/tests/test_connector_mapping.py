@@ -114,7 +114,7 @@ def mapping_definition(**changes: object) -> dict[str, object]:
     return definition
 
 
-def test_bundled_teslamate_profile_maps_all_78_topics_equivalently() -> None:
+def test_bundled_teslamate_profile_maps_all_78_topics_to_expected_outputs() -> None:
     assert len(TESLAMATE_TOPICS) == len(set(TESLAMATE_TOPICS)) == 78
     engine = teslamate_engine()
     deprecated = {
@@ -131,6 +131,7 @@ def test_bundled_teslamate_profile_maps_all_78_topics_equivalently() -> None:
             "power": "-4.5",
             "odometer": "12345.6",
             "charger_power": "7",
+            "charge_energy_added": "12.5",
             "est_battery_range_km": "320.5",
             "charge_limit_soc": "80",
             "tpms_pressure_fl": "2.8",
@@ -173,6 +174,7 @@ def test_bundled_teslamate_profile_maps_all_78_topics_equivalently() -> None:
     assert metrics["battery.power"] == -4.5
     assert metrics["vehicle.odometer"] == 12345.6
     assert metrics["charging.power"] == 7.0
+    assert metrics["charging.energy_added"] == 12.5
     assert metrics["vehicle.range"] == 320.5
     assert metrics["vehicle.state"] == "online"
     assert metrics["charging.active"] is True
@@ -192,6 +194,7 @@ def test_bundled_teslamate_profile_maps_all_78_topics_equivalently() -> None:
         "power",
         "odometer",
         "charger_power",
+        "charge_energy_added",
         "est_battery_range_km",
         "tpms_pressure_fl",
         "tpms_pressure_fr",
@@ -213,6 +216,7 @@ def test_bundled_teslamate_profile_maps_all_78_topics_equivalently() -> None:
         "battery.power",
         "vehicle.odometer",
         "charging.power",
+        "charging.energy_added",
         "vehicle.range",
         "vehicle.state",
         "charging.active",
@@ -290,6 +294,9 @@ def test_mapping_runtime_coercion_is_per_value_and_fail_open() -> None:
     assert engine.map("charging_state", "surprise").metrics == {"charging.active": False}
     assert engine.map("heading", "360").errors
     assert engine.map("speed", "-1").errors
+    invalid_accuracy = engine.map("location", '{"latitude":1,"longitude":2,"accuracy":100001}')
+    assert invalid_accuracy.position == {"latitude": 1.0, "longitude": 2.0}
+    assert invalid_accuracy.errors == ["location: position field accuracy is invalid"]
     assert engine.map("new topic", "1").errors
     assert engine.map("location", "not json").errors
     assert engine.map("location", '{"latitude":1}').errors

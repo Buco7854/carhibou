@@ -9,7 +9,7 @@ import DataSourcesView from '../src/views/DataSourcesView.vue'
 import ProfilesView from '../src/views/ProfilesView.vue'
 import VehiclesView from '../src/views/VehiclesView.vue'
 import { widgetRegistry } from '../src/widgets/registry'
-import { adminUser, agentImplementations, connectorKinds, agentIdentity, jsonResponse, vehicle } from './helpers'
+import { adminUser, agentImplementations, agentRow, connectorKinds, jsonResponse, vehicle } from './helpers'
 
 vi.mock('gridstack', () => ({
   GridStack: {
@@ -53,7 +53,7 @@ describe('vehicle and dashboard management', () => {
       if (url.endsWith('/connectors')) return Promise.resolve(jsonResponse([]))
       if (url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([]))
       if (url.endsWith('/agents')) return Promise.resolve(jsonResponse([{
-        id:'d1',vehicle_id:vehicle.id,name:'Pi Zero',credential_version:1,...agentIdentity,hostname:'car',hardware:{},online:false,last_seen_at:'2026-01-01T00:00:00Z',revoked_at:null,created_at:'2026-01-01T00:00:00Z',
+        ...agentRow({ id:'d1', name:'Pi Zero', hostname:'car', online:false, last_seen_at:'2026-01-01T00:00:00Z' }),
       }]))
       return Promise.resolve(jsonResponse([vehicle]))
     }))
@@ -210,7 +210,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('sets an agent cadence at enrollment and edits it afterwards', async () => {
-    const agent = { id:'agent-1', vehicle_id:'vehicle-1', name:'Pi', credential_version:1, ...agentIdentity, hostname:'pi', hardware:{}, sampling_seconds:5, upload_seconds:5, parked_sampling_seconds:300, parked_upload_seconds:300, online:true, last_seen_at:null, last_config_sync_at:null, config_version:1, revoked_at:null, created_at:'2026-01-01T00:00:00Z' }
+    const agent = agentRow()
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse(agentImplementations))
       if (url.endsWith('/connector-kinds')) return Promise.resolve(jsonResponse(connectorKinds))
@@ -255,7 +255,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('reports implementation identity and protocol compatibility apart from online state', async () => {
-    const agent = { id:'agent-1', vehicle_id:'vehicle-1', name:'Pi', credential_version:1, ...agentIdentity, implementation_id:'acme.esp32', protocol_version:7, agent_version:'2.4.0', compatibility:'incompatible' as const, hostname:'pi', hardware:{}, sampling_seconds:5, upload_seconds:5, parked_sampling_seconds:300, parked_upload_seconds:300, online:true, last_seen_at:'2026-01-01T00:00:00Z', last_config_sync_at:null, config_version:1, revoked_at:null, created_at:'2026-01-01T00:00:00Z' }
+    const agent = agentRow({ implementation_id:'acme.esp32', protocol_version:7, agent_version:'2.4.0', compatibility:'incompatible' as const, last_seen_at:'2026-01-01T00:00:00Z' })
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse(agentImplementations))
       if (url.endsWith('/connector-kinds')) return Promise.resolve(jsonResponse(connectorKinds))

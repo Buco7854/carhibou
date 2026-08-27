@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatInstant } from '../vehicleDisplay'
 import { api } from '../api/client'
 import type { DashboardWidget, Hook, HookExecution } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
@@ -27,7 +28,7 @@ onMounted(async () => {
       <li v-for="row in latest" :key="row.execution.id">
         <span :class="['status',{online:row.execution.status==='success'}]">{{ row.execution.status }}</span>
         <strong>{{ row.hook.name }}</strong>
-        <small>{{ new Date(row.execution.created_at).toLocaleTimeString() }}</small>
+        <small>{{ formatInstant(row.execution.created_at) }}</small>
       </li>
     </ul>
     <DashboardWidgetEmpty v-else icon="hooks" :loading="!loaded" :message="loaded?t('hooks.noExecutions'):''" />

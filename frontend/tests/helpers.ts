@@ -1,3 +1,6 @@
+import { vi, type Mock } from 'vitest'
+import type { DOMWrapper } from '@vue/test-utils'
+
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -111,4 +114,49 @@ export function charge(overrides: Record<string, unknown> = {}) {
     position: { latitude: 48.85, longitude: 2.35 },
     soc_start: 40, soc_end: 80, energy_kwh: 12.5, peak_power: 11.2, avg_power: 6.3, ...overrides,
   }
+}
+
+/** An agent row as GET /agents returns it. */
+export function agentRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'agent-1', vehicle_id: vehicle.id, name: 'Pi', credential_version: 1, ...agentIdentity,
+    hostname: 'pi', hardware: {}, sampling_seconds: 5, upload_seconds: 5,
+    parked_sampling_seconds: 300, parked_upload_seconds: 300, online: true, last_seen_at: null,
+    last_config_sync_at: null, config_version: 1, revoked_at: null, created_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+type Routes = Record<string, unknown | ((url: string, options?: RequestInit) => unknown)>
+
+/**
+ * Stubs fetch from a suffix-to-body map. Keys are matched by `endsWith` first and
+ * `includes` second, so `/agents` beats `/agent-implementations` only when spelled
+ * exactly; `default` answers anything unmatched.
+ */
+export function mockApi(routes: Routes) {
+  const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+    const key = Object.keys(routes).find((route) => route !== 'default' && url.endsWith(route))
+      ?? Object.keys(routes).find((route) => route !== 'default' && url.includes(route))
+    const entry = key ? routes[key] : routes.default
+    const body = typeof entry === 'function' ? (entry as (u: string, o?: RequestInit) => unknown)(url, options) : entry
+    return Promise.resolve(body instanceof Response ? body : jsonResponse(body ?? []))
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+/** The labelled field inside `root`, by the text of its own span. */
+export function field(wrapper: { findAll: (selector: string) => DOMWrapper<Element>[] }, root: string, label: string): DOMWrapper<Element> {
+  const target = wrapper.findAll(`${root} .field`).find((item) => item.find('span').exists() && item.get('span').text() === label)
+  if (!target) throw new Error(`no field labelled "${label}"`)
+  return target
+}
+
+export function lastBody(fetchMock: Mock, method: string, fragment = ''): Record<string, unknown> {
+  const call = fetchMock.mock.calls
+    .filter((entry) => entry[1]?.method === method && String(entry[0]).includes(fragment))
+    .at(-1)
+  if (!call) throw new Error(`no ${method} call${fragment ? ` to ${fragment}` : ''}`)
+  return JSON.parse(call[1]?.body as string)
 }

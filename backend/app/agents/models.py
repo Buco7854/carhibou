@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from backend.app.agents.constants import STANDARD_CADENCE
 from backend.app.common.ids import new_id
 from backend.app.common.models import Base, TimestampMixin
 from backend.app.common.types import JSONType, JSONValue
@@ -27,18 +28,27 @@ class Agent(TimestampMixin, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     last_config_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     config_version: Mapped[int] = mapped_column(Integer, default=1)
-    # How often the agent takes a sample, and how often it drains its queue.
-    # Both are per agent because agents on one account are not alike: a car on
-    # a metered connection wants a slower upload than a daily driver.
-    #
-    # The parked pair applies while the agent judges the vehicle out of use.
-    # Its server_default matches the driving pair so that migrating an existing
-    # deployment changes nothing until somebody chooses a slower parked cadence;
-    # an agent created from now on gets the interface's "Standard" preset.
-    sampling_seconds: Mapped[int] = mapped_column(Integer, default=5, server_default="5")
-    upload_seconds: Mapped[int] = mapped_column(Integer, default=5, server_default="30")
-    parked_sampling_seconds: Mapped[int] = mapped_column(Integer, default=300, server_default="5")
-    parked_upload_seconds: Mapped[int] = mapped_column(Integer, default=300, server_default="30")
+    # ORM and database defaults intentionally share the interface's Standard preset.
+    sampling_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=STANDARD_CADENCE.sampling_seconds,
+        server_default=str(STANDARD_CADENCE.sampling_seconds),
+    )
+    upload_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=STANDARD_CADENCE.upload_seconds,
+        server_default=str(STANDARD_CADENCE.upload_seconds),
+    )
+    parked_sampling_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=STANDARD_CADENCE.parked_sampling_seconds,
+        server_default=str(STANDARD_CADENCE.parked_sampling_seconds),
+    )
+    parked_upload_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=STANDARD_CADENCE.parked_upload_seconds,
+        server_default=str(STANDARD_CADENCE.parked_upload_seconds),
+    )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     vehicle = relationship("Vehicle", back_populates="agents")
@@ -61,7 +71,23 @@ class AgentEnrollmentToken(Base):
     # Carried from the enrollment form to the agent the token creates, so an
     # agent starts on the cadence it was enrolled with rather than a default it
     # then has to be corrected away from.
-    sampling_seconds: Mapped[int] = mapped_column(Integer, default=5, server_default="5")
-    upload_seconds: Mapped[int] = mapped_column(Integer, default=5, server_default="30")
-    parked_sampling_seconds: Mapped[int] = mapped_column(Integer, default=300, server_default="5")
-    parked_upload_seconds: Mapped[int] = mapped_column(Integer, default=300, server_default="30")
+    sampling_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=STANDARD_CADENCE.sampling_seconds,
+        server_default=str(STANDARD_CADENCE.sampling_seconds),
+    )
+    upload_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=STANDARD_CADENCE.upload_seconds,
+        server_default=str(STANDARD_CADENCE.upload_seconds),
+    )
+    parked_sampling_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=STANDARD_CADENCE.parked_sampling_seconds,
+        server_default=str(STANDARD_CADENCE.parked_sampling_seconds),
+    )
+    parked_upload_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=STANDARD_CADENCE.parked_upload_seconds,
+        server_default=str(STANDARD_CADENCE.parked_upload_seconds),
+    )

@@ -4,18 +4,38 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-MetricValue = float | int | bool | str | None
+from backend.app.telemetry.values import POSITION_RANGES, MetricValue
 
 
 class Position(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
 
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
-    altitude: float | None = Field(default=None, ge=-500, le=15000)
-    speed: float | None = Field(default=None, ge=0, le=1000)
-    heading: float | None = Field(default=None, ge=0, lt=360)
-    accuracy: float | None = Field(default=None, ge=0, le=100000)
+    latitude: float = Field(
+        ge=POSITION_RANGES["latitude"].minimum, le=POSITION_RANGES["latitude"].maximum
+    )
+    longitude: float = Field(
+        ge=POSITION_RANGES["longitude"].minimum, le=POSITION_RANGES["longitude"].maximum
+    )
+    altitude: float | None = Field(
+        default=None,
+        ge=POSITION_RANGES["altitude"].minimum,
+        le=POSITION_RANGES["altitude"].maximum,
+    )
+    speed: float | None = Field(
+        default=None,
+        ge=POSITION_RANGES["speed"].minimum,
+        le=POSITION_RANGES["speed"].maximum,
+    )
+    heading: float | None = Field(
+        default=None,
+        ge=POSITION_RANGES["heading"].minimum,
+        lt=POSITION_RANGES["heading"].maximum,
+    )
+    accuracy: float | None = Field(
+        default=None,
+        ge=POSITION_RANGES["accuracy"].minimum,
+        le=POSITION_RANGES["accuracy"].maximum,
+    )
 
 
 class TelemetrySample(BaseModel):

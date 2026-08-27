@@ -8,6 +8,11 @@ export class APIError extends Error {
   }
 }
 
+/** The message to show a person for anything a request or handler threw. */
+export function errorMessage(reason: unknown, fallback = 'Something went wrong'): string {
+  return reason instanceof Error && reason.message ? reason.message : fallback
+}
+
 function cookie(name: string): string | undefined {
   return document.cookie
     .split('; ')

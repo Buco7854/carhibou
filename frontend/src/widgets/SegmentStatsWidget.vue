@@ -5,7 +5,9 @@ import type { DashboardWidget, Segments } from '../api/types'
 import { formatDuration } from '../agentCadence'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
-import { EMPTY_SEGMENTS, followSelection, loadSegments, mergeSegments } from './segments'
+import { EMPTY_SEGMENTS, loadSegments } from '../api/segments'
+import { formatInstant } from '../vehicleDisplay'
+import { followSelection, mergeSegments } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const { t, locale } = useI18n()
@@ -14,7 +16,8 @@ const vehicle = useDashboardVehicle(props.widget)
 const segments = ref<Segments | null>(null)
 let request = 0
 
-const segment = computed(() => followSelection(mergeSegments(segments.value ?? EMPTY_SEGMENTS), runtime.selectedSegment.value))
+const follow = computed(() => followSelection(mergeSegments(segments.value ?? EMPTY_SEGMENTS), runtime.selectedSegment.value))
+const segment = computed(() => follow.value.state === 'segment' ? follow.value.segment : null)
 
 interface Stat { key: string; label: string; value: string }
 
@@ -55,23 +58,18 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days], load, { imm
 </script>
 
 <template>
-  <article class="widget-card segment-stats">
+  <article class="widget-card segment-stats-widget">
     <div class="widget-head">
       <h2>{{ widget.title || t('insights.segmentStats') }}</h2>
-      <small v-if="segment">{{ t(`insights.kind.${segment.kind}`) }} · {{ new Date(segment.start).toLocaleString() }}</small>
+      <small v-if="segment">{{ t(`insights.kind.${segment.kind}`) }} · {{ formatInstant(segment.start) }}</small>
     </div>
     <dl v-if="stats.length" class="stat-grid">
       <div v-for="stat in stats" :key="stat.key"><dt>{{ stat.label }}</dt><dd>{{ stat.value }}</dd></div>
     </dl>
-    <DashboardWidgetEmpty v-else icon="history" :loading="Boolean(vehicle)&&segments===null" :message="t('insights.noSegment')" />
+    <DashboardWidgetEmpty v-else icon="history" :loading="Boolean(vehicle)&&segments===null" :message="follow.state==='out-of-range' ? t('insights.notInRange') : t('insights.noSegment')" />
   </article>
 </template>
 
 <style scoped>
-.segment-stats{padding:12px 14px}
-.stat-grid{min-height:0;flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));align-content:center;gap:12px 16px;margin:0}
-.stat-grid>div{min-width:0}
-.stat-grid dt{color:var(--muted);font-size:var(--font-caption)}
-.stat-grid dd{margin:3px 0 0;overflow:hidden;font-size:var(--font-value);font-weight:500;letter-spacing:-.02em;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
-@media(max-width:700px){.stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.stat-grid dd{font-size:var(--font-section)}}
+.segment-stats-widget{padding:12px 14px}
 </style>

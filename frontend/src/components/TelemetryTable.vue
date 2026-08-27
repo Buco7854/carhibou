@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from '../api/client'
+import { api, errorMessage } from '../api/client'
 import type { HistoryEntries, HistoryEntry } from '../api/types'
-import { metricDefinition, metricLabel } from '../vehicleDisplay'
+import { formatInstant, metricDefinition, metricLabel } from '../vehicleDisplay'
 import AppIcon from './AppIcon.vue'
 import AppSelect from './AppSelect.vue'
 
@@ -231,7 +231,7 @@ async function load(): Promise<void> {
     const result = await api<HistoryEntries>(`/vehicles/${props.vehicleId}/history/entries?${params}`)
     if (current === request) data.value = result
   } catch (reason) {
-    if (current === request) error.value = reason instanceof Error ? reason.message : t('common.error')
+    if (current === request) error.value = errorMessage(reason, t('common.error'))
   } finally {
     if (current === request) loading.value = false
   }
@@ -245,7 +245,7 @@ function cell(entry: HistoryEntry, column: TableColumn): string {
     : prefix === 'agent' ? entry.agent[name]
     : (entry as unknown as Record<string, unknown>)[column.key]
   if (raw === null || raw === undefined || raw === '') return '—'
-  if (column.key === 'recorded_at') return new Date(String(raw)).toLocaleString()
+  if (column.key === 'recorded_at') return formatInstant(String(raw))
   if (typeof raw === 'boolean') return t(raw ? 'metrics.active' : 'metrics.inactive')
   // Fixed decimals per column keep a numeric column readable as one block.
   if (typeof raw === 'number') return raw.toFixed(column.decimals)

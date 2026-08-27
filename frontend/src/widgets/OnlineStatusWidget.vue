@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
-import { agentStatus, vehicleActivity } from '../vehicleDisplay'
+import { formatInstant, agentStatus, vehicleActivity } from '../vehicleDisplay'
 import { useDashboardVehicle } from './dashboardContext'
 
 const props = defineProps<{ widget: DashboardWidget }>()
@@ -18,7 +18,7 @@ const activity = computed(() => vehicleActivity(vehicle.value))
 
 const reportedAt = computed(() => {
   const at = vehicle.value?.state?.updated_at
-  return at ? new Date(at).toLocaleString() : ''
+  return formatInstant(at)
 })
 </script>
 

@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -143,13 +144,15 @@ class MqttConnectorSession:
         self._position.update(mapped.position)
         if (mapped.metrics or mapped.position) and self._window_started is None:
             self._window_started = self._monotonic()
-        if mapped.errors:
-            self._mapping_errors += len(mapped.errors)
-            self._pending_error = (
-                f"{self._mapping_errors} mapping error(s); latest: {mapped.errors[-1]}"
-            )
+        self._record_mapping_notes(mapped.errors)
         self._pending_message = True
         self.flush_status()
+
+    def _record_mapping_notes(self, notes: list[str]) -> None:
+        if not notes:
+            return
+        self._mapping_errors += len(notes)
+        self._pending_error = f"{self._mapping_errors} mapping error(s); latest: {notes[-1]}"
 
     def flush_status(self, *, force: bool = False) -> None:
         if not self._pending_message and self._pending_error is None:
@@ -174,7 +177,10 @@ class MqttConnectorSession:
             return False
         position = None
         if "latitude" in self._position and "longitude" in self._position:
-            position = Position(**self._position)
+            try:
+                position = Position(**self._position)
+            except ValidationError:
+                self._record_mapping_notes(["buffered position failed validation"])
         sample = TelemetrySample(
             id=uuid4(),
             sequence=self._sequence,
@@ -187,6 +193,7 @@ class MqttConnectorSession:
             connector = db.get(Connector, self.definition.id)
             if not agent or not connector or not connector.enabled:
                 self._metrics.clear()
+                self._position.clear()
                 self._window_started = None
                 return False
             ingest_batch(db, agent, TelemetryBatch(boot_id=self._boot_id, samples=[sample]))
@@ -194,6 +201,7 @@ class MqttConnectorSession:
             db.commit()
         self._sequence += 1
         self._metrics = {}
+        self._position = {}
         self._window_started = None
         return True
 

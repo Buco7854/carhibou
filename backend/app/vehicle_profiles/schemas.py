@@ -4,7 +4,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
-MetricValue = str | float | bool | None
+from backend.app.telemetry.values import MetricValue
+
 PROFILE_KEY = r"^[a-z][a-z0-9_.-]*$"
 MAPPING_KEY = r"^[A-Za-z0-9_.-]+$"
 POSITION_TARGETS = {

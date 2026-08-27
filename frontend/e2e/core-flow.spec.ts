@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto'
 
 interface VehicleRecord { id: string; name: string }
 interface Enrollment { token: string }
+interface ProfileRecord { id: string; name: string }
+interface AgentConfig { vehicle_profile: string | null; vehicle_profile_definition?: { signals?: Array<{ name: string }> } }
 interface EnrolledAgent { agent_id: string; credential: string }
 interface HookRecord { id: string }
 interface HookExecution { status: string; logs: Array<Record<string, unknown>> }
@@ -98,9 +100,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(Math.abs(cardHeightWithPhoto - cardHeightWithoutPhoto)).toBeLessThan(1)
   const [vehicle] = await browserJson<VehicleRecord[]>(page, 'get', '/api/v1/vehicles')
   expect(vehicle?.name).toBe('Éclair')
-  await browserJson<VehicleRecord>(page, 'post', '/api/v1/vehicles', {
-    name: 'Touring', vehicle_profile: null,
-  })
+  await browserJson<VehicleRecord>(page, 'post', '/api/v1/vehicles', { name: 'Touring' })
   await page.reload()
   const secondVehicleCard = page.locator('.vehicle-card', { hasText: 'Touring' })
   await expect(secondVehicleCard).toBeVisible()
@@ -108,12 +108,25 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
 
   await page.locator('.sidebar').getByRole('link', { name:'Profiles', exact:true }).click()
   await expect(page.getByRole('heading', { name:'Telemetry profiles' })).toBeVisible()
-  await page.getByRole('button', { name:'New profile' }).click()
+  await page.getByRole('button', { name:'New CAN profile' }).click()
   await expect(page.getByRole('dialog', { name:'Create profile' })).toBeVisible()
   await page.getByRole('dialog', { name:'Create profile' }).getByRole('button', { name:'Add signal' }).click()
   await expect(page.getByRole('dialog', { name:'Add signal' })).toBeVisible()
   await page.getByRole('dialog', { name:'Add signal' }).getByRole('button', { name:'Close' }).click()
   await page.getByRole('dialog', { name:'Create profile' }).getByRole('button', { name:'Close' }).click()
+
+  const profile = await browserJson<ProfileRecord>(page, 'post', '/api/v1/vehicle-profiles', {
+    type: 'can',
+    name: 'Browser decoder',
+    description: 'Profile the browser flow enrolls its agent against',
+    signals: [{
+      name: 'battery.soc',
+      display_name: 'Charge',
+      source: { type: 'can', can_id: 0x374 },
+      decoder: { byte_offset: 1, data_type: 'uint8', endianness: 'big', scale: 0.5, offset: -5 },
+      unit: '%',
+    }],
+  })
 
   await page.getByRole('link', { name: 'Data sources' }).click()
   await page.getByRole('button', { name: 'Add agent' }).click()
@@ -121,6 +134,10 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   // are readable before a token is spent on it.
   await expect(page.locator('.implementation-card')).toContainText('Carhibou Go agent')
   await expect(page.locator('.implementation-card')).toContainText('One command')
+  // The decoding profile is chosen on the agent now, so the estimate below it
+  // follows the profile rather than the vehicle.
+  await page.getByRole('combobox', { name: 'Decoding profile' }).click()
+  await page.getByRole('option', { name: 'Browser decoder' }).click()
   const enrollmentResponse = page.waitForResponse((response) => response.url().includes('/enrollments') && response.request().method() === 'POST')
   await page.locator('.enrollment-panel').getByRole('button', { name: 'Add agent' }).click()
   const enrollment = await (await enrollmentResponse).json() as Enrollment
@@ -137,6 +154,14 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   const enrolled = await enrolledResponse.json() as EnrolledAgent
   const isolatedHumanRequest = await request.get('/api/v1/auth/me', { headers: { Authorization: `Agent ${enrolled.credential}` } })
   expect(isolatedHumanRequest.status()).toBe(401)
+
+  // Profile delivery end to end: chosen in the browser, carried by the agent row,
+  // handed to the agent with its decoding definition.
+  const agentConfig = await request.get('/api/v1/agent/config', { headers: { Authorization: `Agent ${enrolled.credential}` } })
+  expect(agentConfig.status()).toBe(200)
+  const config = await agentConfig.json() as AgentConfig
+  expect(config.vehicle_profile).toBe(profile.id)
+  expect(config.vehicle_profile_definition?.signals?.[0]?.name).toBe('battery.soc')
 
   const samples = Array.from({ length: 6 }, (_, index) => ({
     id: randomUUID(),

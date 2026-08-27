@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { authMethods, login, register, registrationIsOpen } from '../api/auth'
+import { errorMessage } from '../api/client'
 import { APP_NAME } from '../branding'
 import AppIcon from '../components/AppIcon.vue'
 import AppSelect from '../components/AppSelect.vue'
@@ -57,7 +58,7 @@ async function submit() {
     else await register(email.value, password.value, displayName.value)
     await router.push(String(route.query.next ?? '/'))
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : 'Authentication failed'
+    error.value = errorMessage(reason, t('auth.failed'))
   } finally { busy.value = false }
 }
 </script>

@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { DashboardWidget, Segments } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import { useDashboardVehicle } from './dashboardContext'
-import { EMPTY_SEGMENTS, loadSegmentsBetween } from './segments'
+import { EMPTY_SEGMENTS, loadSegmentsBetween } from '../api/segments'
 
 interface PeriodTotals {
   distance: number
@@ -68,7 +68,7 @@ watch([() => vehicle.value?.id, days], load, { immediate: true })
 </script>
 
 <template>
-  <article class="widget-card period-stats">
+  <article class="widget-card period-stats-widget">
     <div class="widget-head">
       <h2>{{ widget.title || t('insights.periodStats') }}</h2>
       <small>{{ t('insights.lastDays', { days }) }}</small>
@@ -84,13 +84,8 @@ watch([() => vehicle.value?.id, days], load, { immediate: true })
 </template>
 
 <style scoped>
-.period-stats{padding:12px 14px}
-.stat-grid{min-height:0;flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));align-content:center;gap:12px 16px;margin:0}
-.stat-grid>div{min-width:0}
-.stat-grid dt{color:var(--muted);font-size:var(--font-caption)}
-.stat-grid dd{display:flex;align-items:baseline;gap:6px;margin:3px 0 0;overflow:hidden;font-size:var(--font-value);font-weight:500;letter-spacing:-.02em;white-space:nowrap;font-variant-numeric:tabular-nums}
+.period-stats-widget{padding:12px 14px}
 .delta{font-size:var(--font-caption);font-weight:500;letter-spacing:0}
 .delta.up{color:var(--success)}
 .delta.down{color:var(--muted)}
-@media(max-width:700px){.stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.stat-grid dd{font-size:var(--font-section)}}
 </style>

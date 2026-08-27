@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from '../api/client'
+import { formatInstant } from '../vehicleDisplay'
+import { api, errorMessage } from '../api/client'
 import type { History, Hook, HookExecution, HookRevision, Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
@@ -77,7 +78,7 @@ async function save(): Promise<void> {
     select(hook.id)
     window.setTimeout(() => saved.value = false, 1500)
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : t('common.error')
+    error.value = errorMessage(reason, t('common.error'))
   } finally {
     saving.value = false
   }
@@ -110,7 +111,7 @@ async function testHook(): Promise<void> {
     await api(`/hooks/${selectedId.value}/test`, { method:'POST', body:JSON.stringify({ telemetry_id:telemetry.id, dry_run:true }) })
     await loadExecutions()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : t('common.error')
+    error.value = errorMessage(reason, t('common.error'))
   } finally {
     testing.value = false
   }
@@ -216,7 +217,7 @@ onMounted(load)
               <tbody>
                 <tr v-for="execution in executions" :key="execution.id">
                   <td><span :class="['status', { online:execution.status==='success', failed:execution.status!=='success' }]">{{ execution.status }}</span></td>
-                  <td>{{ new Date(execution.created_at).toLocaleString() }}</td>
+                  <td>{{ formatInstant(execution.created_at) }}</td>
                   <td class="mono">{{ runDuration(execution) }}</td>
                   <td>
                     <details v-if="execution.error || execution.logs.length">

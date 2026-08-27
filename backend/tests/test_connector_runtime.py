@@ -107,17 +107,79 @@ def test_snapshot_delta_window_and_end_to_end_pipeline(
         rows = list(db.scalars(select(Telemetry).order_by(Telemetry.sequence)))
         assert len(rows) == 2
         assert rows[1].metrics == {"battery.soc": 70.0}
+        assert rows[1].latitude is None
+        assert rows[1].longitude is None
         state = db.get(VehicleState, vehicle_id)
         assert state
         assert state.latest_metrics == {
             "battery.soc": 70.0,
             "teslamate.inside_temp": 21.5,
         }
-        assert state.latitude == 48.1
+        assert state.latitude is None
 
     history = client.get(f"/api/v1/vehicles/{vehicle_id}/history")
     assert history.status_code == 200
     assert "teslamate.inside_temp" in history.json()["available_metrics"]
+
+
+def test_flush_does_not_reuse_position_from_previous_window(
+    registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
+) -> None:
+    _client, _csrf, data = _connector(registered)
+    session = MqttConnectorSession(
+        ConnectorDefinition(
+            id=data["id"],
+            config_version=1,
+            config=CONFIG,
+            mapping_profile=MAPPING_PROFILE,
+            password=None,
+        ),
+        db_factory,
+        monotonic=Clock(),
+    )
+    prefix = session.topic_prefix
+    session.handle_message(f"{prefix}location", b'{"latitude":48.1,"longitude":2.2}')
+    session.handle_message(f"{prefix}speed", b"90")
+    assert session.flush(force=True)
+    session.handle_message(f"{prefix}battery_level", b"70")
+    assert session.flush(force=True)
+
+    with db_factory() as db:
+        rows = list(db.scalars(select(Telemetry).order_by(Telemetry.sequence)))
+        assert rows[0].latitude == 48.1
+        assert rows[0].gps_speed == 90
+        assert rows[1].latitude is None
+        assert rows[1].longitude is None
+        assert rows[1].gps_speed is None
+
+
+def test_flush_drops_an_invalid_buffered_position_without_failing_session(
+    registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
+) -> None:
+    _client, _csrf, data = _connector(registered)
+    session = MqttConnectorSession(
+        ConnectorDefinition(
+            id=data["id"],
+            config_version=1,
+            config=CONFIG,
+            mapping_profile=MAPPING_PROFILE,
+            password=None,
+        ),
+        db_factory,
+        monotonic=Clock(),
+    )
+    prefix = session.topic_prefix
+    session.handle_message(f"{prefix}battery_level", b"70")
+    session._position = {"latitude": 48.1, "longitude": 2.2, "accuracy": 100001}
+
+    assert session.flush(force=True)
+    assert session._mapping_errors == 1
+    assert session._pending_error == (
+        "1 mapping error(s); latest: buffered position failed validation"
+    )
+    with db_factory() as db:
+        row = db.scalar(select(Telemetry))
+        assert row and row.latitude is None and row.longitude is None
 
 
 @dataclass

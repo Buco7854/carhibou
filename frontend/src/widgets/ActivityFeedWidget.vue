@@ -5,7 +5,9 @@ import type { DashboardWidget, SegmentKind, Segments } from '../api/types'
 import { formatDuration } from '../agentCadence'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
-import { EMPTY_SEGMENTS, isSelected, loadSegments, mergeSegments, segmentKey, type FeedSegment } from './segments'
+import { EMPTY_SEGMENTS, loadSegments } from '../api/segments'
+import { formatInstant } from '../vehicleDisplay'
+import { isSelected, mergeSegments, segmentKey, type FeedSegment } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const { t, locale } = useI18n()
@@ -28,7 +30,7 @@ function headline(segment: FeedSegment): string {
 }
 
 function detail(segment: FeedSegment): string {
-  const parts = [new Date(segment.start).toLocaleString(), formatDuration(segment.duration_seconds, locale.value)]
+  const parts = [formatInstant(segment.start), formatDuration(segment.duration_seconds, locale.value)]
   const soc = segment.kind === 'drive' ? segment.drive : segment.charge
   if (soc?.soc_start !== undefined && soc?.soc_end !== undefined) parts.push(`${Math.round(soc.soc_start)}% → ${Math.round(soc.soc_end)}%`)
   return parts.join(' · ')
@@ -51,7 +53,7 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days], load, { imm
 </script>
 
 <template>
-  <article class="widget-card activity-feed">
+  <article class="widget-card activity-feed-widget">
     <div class="widget-head">
       <h2>{{ widget.title || t('insights.activityFeed') }}</h2>
       <div class="feed-filter" role="group" :aria-label="t('insights.filter')">
@@ -72,7 +74,7 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days], load, { imm
 </template>
 
 <style scoped>
-.activity-feed{padding:12px 14px 8px}
+.activity-feed-widget{padding:12px 14px 8px}
 .widget-head{align-items:center}
 .feed-filter{flex:none;display:flex;gap:2px;padding:2px;background:var(--panel-2);border-radius:var(--radius)}
 .feed-filter button{padding:3px 8px;color:var(--muted);background:transparent;border:0;border-radius:var(--radius-sm);font-size:var(--font-micro);cursor:pointer}

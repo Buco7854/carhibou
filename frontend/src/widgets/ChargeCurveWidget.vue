@@ -5,7 +5,8 @@ import type { DashboardWidget, History, Segments } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
-import { EMPTY_SEGMENTS, followSelection, loadSegmentHistory, loadSegments, mergeSegments, metricNumber } from './segments'
+import { EMPTY_SEGMENTS, loadHistory, loadSegments } from '../api/segments'
+import { followSelection, mergeSegments, metricNumber } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const { t } = useI18n()
@@ -16,14 +17,20 @@ const history = ref<History | null>(null)
 let segmentRequest = 0
 let historyRequest = 0
 
-const charge = computed(() => followSelection(mergeSegments(segments.value ?? EMPTY_SEGMENTS), runtime.selectedSegment.value, 'charge'))
+const follow = computed(() => followSelection(mergeSegments(segments.value ?? EMPTY_SEGMENTS), runtime.selectedSegment.value, 'charge'))
+const charge = computed(() => follow.value.state === 'segment' ? follow.value.segment : null)
 
+// A connector reports keys as they change, so a point rarely carries both. Each
+// series carries its last known value forward before the two are paired.
 const curve = computed(() => {
-  const points = (history.value?.points ?? []).flatMap((point) => {
-    const soc = metricNumber(point.metrics['battery.soc'])
-    const power = metricNumber(point.metrics['charging.power'])
-    return soc === null || power === null ? [] : [[soc, power] as [number, number]]
-  })
+  let soc: number | null = null
+  let power: number | null = null
+  const points: Array<[number, number]> = []
+  for (const point of history.value?.points ?? []) {
+    soc = metricNumber(point.metrics['battery.soc']) ?? soc
+    power = metricNumber(point.metrics['charging.power']) ?? power
+    if (soc !== null && power !== null) points.push([soc, power])
+  }
   return points.sort((left, right) => left[0] - right[0])
 })
 const series = computed(() => [{ name: t('insights.chargePower'), unit: 'kW', data: curve.value }])
@@ -46,7 +53,7 @@ async function loadCurve(): Promise<void> {
   const id = vehicle.value?.id
   const window = charge.value
   if (!id || !window) return
-  const result = await loadSegmentHistory(id, window).catch(() => null)
+  const result = await loadHistory(id, { start: window.start, end: window.end, maxPoints: 400 }).catch(() => null)
   if (current === historyRequest && result) history.value = result
 }
 
@@ -55,17 +62,17 @@ watch(() => charge.value && `${charge.value.start}-${charge.value.end}`, loadCur
 </script>
 
 <template>
-  <article class="widget-card charge-curve">
+  <article class="widget-card charge-curve-widget">
     <div class="widget-head">
       <h2>{{ widget.title || t('insights.chargeCurve') }}</h2>
       <small v-if="hasData && peak !== undefined">{{ t('insights.peakAverage', { peak: peak.toFixed(1), average: (average ?? 0).toFixed(1) }) }}</small>
     </div>
     <div v-if="hasData" class="chart"><TimeSeriesChart :series="series" x-type="value" x-unit="%" height="100%" /></div>
-    <DashboardWidgetEmpty v-else icon="charging" :loading="Boolean(vehicle)&&(segments===null||(Boolean(charge)&&history===null))" :message="t('insights.noCharge')" />
+    <DashboardWidgetEmpty v-else icon="charging" :loading="Boolean(vehicle)&&(segments===null||(Boolean(charge)&&history===null))" :message="follow.state==='out-of-range' ? t('insights.notInRange') : t('insights.noCharge')" />
   </article>
 </template>
 
 <style scoped>
-.charge-curve{padding:12px 14px 4px}
+.charge-curve-widget{padding:12px 14px 4px}
 .chart{min-width:0;min-height:110px;flex:1}
 </style>

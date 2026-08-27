@@ -2,7 +2,39 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
+
+from backend.app.history.segments import (
+    _charge_segment,
+    _distance_km,
+    _drive_segment,
+    _power_integral,
+)
+from backend.app.telemetry.models import Telemetry
+
+
+def _row(
+    base: datetime,
+    seconds: int,
+    *,
+    sequence: int = 0,
+    metrics: dict[str, object] | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+) -> Telemetry:
+    return Telemetry(
+        id=str(uuid4()),
+        vehicle_id="vehicle",
+        agent_id="agent",
+        boot_id="boot",
+        sequence=sequence,
+        recorded_at=base + timedelta(seconds=seconds),
+        latitude=latitude,
+        longitude=longitude,
+        metrics=metrics or {},
+        agent_data={},
+    )
 
 
 def _source(
@@ -123,7 +155,7 @@ def test_segments_join_gaps_and_derive_drive_and_charge_statistics(
                     "charging.active": True,
                     "charging.power": 6,
                     "battery.soc": 20,
-                    "teslamate.charge_energy_added": 1,
+                    "charging.energy_added": 1,
                 },
                 (49.1, 3.1, 0),
             ),
@@ -134,7 +166,7 @@ def test_segments_join_gaps_and_derive_drive_and_charge_statistics(
                     "charging.active": True,
                     "charging.power": 12,
                     "battery.soc": 25,
-                    "teslamate.charge_energy_added": 2,
+                    "charging.energy_added": 2,
                 },
                 (49.1, 3.1, 0),
             ),
@@ -145,7 +177,7 @@ def test_segments_join_gaps_and_derive_drive_and_charge_statistics(
                     "charging.active": True,
                     "charging.power": 6,
                     "battery.soc": 30,
-                    "teslamate.charge_energy_added": 3,
+                    "charging.energy_added": 3,
                 },
                 (49.1, 3.1, 0),
             ),
@@ -175,11 +207,11 @@ def test_segments_join_gaps_and_derive_drive_and_charge_statistics(
     assert charge["soc_end"] == 30
     assert charge["energy_kwh"] == 2
     assert charge["peak_power"] == 12
-    assert charge["avg_power"] == 9
+    assert charge["avg_power"] == pytest.approx(9)
     assert charge["position"] == {"latitude": 49.1, "longitude": 3.1}
-    assert integrated_charge["energy_kwh"] == 4 / 60
+    assert integrated_charge["energy_kwh"] == 3 / 60
     assert integrated_charge["peak_power"] == 5
-    assert integrated_charge["avg_power"] == 4
+    assert integrated_charge["avg_power"] == 3
 
 
 def test_drive_precedence_movement_fallback_and_exact_gap_boundary(
@@ -222,6 +254,7 @@ def test_segments_omit_missing_values_and_enforce_range_boundaries(
             (0, {"vehicle.in_use": True}, None),
             (60, {"vehicle.in_use": True}, None),
             (300, {"charging.active": True}, None),
+            (360, {"charging.active": True}, None),
         ],
     )
     result = _segments(client, vehicle["id"], base, base + timedelta(hours=1))
@@ -256,3 +289,133 @@ def test_segments_omit_missing_values_and_enforce_range_boundaries(
         ).status_code
         == 400
     )
+
+
+def test_sparse_charge_power_uses_zero_order_hold() -> None:
+    base = datetime.now(UTC)
+    rows = [
+        _row(base, 0, metrics={"charging.power": 11}),
+        _row(base, 600, metrics={"battery.soc": 55}),
+        _row(base, 1200, metrics={"battery.soc": 60}),
+        _row(base, 1800, metrics={"charging.power": 11}),
+    ]
+
+    assert _power_integral(rows) == (5.5, 11)
+
+
+def test_distance_falls_back_to_gps_with_only_one_odometer_sample() -> None:
+    base = datetime.now(UTC)
+    rows = [
+        _row(
+            base,
+            0,
+            metrics={"vehicle.odometer": 1000},
+            latitude=48.0,
+            longitude=2.0,
+        ),
+        _row(base, 60, latitude=48.1, longitude=2.0),
+        _row(base, 120, latitude=48.2, longitude=2.0),
+    ]
+
+    assert _distance_km(rows) == pytest.approx(22.239, rel=1e-3)
+
+
+def test_segments_require_minimum_duration_and_two_soc_samples() -> None:
+    base = datetime.now(UTC)
+    one_charge = [_row(base, 0, metrics={"charging.power": 7})]
+    assert _charge_segment(one_charge) is None
+
+    drive = _drive_segment(
+        [
+            _row(base, 0, metrics={"battery.soc": 80}),
+            _row(base, 60),
+        ],
+        50,
+    )
+    assert drive is not None
+    assert drive.soc_start is None
+    assert drive.soc_end is None
+    assert drive.energy_kwh is None
+
+
+def test_segments_order_equal_timestamps_by_sequence(
+    registered: tuple[TestClient, str],
+) -> None:
+    client, csrf = registered
+    vehicle, credential = _source(client, csrf)
+    base = datetime.now(UTC) - timedelta(hours=1)
+    response = client.post(
+        "/api/v1/agent/telemetry/batch",
+        headers={"Authorization": f"Agent {credential}"},
+        json={
+            "boot_id": str(uuid4()),
+            "samples": [
+                {
+                    "id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+                    "sequence": 0,
+                    "recorded_at": base.isoformat(),
+                    "metrics": {
+                        "charging.active": True,
+                        "charging.energy_added": 0,
+                        "battery.soc": 10,
+                    },
+                },
+                {
+                    "id": "00000000-0000-4000-8000-000000000000",
+                    "sequence": 1,
+                    "recorded_at": base.isoformat(),
+                    "metrics": {
+                        "charging.active": True,
+                        "charging.energy_added": 1,
+                        "battery.soc": 11,
+                    },
+                },
+                {
+                    "id": "11111111-1111-4111-8111-111111111111",
+                    "sequence": 2,
+                    "recorded_at": (base + timedelta(seconds=60)).isoformat(),
+                    "metrics": {
+                        "charging.active": True,
+                        "charging.energy_added": 2,
+                        "battery.soc": 12,
+                    },
+                },
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    charge = _segments(client, vehicle["id"], base, base + timedelta(seconds=61))["charges"][0]
+    assert charge["soc_start"] == 10
+    assert charge["energy_kwh"] == 2
+
+
+def test_segments_range_is_start_inclusive_and_end_exclusive(
+    registered: tuple[TestClient, str],
+) -> None:
+    client, csrf = registered
+    vehicle, credential = _source(client, csrf)
+    base = datetime.now(UTC) - timedelta(hours=1)
+    _upload(
+        client,
+        credential,
+        base,
+        [
+            (0, {"vehicle.in_use": True}, None),
+            (60, {"vehicle.in_use": True}, None),
+            (120, {"vehicle.in_use": True}, None),
+            (180, {"vehicle.in_use": True}, None),
+        ],
+    )
+
+    first = _segments(client, vehicle["id"], base, base + timedelta(seconds=120))["drives"]
+    second = _segments(
+        client,
+        vehicle["id"],
+        base + timedelta(seconds=120),
+        base + timedelta(seconds=181),
+    )["drives"]
+    assert len(first) == len(second) == 1
+    assert first[0]["duration_seconds"] == second[0]["duration_seconds"] == 60
+    assert datetime.fromisoformat(first[0]["end"]) == base + timedelta(seconds=60)
+    assert datetime.fromisoformat(second[0]["start"]) == base + timedelta(seconds=120)

@@ -1,43 +1,23 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import i18n from '../src/i18n'
 import { auth } from '../src/api/auth'
 import DataSourcesView from '../src/views/DataSourcesView.vue'
 import { metricDefinition, metricLabel } from '../src/vehicleDisplay'
-import { adminUser, agentImplementations, canProfile, connectorKinds, connectorRow, agentIdentity, jsonResponse, mappingProfile, memberUser, vehicle } from './helpers'
+import { adminUser, agentImplementations, agentRow, canProfile, connectorKinds, connectorRow, field, lastBody, mappingProfile, memberUser, mockApi, vehicle } from './helpers'
 
-const enrolledAgent = {
-  id: 'agent-1', vehicle_id: vehicle.id, name: 'Pi', credential_version: 1, ...agentIdentity,
-  hostname: 'pi', hardware: {}, sampling_seconds: 5, upload_seconds: 5, parked_sampling_seconds: 300,
-  parked_upload_seconds: 300, online: true, last_seen_at: null, last_config_sync_at: null,
-  config_version: 1, revoked_at: null, created_at: '2026-01-01T00:00:00Z',
-}
-
-function mockApi(options: { agents?: unknown[]; connectors?: unknown[]; vehicles?: unknown[] } = {}) {
-  const fetchMock = vi.fn().mockImplementation((url: string) => {
-    if (url.endsWith('/connector-kinds')) return Promise.resolve(jsonResponse(connectorKinds))
-    if (url.endsWith('/connectors')) return Promise.resolve(jsonResponse(options.connectors ?? []))
-    if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse(agentImplementations))
-    if (url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse([canProfile, mappingProfile]))
-    if (url.endsWith('/agents')) return Promise.resolve(jsonResponse(options.agents ?? []))
-    return Promise.resolve(jsonResponse(options.vehicles ?? [vehicle]))
+function api(options: { agents?: unknown[]; connectors?: unknown[]; vehicles?: unknown[] } = {}) {
+  return mockApi({
+    '/connector-kinds': connectorKinds,
+    '/connectors': options.connectors ?? [],
+    '/agent-implementations': agentImplementations,
+    '/vehicle-profiles': [canProfile, mappingProfile],
+    '/agents': options.agents ?? [],
+    default: options.vehicles ?? [vehicle],
   })
-  vi.stubGlobal('fetch', fetchMock)
-  return fetchMock
 }
 
-/** The form labels its inputs, so a test can name a field the way an operator sees it. */
-function field(wrapper: ReturnType<typeof mount>, label: string) {
-  const target = wrapper.findAll('.connector-form .field').find((item) => item.find('span').exists() && item.get('span').text() === label)
-  if (!target) throw new Error(`no data source field labelled "${label}"`)
-  return target.get('input')
-}
-
-function body(fetchMock: ReturnType<typeof vi.fn>, method: string, fragment: string): Record<string, unknown> {
-  const call = fetchMock.mock.calls.filter((entry) => entry[1]?.method === method && String(entry[0]).includes(fragment)).at(-1)
-  if (!call) throw new Error(`no ${method} to ${fragment}`)
-  return JSON.parse(call[1]?.body as string)
-}
+const connectorField = (wrapper: ReturnType<typeof mount>, label: string) => field(wrapper, '.connector-form', label).get('input')
 
 describe('external data connectors', () => {
   beforeEach(() => {
@@ -52,15 +32,17 @@ describe('external data connectors', () => {
       connectorRow({ id: 'c-error', name: 'Broken source', status: 'error', last_error: 'broker refused the credentials' }),
       connectorRow({ id: 'c-disabled', name: 'Paused source', status: 'disabled', enabled: false, last_message_at: null }),
     ]
-    mockApi({ connectors: rows })
+    api({ connectors: rows })
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs: { Teleport: true } } })
     await flushPromises()
 
-    const chips = wrapper.findAll('.connector-row .connector-status')
+    const chips = wrapper.findAll('.connector-row .status')
     expect(chips.map((chip) => chip.text())).toEqual(['Connected', 'Connecting', 'Error', 'Disabled'])
-    expect(chips[0]!.classes()).toContain('connected')
-    expect(chips[2]!.classes()).toContain('error')
-    expect(chips[3]!.classes()).toContain('disabled')
+    // The chip carries the shared tone, not a per-status class of its own.
+    expect(chips[0]!.classes()).toContain('online')
+    expect(chips[1]!.classes()).toContain('warning')
+    expect(chips[2]!.classes()).toContain('failed')
+    expect(chips[3]!.classes()).toEqual(['status'])
 
     const connected = wrapper.findAll('.connector-row')[0]!
     expect(connected.text()).toContain('TeslaMate (MQTT)')
@@ -77,7 +59,7 @@ describe('external data connectors', () => {
   })
 
   it('creates a data source with exactly the fields the catalog contract defines', async () => {
-    const fetchMock = mockApi()
+    const fetchMock = api()
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs: { Teleport: true } } })
     await flushPromises()
 
@@ -87,18 +69,18 @@ describe('external data connectors', () => {
     expect(wrapper.get('.connector-form').text()).toContain('Mosquitto')
     expect(wrapper.get('.connector-form').text()).toContain('teslamate.')
 
-    await field(wrapper, 'Name').setValue('Garage broker')
-    await field(wrapper, 'Host').setValue('mqtt.local')
-    await field(wrapper, 'Port').setValue('8883')
+    await connectorField(wrapper, 'Name').setValue('Garage broker')
+    await connectorField(wrapper, 'Host').setValue('mqtt.local')
+    await connectorField(wrapper, 'Port').setValue('8883')
     // The certificate escape hatch only exists once TLS is on.
     expect(wrapper.findAll('.connector-form input[type="checkbox"]')).toHaveLength(1)
     await wrapper.findAll('.connector-form input[type="checkbox"]')[0]!.setValue(true)
     await wrapper.findAll('.connector-form input[type="checkbox"]')[1]!.setValue(true)
-    await field(wrapper, 'Username').setValue('carhibou')
-    await field(wrapper, 'Password').setValue('hunter2')
-    await field(wrapper, 'Namespace (optional)').setValue('garage')
-    await field(wrapper, 'Car id').setValue('2')
-    await field(wrapper, 'Sample interval (seconds)').setValue('30')
+    await connectorField(wrapper, 'Username').setValue('carhibou')
+    await connectorField(wrapper, 'Password').setValue('hunter2')
+    await connectorField(wrapper, 'Namespace (optional)').setValue('garage')
+    await connectorField(wrapper, 'Car id').setValue('2')
+    await connectorField(wrapper, 'Sample interval (seconds)').setValue('30')
     await wrapper.get('.connector-form').trigger('submit')
     await flushPromises()
 
@@ -118,51 +100,51 @@ describe('external data connectors', () => {
   })
 
   it('carries the sample interval bounds the runtime enforces', async () => {
-    mockApi()
+    api()
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs: { Teleport: true } } })
     await flushPromises()
     await wrapper.get('.header-actions .button.secondary').trigger('click')
 
-    const interval = field(wrapper, 'Sample interval (seconds)')
+    const interval = connectorField(wrapper, 'Sample interval (seconds)')
     expect(interval.attributes('min')).toBe('1')
     expect(interval.attributes('max')).toBe('3600')
     expect((interval.element as HTMLInputElement).value).toBe('10')
-    expect((field(wrapper, 'Port').element as HTMLInputElement).value).toBe('1883')
-    expect((field(wrapper, 'Car id').element as HTMLInputElement).value).toBe('1')
+    expect((connectorField(wrapper, 'Port').element as HTMLInputElement).value).toBe('1883')
+    expect((connectorField(wrapper, 'Car id').element as HTMLInputElement).value).toBe('1')
   })
 
   it('treats the password as write-only when editing an existing data source', async () => {
-    const fetchMock = mockApi({ connectors: [connectorRow()] })
+    const fetchMock = api({ connectors: [connectorRow()] })
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs: { Teleport: true } } })
     await flushPromises()
 
     await wrapper.get('.connector-row .source-actions .button').trigger('click')
-    const password = field(wrapper, 'Password')
+    const password = connectorField(wrapper, 'Password')
     // Nothing stored is echoed back: the field is empty and the marker is a hint.
     expect((password.element as HTMLInputElement).value).toBe('')
     expect(password.attributes('placeholder')).toBe('••••••••')
     expect(wrapper.get('.connector-form').text()).toContain('never shown')
-    expect((field(wrapper, 'Host').element as HTMLInputElement).value).toBe('mqtt.local')
+    expect((connectorField(wrapper, 'Host').element as HTMLInputElement).value).toBe('mqtt.local')
 
     await wrapper.get('.connector-form').trigger('submit')
     await flushPromises()
-    const kept = body(fetchMock, 'PUT', '/connectors/connector-1')
+    const kept = lastBody(fetchMock, 'PUT', '/connectors/connector-1')
     expect(kept).not.toHaveProperty('password')
     expect(kept).toEqual({ name: 'Garage broker', enabled: true, mapping_profile: 'teslamate-mqtt-v1', config: connectorRow().config })
 
     await wrapper.get('.connector-row .source-actions .button').trigger('click')
-    await field(wrapper, 'Password').setValue('replacement')
+    await connectorField(wrapper, 'Password').setValue('replacement')
     await wrapper.get('.connector-form').trigger('submit')
     await flushPromises()
-    expect(body(fetchMock, 'PUT', '/connectors/connector-1').password).toBe('replacement')
+    expect(lastBody(fetchMock, 'PUT', '/connectors/connector-1').password).toBe('replacement')
   })
 
   it('never sends the certificate escape hatch without the TLS it depends on', async () => {
-    const fetchMock = mockApi()
+    const fetchMock = api()
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs: { Teleport: true } } })
     await flushPromises()
     await wrapper.get('.header-actions .button.secondary').trigger('click')
-    await field(wrapper, 'Host').setValue('mqtt.local')
+    await connectorField(wrapper, 'Host').setValue('mqtt.local')
 
     await wrapper.findAll('.connector-form input[type="checkbox"]')[0]!.setValue(true)
     await wrapper.findAll('.connector-form input[type="checkbox"]')[1]!.setValue(true)
@@ -172,29 +154,29 @@ describe('external data connectors', () => {
     await wrapper.get('.connector-form').trigger('submit')
     await flushPromises()
 
-    const config = body(fetchMock, 'POST', '/connectors').config as Record<string, unknown>
+    const config = lastBody(fetchMock, 'POST', '/connectors').config as Record<string, unknown>
     expect(config.tls).toBe(false)
     expect(config.tls_accept_invalid_certs).toBe(false)
   })
 
   it('disables a data source without disturbing its configuration', async () => {
-    const fetchMock = mockApi({ connectors: [connectorRow()] })
+    const fetchMock = api({ connectors: [connectorRow()] })
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs: { Teleport: true } } })
     await flushPromises()
 
     await wrapper.findAll('.connector-row .source-actions .button')[1]!.trigger('click')
     await flushPromises()
-    expect(body(fetchMock, 'PUT', '/connectors/connector-1')).toEqual({
+    expect(lastBody(fetchMock, 'PUT', '/connectors/connector-1')).toEqual({
       name: 'Garage broker', enabled: false, mapping_profile: 'teslamate-mqtt-v1', config: connectorRow().config,
     })
   })
 
   it('keeps connector-backed shadow agents out of the agents list', async () => {
     const shadow = {
-      ...enrolledAgent, id: 'agent-shadow', name: 'Garage broker shadow',
+      ...agentRow(), id: 'agent-shadow', name: 'Garage broker shadow',
       implementation_id: 'connector.teslamate.mqtt',
     }
-    mockApi({ agents: [enrolledAgent, shadow], connectors: [connectorRow()] })
+    api({ agents: [agentRow(), shadow], connectors: [connectorRow()] })
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs: { Teleport: true } } })
     await flushPromises()
 
@@ -210,7 +192,7 @@ describe('external data connectors', () => {
   it('hides data source management from a viewer', async () => {
     auth.user = { ...memberUser }
     const viewed = { ...vehicle, access: 'view' as const }
-    mockApi({ connectors: [connectorRow()], vehicles: [viewed] })
+    api({ connectors: [connectorRow()], vehicles: [viewed] })
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs: { Teleport: true } } })
     await flushPromises()
 

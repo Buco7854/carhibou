@@ -23,6 +23,9 @@ rules:
   - match: charger_power
     target: charging.power
     transform: {scale: 1, offset: 0}
+  - match: charge_energy_added
+    target: charging.energy_added
+    transform: {scale: 1, offset: 0}
   - match: est_battery_range_km
     target: vehicle.range
     transform: {scale: 1, offset: 0}

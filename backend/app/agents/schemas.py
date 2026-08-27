@@ -3,6 +3,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.app.agents.constants import (
+    MAXIMUM_CADENCE_SECONDS,
+    MINIMUM_CADENCE_SECONDS,
+    STANDARD_CADENCE,
+)
+
 # One second is the fastest an agent is asked to work and a day is the slowest
 # still worth calling telemetry. The agent enforces the same range, so a value
 # outside it is rejected here rather than by an agent that then keeps its old
@@ -12,10 +18,26 @@ from pydantic import BaseModel, ConfigDict, Field
 # it samples. A sample held back in the queue is a reading nobody can see, and
 # the point of the data is to watch it change, so resolution rather than
 # freshness is what a smaller data plan gives up.
-SAMPLING_SECONDS = Field(default=5, ge=1, le=86400)
-UPLOAD_SECONDS = Field(default=5, ge=1, le=86400)
-PARKED_SAMPLING_SECONDS = Field(default=300, ge=1, le=86400)
-PARKED_UPLOAD_SECONDS = Field(default=300, ge=1, le=86400)
+SAMPLING_SECONDS = Field(
+    default=STANDARD_CADENCE.sampling_seconds,
+    ge=MINIMUM_CADENCE_SECONDS,
+    le=MAXIMUM_CADENCE_SECONDS,
+)
+UPLOAD_SECONDS = Field(
+    default=STANDARD_CADENCE.upload_seconds,
+    ge=MINIMUM_CADENCE_SECONDS,
+    le=MAXIMUM_CADENCE_SECONDS,
+)
+PARKED_SAMPLING_SECONDS = Field(
+    default=STANDARD_CADENCE.parked_sampling_seconds,
+    ge=MINIMUM_CADENCE_SECONDS,
+    le=MAXIMUM_CADENCE_SECONDS,
+)
+PARKED_UPLOAD_SECONDS = Field(
+    default=STANDARD_CADENCE.parked_upload_seconds,
+    ge=MINIMUM_CADENCE_SECONDS,
+    le=MAXIMUM_CADENCE_SECONDS,
+)
 
 
 class EnrollmentCreate(BaseModel):

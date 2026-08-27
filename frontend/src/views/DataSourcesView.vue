@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from '../api/client'
+import { api, errorMessage } from '../api/client'
 import type { Vehicle, VehicleProfile } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import CadenceFields from '../components/CadenceFields.vue'
 import { CADENCE_PRESETS, type Cadence } from '../agentCadence'
 import { canOperate, isAdmin, operableVehicles } from '../access'
+import { formatInstantOrNever, statusTone } from '../vehicleDisplay'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 
@@ -102,7 +103,7 @@ function canOperateConnector(connector:Connector):boolean {
   return canOperate(vehicles.value.find((item) => item.id === connector.vehicle_id))
 }
 function moment(value:string|null):string {
-  return value ? new Date(value).toLocaleString() : t('common.never')
+  return formatInstantOrNever(value, t('common.never'))
 }
 // A manifest may leave a step's text empty when the payload speaks for itself,
 // so every kind still needs a sentence a reader can act on.
@@ -134,7 +135,7 @@ async function load() {
       selectedImplementation.value = catalog.find((item) => item.id === BUNDLED_IMPLEMENTATION)?.id ?? catalog[0]?.id ?? ''
     }
   }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
+  catch (reason) { error.value = errorMessage(reason, t('common.error')) }
 }
 function openEnrollment() {
   enrollment.value = null
@@ -157,7 +158,7 @@ async function createEnrollment() {
   try {
     enrollment.value = await api<Enrollment>(`/vehicles/${selectedVehicle.value}/enrollments`, { method:'POST', body:JSON.stringify({ implementation_id:selectedImplementation.value, name:agentName.value, vehicle_profile:enrollmentProfile.value, ...enrollmentCadence.value }) })
     mintedFor.value = chosenImplementation.value ?? null
-  } catch (reason) { enrollmentError.value = reason instanceof Error ? reason.message : t('common.error') }
+  } catch (reason) { enrollmentError.value = errorMessage(reason, t('common.error')) }
   finally { creating.value = false }
 }
 function openSettings(agent:Agent) {
@@ -180,7 +181,7 @@ async function saveSettings() {
     await api(`/agents/${editing.value.id}`, { method:'PUT', body:JSON.stringify({ name:draftName.value, vehicle_profile:draftProfile.value, ...draftCadence.value }) })
     editing.value = null
     await load()
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
+  } catch (reason) { error.value = errorMessage(reason, t('common.error')) }
   finally { saving.value = false }
 }
 async function copy(key:string, value:string) {
@@ -189,9 +190,9 @@ async function copy(key:string, value:string) {
   copiedKey.value = key
   window.setTimeout(() => { if (copiedKey.value === key) copiedKey.value = '' }, 1500)
 }
-async function revoke(id:string) { if (!confirm(t('agents.revokeConfirm'))) return; await api(`/agents/${id}/revoke`, { method:'POST' }); await load() }
+async function revoke(id:string) { if (!window.confirm(t('agents.revokeConfirm'))) return; await api(`/agents/${id}/revoke`, { method:'POST' }); await load() }
 async function remove(agent:Agent) {
-  if (!confirm(t('agents.deleteConfirm', { name: agent.name }))) return
+  if (!window.confirm(t('agents.deleteConfirm', { name: agent.name }))) return
   await api(`/agents/${agent.id}`, { method:'DELETE' })
   await load()
 }
@@ -235,7 +236,7 @@ async function saveConnector() {
     else await api(`/vehicles/${connectorVehicle.value}/connectors`, { method:'POST', body:JSON.stringify({ kind:connectorKind.value, ...connectorPayload() }) })
     connectorOpen.value = false
     await load()
-  } catch (reason) { connectorError.value = reason instanceof Error ? reason.message : t('common.error') }
+  } catch (reason) { connectorError.value = errorMessage(reason, t('common.error')) }
   finally { connectorSaving.value = false }
 }
 // Enabling is a config write like any other, so it travels as the same full body
@@ -245,7 +246,7 @@ async function setConnectorEnabled(connector:Connector, enabled:boolean) {
   await load()
 }
 async function removeConnector(connector:Connector) {
-  if (!confirm(t('connectors.deleteConfirm', { name: connector.name }))) return
+  if (!window.confirm(t('connectors.deleteConfirm', { name: connector.name }))) return
   await api(`/connectors/${connector.id}`, { method:'DELETE' })
   await load()
 }
@@ -305,7 +306,7 @@ onMounted(load)
               <p v-else-if="step.kind==='link'" class="step-link"><a :href="step.url" target="_blank" rel="noreferrer">{{ stepText(step) }}</a></p>
             </li>
           </ol>
-          <p class="field-hint">{{ t('agents.tokenExpires',{time:new Date(enrollment.expires_at).toLocaleString()}) }}</p>
+          <p class="field-hint">{{ t('agents.tokenExpires',{time:moment(enrollment.expires_at)}) }}</p>
           <span v-if="copiedKey" class="copy-feedback" role="status">{{ t('agents.copied') }}</span>
           <button class="button ghost" type="button" @click="enrolling=false">{{ t('common.close') }}</button>
         </div>
@@ -382,7 +383,7 @@ onMounted(load)
           </div>
           <!-- A data source reports its own session state; it has no agent to be
                online, so the connector status is the only health signal here. -->
-          <span :class="['status','connector-status',connector.status]">{{ t(`connectors.status.${connector.status}`) }}</span>
+          <span :class="['status', statusTone(connector.status)]">{{ t(`connectors.status.${connector.status}`) }}</span>
           <dl class="source-facts">
             <div><dt>{{ t('connectors.kind') }}</dt><dd :title="connector.kind">{{ connectorKindName(connector.kind) }}</dd></div>
             <div><dt>{{ t('connectors.broker') }}</dt><dd class="mono" :title="`${connector.config.host}:${connector.config.port}`">{{ connector.config.host }}:{{ connector.config.port }}</dd></div>
@@ -498,12 +499,6 @@ onMounted(load)
 .compat{display:inline-flex;padding:1px 6px;color:var(--muted);background:var(--panel-2);border-radius:var(--radius-sm);font-size:var(--font-micro);line-height:1.5}
 .compat.incompatible{color:var(--danger);background:var(--danger-soft)}
 .data-sources{margin-top:26px}
-.connector-status.connected{color:var(--success);background:var(--success-soft)}
-.connector-status.connected::before{background:var(--success)}
-.connector-status.connecting{color:var(--warning);background:var(--warning-soft)}
-.connector-status.connecting::before{background:var(--warning)}
-.connector-status.error{color:var(--danger);background:var(--danger-soft)}
-.connector-status.error::before{background:var(--danger)}
 .connector-error{grid-column:1/-1;margin:0;padding:9px 11px;color:var(--danger);background:var(--danger-soft);border-radius:var(--radius);font-size:var(--font-caption);overflow-wrap:anywhere}
 .connector-form .check{display:flex;align-items:center;gap:8px;font-size:var(--font-body);cursor:pointer}
 .connector-form .nested{margin-left:22px}

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from '../api/client'
+import { api, errorMessage } from '../api/client'
 import { auth } from '../api/auth'
 import { isAdmin } from '../access'
 import type { DefaultAccess, DefaultAccessGrant, Diagnostics, UserAccount, Vehicle, VehicleGrant } from '../api/types'
@@ -40,7 +40,7 @@ const grantCandidates = computed(() =>
 async function loadPeople(): Promise<void> {
   if (!isAdmin.value) return
   try { people.value = await api<UserAccount[]>('/users') }
-  catch (reason) { peopleError.value = reason instanceof Error ? reason.message : t('common.error') }
+  catch (reason) { peopleError.value = errorMessage(reason, t('common.error')) }
 }
 
 async function createPerson(): Promise<void> {
@@ -51,7 +51,7 @@ async function createPerson(): Promise<void> {
     creating.value = false
     person.value = emptyPerson()
     await loadPeople()
-  } catch (reason) { peopleError.value = reason instanceof Error ? reason.message : t('common.error') }
+  } catch (reason) { peopleError.value = errorMessage(reason, t('common.error')) }
   finally { saving.value = false }
 }
 
@@ -60,16 +60,16 @@ async function updatePerson(account: UserAccount, changes: Record<string, unknow
   try {
     await api(`/users/${account.id}`, { method: 'PATCH', body: JSON.stringify(changes) })
     await loadPeople()
-  } catch (reason) { peopleError.value = reason instanceof Error ? reason.message : t('common.error') }
+  } catch (reason) { peopleError.value = errorMessage(reason, t('common.error')) }
 }
 
 async function removePerson(account: UserAccount): Promise<void> {
-  if (!confirm(t('settings.deleteUserConfirm', { name: account.display_name }))) return
+  if (!window.confirm(t('settings.deleteUserConfirm', { name: account.display_name }))) return
   peopleError.value = ''
   try {
     await api(`/users/${account.id}`, { method: 'DELETE' })
     await loadPeople()
-  } catch (reason) { peopleError.value = reason instanceof Error ? reason.message : t('common.error') }
+  } catch (reason) { peopleError.value = errorMessage(reason, t('common.error')) }
 }
 
 async function loadGrants(): Promise<void> {
@@ -77,7 +77,7 @@ async function loadGrants(): Promise<void> {
   grantsError.value = ''
   if (!accessVehicleId.value) { grants.value = []; return }
   try { grants.value = await api<VehicleGrant[]>(`/vehicles/${accessVehicleId.value}/access`) }
-  catch (reason) { grantsError.value = reason instanceof Error ? reason.message : t('common.error') }
+  catch (reason) { grantsError.value = errorMessage(reason, t('common.error')) }
 }
 watch(accessVehicleId, loadGrants)
 
@@ -108,7 +108,7 @@ async function saveGrants(): Promise<void> {
       body: JSON.stringify(grants.value.map(({ user_id, level }) => ({ user_id, level }))),
     })
     grantsSaved.value = true
-  } catch (reason) { grantsError.value = reason instanceof Error ? reason.message : t('common.error') }
+  } catch (reason) { grantsError.value = errorMessage(reason, t('common.error')) }
   finally { grantsSaving.value = false }
 }
 
@@ -141,7 +141,7 @@ async function saveDefaults(): Promise<void> {
       body: JSON.stringify(defaults.value),
     })
     defaultsSaved.value = true
-  } catch (reason) { defaultsError.value = reason instanceof Error ? reason.message : t('common.error') }
+  } catch (reason) { defaultsError.value = errorMessage(reason, t('common.error')) }
   finally { defaultsSaving.value = false }
 }
 
@@ -151,14 +151,14 @@ async function saveDefaults(): Promise<void> {
  * after a period of testing rather than a way to start over.
  */
 async function clearAllTelemetry(): Promise<void> {
-  if (!confirm(t('settings.clearAllConfirm'))) return
+  if (!window.confirm(t('settings.clearAllConfirm'))) return
   clearing.value = true
   dataMessage.value = ''
   dataError.value = ''
   try {
     await api('/vehicles/telemetry', { method: 'DELETE' })
     dataMessage.value = t('settings.clearAllDone')
-  } catch (reason) { dataError.value = reason instanceof Error ? reason.message : t('common.error') }
+  } catch (reason) { dataError.value = errorMessage(reason, t('common.error')) }
   finally { clearing.value = false }
 }
 
@@ -169,7 +169,7 @@ onMounted(async () => {
       vehicles.value = await api<Vehicle[]>('/vehicles')
       accessVehicleId.value = vehicles.value[0]?.id ?? null
       defaults.value = await api<DefaultAccess>('/admin/default-access')
-    } catch (reason) { defaultsError.value = reason instanceof Error ? reason.message : t('common.error') }
+    } catch (reason) { defaultsError.value = errorMessage(reason, t('common.error')) }
   }
   try { diagnostics.value = await api<Diagnostics>('/system/diagnostics') } catch { /* shown by its absence */ }
 })

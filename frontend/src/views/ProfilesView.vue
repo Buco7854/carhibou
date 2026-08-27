@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from '../api/client'
+import { api, errorMessage } from '../api/client'
 import type { ProfileType, VehicleProfile } from '../api/types'
 import { canCreateProfiles } from '../access'
 import AppIcon from '../components/AppIcon.vue'
@@ -20,6 +20,15 @@ const customProfiles = computed(() => profiles.value.filter((profile) => !profil
 const builtInProfiles = computed(() => profiles.value.filter((profile) => profile.built_in))
 
 async function load(): Promise<void> {
+  error.value = ''
+  try {
+    await fetchProfiles()
+  } catch (reason) {
+    error.value = errorMessage(reason, t('common.error'))
+  }
+}
+
+async function fetchProfiles(): Promise<void> {
   const [loadedProfiles, agents, connectors] = await Promise.all([
     api<VehicleProfile[]>('/vehicle-profiles'),
     api<Array<{ vehicle_profile: string | null }>>('/agents').catch(() => []),
@@ -74,7 +83,7 @@ async function remove(profile: VehicleProfile): Promise<void> {
     await api(`/vehicle-profiles/${profile.id}`, { method: 'DELETE' })
     await load()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : t('common.error')
+    error.value = errorMessage(reason, t('common.error'))
   }
 }
 

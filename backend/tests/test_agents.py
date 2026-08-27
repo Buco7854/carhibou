@@ -3,6 +3,28 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from backend.app.agents.constants import STANDARD_CADENCE
+from backend.app.agents.models import Agent, AgentEnrollmentToken
+from backend.app.agents.schemas import AgentSettings, EnrollmentCreate
+
+
+def test_standard_cadence_defaults_match_schemas_and_database() -> None:
+    expected = {
+        "sampling_seconds": STANDARD_CADENCE.sampling_seconds,
+        "upload_seconds": STANDARD_CADENCE.upload_seconds,
+        "parked_sampling_seconds": STANDARD_CADENCE.parked_sampling_seconds,
+        "parked_upload_seconds": STANDARD_CADENCE.parked_upload_seconds,
+    }
+    enrollment = EnrollmentCreate(implementation_id="custom")
+    settings = AgentSettings(name="Agent")
+    for name, value in expected.items():
+        assert getattr(enrollment, name) == value
+        assert getattr(settings, name) == value
+        for model in (Agent, AgentEnrollmentToken):
+            column = model.__table__.columns[name]
+            assert column.default and column.default.arg == value
+            assert column.server_default and str(column.server_default.arg) == str(value)
+
 
 def test_agent_cadence_is_chosen_at_enrollment_and_editable_afterwards(
     registered: tuple[TestClient, str],

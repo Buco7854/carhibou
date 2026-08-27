@@ -1,24 +1,17 @@
 import json
-import math
-import re
 from dataclasses import dataclass, field
 
-from backend.app.telemetry.schemas import MetricValue
+from backend.app.telemetry.values import (
+    POSITION_RANGES,
+    MetricValue,
+    coerce_metric_value,
+    coerce_number,
+)
 from backend.app.vehicle_profiles.schemas import (
     PROFILE_DEFINITION_ADAPTER,
     MappingProfileDefinition,
     MappingRule,
 )
-
-NUMBER = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
-POSITION_RANGES = {
-    "latitude": (-90.0, 90.0),
-    "longitude": (-180.0, 180.0),
-    "altitude": (-500.0, 15000.0),
-    "speed": (0.0, 1000.0),
-    "heading": (0.0, 360.0),
-    "accuracy": (0.0, math.inf),
-}
 
 
 @dataclass
@@ -26,36 +19,6 @@ class MappedValue:
     metrics: dict[str, MetricValue] = field(default_factory=dict)
     position: dict[str, float] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
-
-
-def coerce_value(value: object) -> MetricValue:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        number = float(value)
-        return number if math.isfinite(number) else None
-    if not isinstance(value, str):
-        return None
-    cleaned = value.strip()
-    if not cleaned or cleaned.lower() == "nil":
-        return None
-    if cleaned.lower() == "true":
-        return True
-    if cleaned.lower() == "false":
-        return False
-    if NUMBER.fullmatch(cleaned):
-        number = float(cleaned)
-        return number if math.isfinite(number) else None
-    return cleaned
-
-
-def _number(value: object) -> float | None:
-    coerced = coerce_value(value)
-    if isinstance(coerced, bool) or not isinstance(coerced, float):
-        return None
-    return coerced
 
 
 def _json_object(value: str) -> dict[str, object] | None:
@@ -127,7 +90,7 @@ class MappingEngine:
             self._store(result, rule, value.lower() in {"1", "true", "yes", "on"})
             return
         if transform and (transform.scale is not None or transform.offset is not None):
-            number = _number(value)
+            number = coerce_number(value)
             if number is None:
                 result.errors.append(f"{rule.match}: expected a number")
                 return
@@ -138,7 +101,7 @@ class MappingEngine:
         self._store(
             result,
             rule,
-            value if rule.target == "vehicle.state" else coerce_value(value),
+            value if rule.target == "vehicle.state" else coerce_metric_value(value),
         )
 
     def _store(self, result: MappedValue, rule: MappingRule, value: MetricValue) -> None:
@@ -146,13 +109,9 @@ class MappingEngine:
             return
         if rule.target.startswith("position."):
             name = rule.target.removeprefix("position.")
-            number = _number(value)
+            number = coerce_number(value)
             bounds = POSITION_RANGES[name]
-            if (
-                number is None
-                or not bounds[0] <= number <= bounds[1]
-                or (name == "heading" and number == bounds[1])
-            ):
+            if number is None or not bounds.contains(number):
                 result.errors.append(f"{rule.match}: position value is invalid")
                 return
             result.position[name] = number
@@ -166,12 +125,8 @@ class MappingEngine:
             if name not in values:
                 continue
             found = True
-            number = _number(values[name])
-            if (
-                number is None
-                or not bounds[0] <= number <= bounds[1]
-                or (name == "heading" and number == bounds[1])
-            ):
+            number = coerce_number(values[name])
+            if number is None or not bounds.contains(number):
                 result.errors.append(f"{source}: position field {name} is invalid")
                 continue
             position[name] = number
@@ -189,7 +144,7 @@ class MappingEngine:
             metric_key = f"{prefix}.{key}"
             if not isinstance(key, str) or not _valid_metric_key(metric_key):
                 continue
-            coerced = coerce_value(raw)
+            coerced = coerce_metric_value(raw)
             if coerced is not None:
                 result.metrics[metric_key] = coerced
 
@@ -205,6 +160,6 @@ class MappingEngine:
         if not _valid_metric_key(prefix):
             result.errors.append(f"{key}: mapped key is too long")
             return
-        coerced = coerce_value(value)
+        coerced = coerce_metric_value(value)
         if coerced is not None:
             result.metrics[prefix] = coerced

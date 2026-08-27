@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from '../api/client'
+import { api, errorMessage } from '../api/client'
 import type { ProfileDataType, VehicleProfile } from '../api/types'
 import AppIcon from './AppIcon.vue'
 import AppModal from './AppModal.vue'
@@ -126,7 +126,7 @@ async function save(): Promise<void> {
     emit('saved')
     emit('close')
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : t('common.error')
+    error.value = errorMessage(reason, t('common.error'))
   } finally {
     saving.value = false
   }

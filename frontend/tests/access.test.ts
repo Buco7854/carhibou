@@ -7,7 +7,7 @@ import AdminView from '../src/views/AdminView.vue'
 import DataSourcesView from '../src/views/DataSourcesView.vue'
 import ProfilesView from '../src/views/ProfilesView.vue'
 import VehiclesView from '../src/views/VehiclesView.vue'
-import { adminUser, agentImplementations, connectorKinds, agentIdentity, jsonResponse, memberUser, vehicle } from './helpers'
+import { adminUser, agentImplementations, agentRow, connectorKinds, jsonResponse, memberUser, vehicle } from './helpers'
 
 const stubs = { Teleport: true, RouterLink: { template: '<a><slot /></a>' } }
 
@@ -53,7 +53,7 @@ describe('permission-gated controls', () => {
   it('hides enrollment and agent actions from a viewer', async () => {
     auth.user = { ...memberUser }
     const viewed = { ...vehicle, access: 'view' as const }
-    const agent = { id: 'd1', vehicle_id: viewed.id, name: 'Pi Zero', credential_version: 1, ...agentIdentity, hostname: 'car', hardware: {}, sampling_seconds: 5, upload_seconds: 5, parked_sampling_seconds: 300, parked_upload_seconds: 300, online: true, last_seen_at: null, last_config_sync_at: null, config_version: 1, revoked_at: null, created_at: '2026-01-01T00:00:00Z' }
+    const agent = agentRow({ id: 'd1', vehicle_id: viewed.id, name: 'Pi Zero', hostname: 'car' })
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) =>
       Promise.resolve(jsonResponse(url.endsWith('/agent-implementations') ? agentImplementations : url.endsWith('/connector-kinds') ? connectorKinds : url.endsWith('/connectors') ? [] : url.endsWith('/agents') ? [agent] : url.endsWith('/vehicle-profiles') ? [profile] : [viewed]))))
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs } })

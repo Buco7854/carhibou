@@ -283,6 +283,22 @@ export function formatMetricNumber(value: number, definition: MetricDefinition):
   return definition.decimals === 0 ? String(Math.round(value)) : value.toFixed(definition.decimals)
 }
 
+export function formatInstant(value: string | null | undefined): string {
+  return value ? new Date(value).toLocaleString() : ''
+}
+
+export function formatInstantOrNever(value: string | null | undefined, never: string): string {
+  return value ? new Date(value).toLocaleString() : never
+}
+
+/** Maps any state word onto the three tones the .status chip knows. */
+export function statusTone(state: string | null | undefined): 'online' | 'warning' | 'failed' | '' {
+  if (state === 'online' || state === 'connected' || state === 'active' || state === 'success' || state === 'driving' || state === 'charging') return 'online'
+  if (state === 'connecting' || state === 'warning' || state === 'stale') return 'warning'
+  if (state === 'error' || state === 'failed' || state === 'incompatible') return 'failed'
+  return ''
+}
+
 export function metricLabel(definition: MetricDefinition, translate: (key: string) => string): string {
   return definition.labelKey ? translate(definition.labelKey) : definition.key
 }

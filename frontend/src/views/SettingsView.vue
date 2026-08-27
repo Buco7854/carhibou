@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatInstant } from '../vehicleDisplay'
 import { useRouter } from 'vue-router'
-import { api } from '../api/client'
+import { api, errorMessage } from '../api/client'
 import { auth, logout } from '../api/auth'
 import type { BrowserSession } from '../api/types'
 import AppSelect from '../components/AppSelect.vue'
@@ -34,7 +35,7 @@ async function changePassword(): Promise<void> {
     await api('/auth/password', { method:'POST', body:JSON.stringify({ current_password:currentPassword.value, new_password:newPassword.value }) })
     currentPassword.value = ''; newPassword.value = ''; accountMessage.value = t('settings.passwordChanged')
     sessions.value = await api<BrowserSession[]>('/auth/sessions')
-  } catch (reason) { accountError.value = reason instanceof Error ? reason.message : t('common.error') }
+  } catch (reason) { accountError.value = errorMessage(reason, t('common.error')) }
 }
 
 async function revokeSession(id: string): Promise<void> {
@@ -93,7 +94,7 @@ onMounted(async () => {
       <div class="settings-body">
         <ul class="session-list">
           <li v-for="session in sessions" :key="session.id">
-            <div><strong>{{ session.current ? t('settings.currentSession') : (session.user_agent || t('settings.unknownClient')) }}</strong><small>{{ session.ip_address || '—' }} · {{ new Date(session.last_seen_at).toLocaleString() }}</small></div>
+            <div><strong>{{ session.current ? t('settings.currentSession') : (session.user_agent || t('settings.unknownClient')) }}</strong><small>{{ session.ip_address || '—' }} · {{ formatInstant(session.last_seen_at) }}</small></div>
             <button v-if="!session.current" class="link-button" @click="revokeSession(session.id)">{{ t('settings.revokeSession') }}</button>
           </li>
         </ul>

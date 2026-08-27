@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from '../api/client'
+import { loadHistory, rangeStart } from '../api/segments'
 import type { DashboardWidget, History } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
@@ -18,16 +18,15 @@ const definition = computed(() => metricDefinition(metric.value))
 const series = computed(() => [{name:props.widget.title||metricLabel(definition.value,t),unit:props.widget.unit??definition.value.unit,data:(history.value?.points??[]).flatMap((point) => {const value=metric.value==='vehicle.speed'?point.speed:point.metrics[metric.value];return typeof value==='number'?[[point.recorded_at,value] as [string,number]]:[]})}])
 const hasData = computed(() => series.value.some((row) => row.data.length > 0))
 
-async function loadHistory(): Promise<void> {
+async function loadSeries(): Promise<void> {
   const current=++request
   history.value=null
   const id=vehicle.value?.id
   if(!id)return
-  const start=new Date(Date.now()-(props.widget.time_range_days??1)*86_400_000)
-  const result=await api<History>(`/vehicles/${id}/history?start=${encodeURIComponent(start.toISOString())}&max_points=300`)
+  const result=await loadHistory(id, { start: rangeStart(props.widget.time_range_days ?? 1) })
   if(current===request)history.value=result
 }
-watch([() => vehicle.value?.id, () => props.widget.time_range_days], loadHistory, { immediate:true })
+watch([() => vehicle.value?.id, () => props.widget.time_range_days], loadSeries, { immediate:true })
 </script>
 <template>
   <article class="widget-card history-widget">

@@ -1,33 +1,24 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import i18n from '../src/i18n'
 import { auth } from '../src/api/auth'
 import AppSelect from '../src/components/AppSelect.vue'
 import DataSourcesView from '../src/views/DataSourcesView.vue'
 import ProfilesView from '../src/views/ProfilesView.vue'
-import { adminUser, agentIdentity, agentImplementations, canProfile, connectorKinds, connectorRow, jsonResponse, mappingProfile, vehicle } from './helpers'
+import { adminUser, agentImplementations, agentRow, canProfile, connectorKinds, connectorRow, field, lastBody, mappingProfile, mockApi, vehicle } from './helpers'
 
 const stubs = { Teleport: true }
 
-const agentRow = {
-  id: 'agent-1', vehicle_id: vehicle.id, name: 'Pi', credential_version: 1, ...agentIdentity,
-  hostname: 'pi', hardware: {}, sampling_seconds: 5, upload_seconds: 5, parked_sampling_seconds: 300,
-  parked_upload_seconds: 300, online: true, last_seen_at: null, last_config_sync_at: null,
-  config_version: 1, revoked_at: null, created_at: '2026-01-01T00:00:00Z',
-}
-
-function mockApi(options: { agents?: unknown[]; profiles?: unknown[]; connectors?: unknown[] } = {}) {
-  const fetchMock = vi.fn().mockImplementation((url: string) => {
-    if (url.endsWith('/vehicle-profiles')) return Promise.resolve(jsonResponse(options.profiles ?? [canProfile, mappingProfile]))
-    if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse(agentImplementations))
-    if (url.endsWith('/connector-kinds')) return Promise.resolve(jsonResponse(connectorKinds))
-    if (url.endsWith('/connectors')) return Promise.resolve(jsonResponse(options.connectors ?? []))
-    if (url.endsWith('/agents')) return Promise.resolve(jsonResponse(options.agents ?? []))
-    if (url.includes('/enrollments')) return Promise.resolve(jsonResponse({ token: 'tok', expires_at: '2026-01-01T00:30:00Z', setup_steps: [] }, 201))
-    return Promise.resolve(jsonResponse([vehicle]))
+function api(options: { agents?: unknown[]; profiles?: unknown[]; connectors?: unknown[] } = {}) {
+  return mockApi({
+    '/vehicle-profiles': options.profiles ?? [canProfile, mappingProfile],
+    '/agent-implementations': agentImplementations,
+    '/connector-kinds': connectorKinds,
+    '/connectors': options.connectors ?? [],
+    '/agents': options.agents ?? [],
+    '/enrollments': { token: 'tok', expires_at: '2026-01-01T00:30:00Z', setup_steps: [] },
+    default: [vehicle],
   })
-  vi.stubGlobal('fetch', fetchMock)
-  return fetchMock
 }
 
 /** AppSelect builds its listbox from slot vnodes, so options exist only once open. */
@@ -36,18 +27,6 @@ async function optionsOf(select: ReturnType<ReturnType<typeof mount>['findCompon
   const labels = select.findAll('[role="option"]').map((option) => option.text())
   await select.get('.app-select-trigger').trigger('click')
   return labels
-}
-
-function field(wrapper: ReturnType<typeof mount>, root: string, label: string) {
-  const target = wrapper.findAll(`${root} .field`).find((item) => item.find('span').exists() && item.get('span').text() === label)
-  if (!target) throw new Error(`no field labelled "${label}"`)
-  return target
-}
-
-function lastBody(fetchMock: ReturnType<typeof vi.fn>, method: string): Record<string, unknown> {
-  const call = fetchMock.mock.calls.filter((entry) => entry[1]?.method === method).at(-1)
-  if (!call) throw new Error(`no ${method} call`)
-  return JSON.parse(call[1]?.body as string)
 }
 
 describe('source profiles', () => {
@@ -59,7 +38,7 @@ describe('source profiles', () => {
   it('chooses a decoding profile at enrollment and sizes the estimate from it', async () => {
     // Enough signals that the monthly estimate visibly moves when the profile is chosen.
     const rich = { ...canProfile, definition: { ...canProfile.definition, signals: Array.from({ length: 40 }, (_item, index) => ({ ...canProfile.definition.signals[0]!, name: `metric.${index}` })) } }
-    const fetchMock = mockApi({ profiles: [rich, mappingProfile] })
+    const fetchMock = api({ profiles: [rich, mappingProfile] })
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
     await wrapper.get('.header-actions .button:not(.secondary)').trigger('click')
@@ -81,7 +60,7 @@ describe('source profiles', () => {
   })
 
   it('changes an agent profile from its settings', async () => {
-    const fetchMock = mockApi({ agents: [{ ...agentRow, vehicle_profile: canProfile.id }] })
+    const fetchMock = api({ agents: [agentRow({ vehicle_profile: canProfile.id })] })
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
 
@@ -96,7 +75,7 @@ describe('source profiles', () => {
   })
 
   it('selects a mapping profile on the connector form', async () => {
-    const fetchMock = mockApi()
+    const fetchMock = api()
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
     await wrapper.get('.header-actions .button.secondary').trigger('click')
@@ -112,7 +91,7 @@ describe('source profiles', () => {
 
   it('lists both profile types with their own counts', async () => {
     const custom = { ...mappingProfile, id: 'mine', name: 'Mine', built_in: false, editable: true }
-    mockApi({ profiles: [canProfile, mappingProfile, custom], agents: [{ ...agentRow, vehicle_profile: canProfile.id }], connectors: [connectorRow()] })
+    api({ profiles: [canProfile, mappingProfile, custom], agents: [agentRow({ vehicle_profile: canProfile.id })], connectors: [connectorRow()] })
     const wrapper = mount(ProfilesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
 
@@ -128,7 +107,7 @@ describe('source profiles', () => {
   })
 
   it('creates a mapping profile from a rule list', async () => {
-    const fetchMock = mockApi({ profiles: [] })
+    const fetchMock = api({ profiles: [] })
     const wrapper = mount(ProfilesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
     await wrapper.get('.header-actions .button.secondary').trigger('click')
@@ -162,7 +141,7 @@ describe('source profiles', () => {
   })
 
   it('refuses a rule with an invalid target or a duplicate key', async () => {
-    mockApi({ profiles: [] })
+    api({ profiles: [] })
     const wrapper = mount(ProfilesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
     await wrapper.get('.header-actions .button.secondary').trigger('click')
@@ -187,7 +166,7 @@ describe('source profiles', () => {
 
   it('edits a custom mapping profile in place and clones a bundled one', async () => {
     const custom = { ...mappingProfile, id: 'mine', name: 'Mine', built_in: false, editable: true }
-    const fetchMock = mockApi({ profiles: [custom, mappingProfile] })
+    const fetchMock = api({ profiles: [custom, mappingProfile] })
     const wrapper = mount(ProfilesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
 

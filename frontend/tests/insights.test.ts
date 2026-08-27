@@ -6,7 +6,7 @@ import { auth } from '../src/api/auth'
 import type { DashboardWidget, SelectedSegment, Vehicle } from '../src/api/types'
 import { dashboardRuntimeKey } from '../src/widgets/dashboardContext'
 import { widgetRegistry } from '../src/widgets/registry'
-import { adminUser, charge, drive, jsonResponse, vehicle } from './helpers'
+import { adminUser, charge, drive, jsonResponse, mockApi, vehicle } from './helpers'
 
 vi.mock('../src/components/VehicleMap.vue', () => ({
   default: defineComponent({
@@ -34,21 +34,16 @@ const historyPoints = [
   { id: 'p3', recorded_at: '2026-08-27T08:40:00Z', latitude: 48.87, longitude: 2.37, speed: 30, heading: 90, metrics: { 'battery.soc': 71, 'charging.power': 6 } },
 ]
 
-function mockApi(options: { segments?: unknown; history?: unknown; previous?: unknown } = {}) {
+function api(options: { segments?: unknown; history?: unknown; previous?: unknown } = {}) {
   let segmentCalls = 0
-  const fetchMock = vi.fn().mockImplementation((url: string) => {
-    if (url.includes('/segments')) {
+  return mockApi({
+    '/segments': () => {
       segmentCalls += 1
-      const body = segmentCalls === 1 || options.previous === undefined ? options.segments ?? { drives: [], charges: [] } : options.previous
-      return Promise.resolve(jsonResponse(body))
-    }
-    if (url.includes('/history')) {
-      return Promise.resolve(jsonResponse(options.history ?? { vehicle_id: vehicle.id, start: '', end: '', available_metrics: [], original_count: 3, points: historyPoints }))
-    }
-    return Promise.resolve(jsonResponse([]))
+      return segmentCalls === 1 || options.previous === undefined ? options.segments ?? { drives: [], charges: [] } : options.previous
+    },
+    '/history': options.history ?? { vehicle_id: vehicle.id, start: '', end: '', available_metrics: [], original_count: 3, points: historyPoints },
+    default: [],
   })
-  vi.stubGlobal('fetch', fetchMock)
-  return fetchMock
 }
 
 /** Mounts one widget inside a stand-in for the dashboard runtime it injects. */
@@ -92,12 +87,12 @@ describe('driving insight widgets', () => {
   })
 
   it('shows the activity feed empty, then merged newest first with a type filter', async () => {
-    mockApi()
+    api()
     const empty = mountWidget('activity-feed')
     await flushPromises()
     expect(empty.wrapper.get('.dashboard-widget-empty').text()).toContain('No drives or charges')
 
-    mockApi({ segments: { drives: [drive()], charges: [charge()] } })
+    api({ segments: { drives: [drive()], charges: [charge()] } })
     const { wrapper } = mountWidget('activity-feed')
     await flushPromises()
     const rows = wrapper.findAll('.feed-row')
@@ -113,7 +108,7 @@ describe('driving insight widgets', () => {
   })
 
   it('publishes the chosen segment from the feed and toggles it off again', async () => {
-    mockApi({ segments: { drives: [drive()], charges: [] } })
+    api({ segments: { drives: [drive()], charges: [] } })
     const { wrapper, selectSegment } = mountWidget('activity-feed')
     await flushPromises()
 
@@ -125,7 +120,7 @@ describe('driving insight widgets', () => {
   })
 
   it('follows the selected segment in segment stats, falling back to the newest', async () => {
-    mockApi({ segments: { drives: [drive()], charges: [charge()] } })
+    api({ segments: { drives: [drive()], charges: [charge()] } })
     const latest = mountWidget('segment-stats')
     await flushPromises()
     // Nothing selected: the newest segment is the charge.
@@ -133,7 +128,7 @@ describe('driving insight widgets', () => {
     expect(latest.wrapper.text()).toContain('12.5 kWh')
     expect(latest.wrapper.text()).toContain('40% → 80%')
 
-    mockApi({ segments: { drives: [drive()], charges: [charge()] } })
+    api({ segments: { drives: [drive()], charges: [charge()] } })
     const followed = mountWidget('segment-stats', {}, { kind: 'drive', start: drive().start, end: drive().end })
     await flushPromises()
     expect(followed.wrapper.get('.widget-head small').text()).toContain('Drive')
@@ -142,7 +137,7 @@ describe('driving insight widgets', () => {
   })
 
   it('omits segment stats the server could not derive', async () => {
-    mockApi({ segments: { drives: [drive({ distance_km: undefined, energy_kwh: undefined, max_speed: undefined })], charges: [] } })
+    api({ segments: { drives: [drive({ distance_km: undefined, energy_kwh: undefined, max_speed: undefined })], charges: [] } })
     const { wrapper } = mountWidget('segment-stats')
     await flushPromises()
     const labels = wrapper.findAll('.stat-grid dt').map((row) => row.text())
@@ -152,7 +147,7 @@ describe('driving insight widgets', () => {
   })
 
   it('plots the charge curve against state of charge', async () => {
-    mockApi({ segments: { drives: [], charges: [charge()] } })
+    api({ segments: { drives: [], charges: [charge()] } })
     const { wrapper } = mountWidget('charge-curve')
     await flushPromises()
     const chart = wrapper.get('.chart-stub')
@@ -162,7 +157,7 @@ describe('driving insight widgets', () => {
   })
 
   it('leaves the charge curve empty when the range holds no charge', async () => {
-    mockApi({ segments: { drives: [drive()], charges: [] } })
+    api({ segments: { drives: [drive()], charges: [] } })
     const { wrapper } = mountWidget('charge-curve')
     await flushPromises()
     expect(wrapper.find('.chart-stub').exists()).toBe(false)
@@ -170,7 +165,7 @@ describe('driving insight widgets', () => {
   })
 
   it('reads two picked points on the route trail as an A to B leg', async () => {
-    mockApi({ segments: { drives: [drive()], charges: [] } })
+    api({ segments: { drives: [drive()], charges: [] } })
     const { wrapper } = mountWidget('route-map', { time_range_days: 1 })
     await flushPromises()
     expect(wrapper.find('.route-readout').exists()).toBe(false)
@@ -190,7 +185,7 @@ describe('driving insight widgets', () => {
   })
 
   it('totals a period and compares it with the one before', async () => {
-    mockApi({
+    api({
       segments: { drives: [drive(), drive({ start: '2026-08-26T08:00:00Z', distance_km: 15.6, energy_kwh: 3.4 })], charges: [charge()] },
       previous: { drives: [drive({ distance_km: 20 })], charges: [charge({ energy_kwh: 10 })] },
     })
@@ -213,7 +208,7 @@ describe('driving insight widgets', () => {
     ['lists that are not arrays', { drives: null, charges: 'none' }],
     ['rows without an instant', { drives: [{ distance_km: 4 }], charges: [{}] }],
   ])('renders without throwing when segments come back as %s', async (_label, body) => {
-    mockApi({ segments: body, previous: body })
+    api({ segments: body, previous: body })
     for (const type of ['activity-feed', 'segment-stats', 'charge-curve', 'period-stats']) {
       const { wrapper } = mountWidget(type)
       await flushPromises()
@@ -222,27 +217,99 @@ describe('driving insight widgets', () => {
       wrapper.unmount()
     }
     // The route map has no segment to follow, so it falls back to the whole range.
-    mockApi({ segments: body, previous: body })
+    api({ segments: body, previous: body })
     const { wrapper } = mountWidget('route-map')
     await flushPromises()
-    expect(wrapper.find('.route-map .map-stage').exists()).toBe(true)
+    expect(wrapper.find('.route-map-widget .map-stage').exists()).toBe(true)
     expect(wrapper.findAll('.trail-point')).toHaveLength(3)
+  })
+
+  it.each(['route-map', 'segment-stats', 'charge-curve'])(
+    'says so in %s when the selection is outside its own range',
+    async (type) => {
+      // A selection the range cannot show is stated, not quietly swapped for another.
+      api({ segments: { drives: [drive()], charges: [charge()] } })
+      const { wrapper } = mountWidget(type, {}, { kind: 'drive', start: '2020-01-01T00:00:00Z', end: '2020-01-01T01:00:00Z' })
+      await flushPromises()
+      expect(wrapper.get('.dashboard-widget-empty').text()).toContain('outside this range')
+      expect(wrapper.find('.route-map-widget .map-stage').exists()).toBe(false)
+    },
+  )
+
+  it('shares the default range across the feed and its followers', () => {
+    for (const type of ['route-map', 'activity-feed', 'segment-stats', 'charge-curve']) {
+      expect(widgetRegistry[type]!.configSchema.fields, type).toContain('time_range_days')
+    }
+  })
+
+  it('pairs a sparse charge curve by carrying each series forward', async () => {
+    // A connector reports one key per message, so no single point carries both.
+    const sparse = {
+      vehicle_id: vehicle.id, start: '', end: '', available_metrics: [], original_count: 4,
+      points: [
+        { id: 'a', recorded_at: '2026-08-27T19:00:00Z', latitude: null, longitude: null, speed: null, heading: null, metrics: { 'battery.soc': 40 } },
+        { id: 'b', recorded_at: '2026-08-27T19:10:00Z', latitude: null, longitude: null, speed: null, heading: null, metrics: { 'charging.power': 11 } },
+        { id: 'c', recorded_at: '2026-08-27T19:40:00Z', latitude: null, longitude: null, speed: null, heading: null, metrics: { 'battery.soc': 60 } },
+        { id: 'd', recorded_at: '2026-08-27T20:10:00Z', latitude: null, longitude: null, speed: null, heading: null, metrics: { 'charging.power': 7 } },
+      ],
+    }
+    api({ segments: { drives: [], charges: [charge()] }, history: sparse })
+    const { wrapper } = mountWidget('charge-curve')
+    await flushPromises()
+    expect(wrapper.get('.chart-stub').attributes('data-points')).toBe('3')
+  })
+
+  it('scales the A to B distance to the drive the server measured', async () => {
+    api({ segments: { drives: [drive()], charges: [] } })
+    const { wrapper } = mountWidget('route-map')
+    await flushPromises()
+    const points = wrapper.findAll('.trail-point')
+    await points[0]!.trigger('click')
+    await points[2]!.trigger('click')
+    // The trail is downsampled, so the raw haversine is scaled onto the drive's 24.4 km.
+    expect(wrapper.get('.route-readout').text()).toContain('24.4 km')
+    expect(wrapper.get('.route-readout').text()).toContain('Distance')
+    expect(wrapper.get('.route-readout').text()).not.toContain('estimated')
+  })
+
+  it('labels the readout an estimate with no drive to scale against', async () => {
+    api({ segments: { drives: [], charges: [] } })
+    const { wrapper } = mountWidget('route-map')
+    await flushPromises()
+    const points = wrapper.findAll('.trail-point')
+    await points[0]!.trigger('click')
+    await points[2]!.trigger('click')
+    expect(wrapper.get('.route-readout').text()).toContain('estimated')
+  })
+
+  it('keeps ranged widgets visible for a vehicle with no live reading', () => {
+    const parked = { ...vehicle, state: { ...vehicle.state, position: null, metrics: {} } } as unknown as Vehicle
+    for (const type of ['route-map', 'charge-curve']) {
+      expect(widgetRegistry[type]!.isEmpty?.({ id: 'w', type, x: 0, y: 0, w: 4, h: 3 }, parked), type).toBe(false)
+    }
   })
 
   it('degrades to the empty state when the segments request fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => url.includes('/segments')
       ? Promise.reject(new Error('offline'))
       : Promise.resolve(jsonResponse({ vehicle_id: vehicle.id, start: '', end: '', available_metrics: [], original_count: 0, points: [] }))))
-    for (const type of ['activity-feed', 'segment-stats', 'charge-curve', 'route-map', 'period-stats']) {
+    for (const type of ['activity-feed', 'segment-stats', 'charge-curve', 'period-stats']) {
       const { wrapper } = mountWidget(type)
       await flushPromises()
       expect(wrapper.find('.dashboard-widget-empty').exists(), type).toBe(true)
       wrapper.unmount()
     }
+    // The route map replaced position-map on the Overview, so a known position
+    // still draws even when no route or segment can be had.
+    const { wrapper } = mountWidget('route-map')
+    await flushPromises()
+    expect(wrapper.find('.dashboard-widget-empty').exists()).toBe(false)
+    expect(wrapper.find('.vehicle-map-stub').exists()).toBe(true)
+    expect(wrapper.findAll('.trail-point')).toHaveLength(0)
   })
 
   it('shows nothing for a period with no activity', async () => {
-    mockApi({ segments: { drives: [], charges: [] }, previous: { drives: [], charges: [] } })
+    api({ segments: { drives: [], charges: [] }, previous: { drives: [], charges: [] } })
     const { wrapper } = mountWidget('period-stats')
     await flushPromises()
     expect(wrapper.get('.dashboard-widget-empty').text()).toContain('Nothing recorded')

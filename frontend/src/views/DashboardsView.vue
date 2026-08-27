@@ -3,7 +3,7 @@ import { GridStack, type GridStackNode } from 'gridstack'
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { clientId } from '../clientId'
-import { api } from '../api/client'
+import { api, errorMessage } from '../api/client'
 import type { LiveConnectionStatus } from '../api/events'
 import { useLiveVehicles } from '../api/live'
 import type { Dashboard, DashboardWidget, SelectedSegment, Vehicle } from '../api/types'
@@ -166,6 +166,15 @@ function destroyGrid(): void {
 }
 
 async function load(): Promise<void> {
+  message.value = ''
+  try {
+    await fetchDashboards()
+  } catch (reason) {
+    message.value = errorMessage(reason, t('common.error'))
+  }
+}
+
+async function fetchDashboards(): Promise<void> {
   ;[dashboards.value, vehicles.value] = await Promise.all([
     api<Dashboard[]>('/dashboards'),
     api<Vehicle[]>('/vehicles'),

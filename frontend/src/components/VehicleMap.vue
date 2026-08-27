@@ -96,7 +96,7 @@ function update() {
     const point = L.latLng(props.position.latitude, props.position.longitude)
     marker = L.marker(point, { icon: positionIcon(props.position.heading), keyboard: false }).addTo(map)
     marker.bindTooltip(t('history.latestPosition'), { direction: 'top', offset: [0, -15] })
-    if (!props.route?.length) map.setView(point, 14)
+    if (!props.route?.length && !props.trail?.length) map.setView(point, 14)
   }
 }
 

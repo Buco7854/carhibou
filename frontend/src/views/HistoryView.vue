@@ -2,7 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import { api } from '../api/client'
+import { api, errorMessage } from '../api/client'
+import { loadHistory } from '../api/segments'
 import { useLiveVehicles } from '../api/live'
 import type { History, Position, Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
@@ -59,13 +60,13 @@ async function load() {
   try {
     ;[vehicle.value, history.value] = await Promise.all([
       api<Vehicle>(`/vehicles/${vehicleId}`),
-      api<History>(`/vehicles/${vehicleId}/history?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}&max_points=1500`),
+      loadHistory(vehicleId, { start, end, maxPoints: 1500 }),
     ])
     const options = metricOptions.value.map((definition) => definition.key)
     if (!options.includes(metric.value)) {
       metric.value = preferredHistoryMetric(vehicle.value, history.value.available_metrics, options.includes('vehicle.speed'))
     }
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
+  } catch (reason) { error.value = errorMessage(reason, t('common.error')) }
 }
 watch(days, load)
 onMounted(load)

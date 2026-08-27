@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from '../api/client'
+import { api, errorMessage } from '../api/client'
 import { useLiveVehicles } from '../api/live'
 import type { Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
@@ -95,11 +95,11 @@ async function create(): Promise<void> {
   error.value = ''
   const payload = { name: form.value.name.trim() }
   try { await api('/vehicles', { method: 'POST', body: JSON.stringify(payload) }); showForm.value = false; form.value = emptyForm(); await load() }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : t('common.error') }
+  catch (reason) { error.value = errorMessage(reason, t('common.error')) }
 }
 
 async function clearTelemetry(vehicle: Vehicle): Promise<void> {
-  if (!confirm(t('vehicles.clearDataConfirm', { name: vehicle.name }))) return
+  if (!window.confirm(t('vehicles.clearDataConfirm', { name: vehicle.name }))) return
   await api(`/vehicles/${vehicle.id}/telemetry`, { method: 'DELETE' })
   await load()
 }
@@ -120,7 +120,7 @@ async function uploadPhoto(vehicle: Vehicle, file: File): Promise<void> {
     await load()
     photoNotice.value = { kind: 'success', message: t('vehicles.photoAdded', { name: vehicle.name }) }
   } catch (reason) {
-    photoNotice.value = { kind: 'error', message: reason instanceof Error ? reason.message : t('common.error') }
+    photoNotice.value = { kind: 'error', message: errorMessage(reason, t('common.error')) }
   } finally {
     photoBusyId.value = ''
   }
@@ -135,7 +135,7 @@ async function removePhoto(vehicle: Vehicle): Promise<void> {
     await load()
     photoNotice.value = { kind: 'success', message: t('vehicles.photoRemoved', { name: vehicle.name }) }
   } catch (reason) {
-    photoNotice.value = { kind: 'error', message: reason instanceof Error ? reason.message : t('common.error') }
+    photoNotice.value = { kind: 'error', message: errorMessage(reason, t('common.error')) }
   } finally {
     photoBusyId.value = ''
   }
@@ -156,7 +156,7 @@ async function deleteVehicle(): Promise<void> {
     await load()
     photoNotice.value = { kind: 'success', message: t('vehicles.deleted', { name: vehicle.name }) }
   } catch (reason) {
-    photoNotice.value = { kind: 'error', message: reason instanceof Error ? reason.message : t('common.error') }
+    photoNotice.value = { kind: 'error', message: errorMessage(reason, t('common.error')) }
   } finally {
     deleteBusy.value = false
   }
@@ -237,8 +237,6 @@ onMounted(load)
         </div>
 
         <footer>
-          <!-- Keeps the links right-aligned now the profile control has gone. -->
-          <span class="card-footer-spacer"></span>
           <RouterLink class="link-button" :to="`/vehicles/${vehicle.id}/history`">{{ t('vehicles.history') }}</RouterLink>
           <RouterLink class="link-button" to="/data-sources">{{ t('vehicles.agent') }}</RouterLink>
           <button v-if="canOperate(vehicle)" class="link-button" type="button" @click="clearTelemetry(vehicle)">{{ t('vehicles.clearData') }}</button>
@@ -305,8 +303,7 @@ onMounted(load)
 .vehicle-facts .is-charging{color:var(--success)}
 .vehicle-facts small{flex-basis:100%;color:var(--muted);font-size:var(--font-caption)}
 
-.card-footer-spacer{margin-right:auto}
-.vehicle-card>footer{display:flex;align-items:center;gap:14px;padding:10px 16px;border-top:1px solid var(--line)}
+.vehicle-card>footer{display:flex;justify-content:flex-end;align-items:center;gap:14px;padding:10px 16px;border-top:1px solid var(--line)}
 
 .empty{grid-column:1/-1}
 

@@ -32,7 +32,9 @@ definition: {
     { match: "battery_level", target: "battery.soc" },
     { match: "elevation", target: "position.altitude" },
     { match: "charging_state", target: "charging.active",
-      transform: { enum: { "Charging": true, "*": false } } },
+      transform: { enum: { "Charging": true, "charging": true, "*": false } } },
+    { match: "charge_energy_added", target: "charging.energy_added",
+      transform: { scale: 1, offset: 0 } },
     { match: "power", target: "battery.power", transform: { scale: 1, offset: 0 } },
     ...
   ]
@@ -86,6 +88,7 @@ telemetry using canonical metrics only, so it works for any source:
   movement between consecutive positions. Contiguous drive evidence with gaps under
   180 seconds joins into one drive; drives shorter than 60 seconds are dropped.
 - Charge detection: `charging.active` true, else `charging.power` > 0. Same join rule.
+  Charges shorter than 60 seconds are dropped.
 - Response:
 
 ```
@@ -98,11 +101,12 @@ telemetry using canonical metrics only, so it works for any source:
 
 - `distance_km` prefers odometer delta, falls back to summed GPS haversine;
   `energy_kwh` for drives is battery-energy delta when capacity and soc exist, for
-  charges prefers `teslamate.charge_energy_added` delta, falls back to integrating
+  charges prefers canonical `charging.energy_added` delta, falls back to integrating
   `charging.power` over time. Every field is optional and omitted when the underlying
   metrics are absent; missing data never errors.
-- Range is capped (start required, span <= 92 days). Downsampling-safe: computed from
-  raw rows via the entries query machinery, not the downsampled history endpoint.
+- Range is start-inclusive and end-exclusive, and capped (start required, span <= 92
+  days). Downsampling-safe: computed from raw rows via the entries query machinery, not
+  the downsampled history endpoint.
 - Segment detail (charts) needs no new endpoint: clients call the existing history
   API with the segment's start/end.
 
@@ -114,7 +118,9 @@ grid/pinned-vehicle behavior, phone stacking, both locales.
 - Selection precedent: the existing vehicle-selector pattern extends one level down.
   The activity feed exposes the selected segment to the dashboard the way the vehicle
   selector exposes the selected vehicle; follower widgets use it when present, else
-  their own default (most recent segment in range).
+  their own default (most recent segment in range). A follower widget whose range does
+  not contain the selected `{kind, start}` shows an explicit not-in-range empty state
+  instead of silently falling back.
 - `route-map`: trail for a time range with per-point speed coloring (existing map
   stack), follows the selected drive; tapping two points on the trail shows the A-to-B
   readout (distance, time, soc delta, energy when derivable). Replaces `position-map`
