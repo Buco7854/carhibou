@@ -57,44 +57,58 @@ async def oidc_login_redirect(request: Request, settings: Settings) -> RedirectR
 
 
 async def validated_oidc_claims(request: Request, settings: Settings) -> Mapping[str, object]:
+    client = _client(settings)
     try:
+        metadata = await client.load_server_metadata()
+        metadata_issuer = metadata.get("issuer")
+        if not isinstance(metadata_issuer, str) or not metadata_issuer:
+            raise OIDCAuthenticationError(
+                "OIDC discovery issuer check failed: server metadata has no issuer"
+            )
         token = cast(
             dict[str, object],
-            await _client(settings).authorize_access_token(
+            await client.authorize_access_token(
                 request,
                 claims_options={
-                    "iss": {"values": [settings.oidc_issuer.strip()]},
+                    "iss": {"values": [metadata_issuer]},
                     "aud": {"values": [settings.oidc_client_id.strip()]},
                 },
             ),
         )
+    except OIDCAuthenticationError:
+        raise
     except (JoseError, OAuthError) as exc:
-        raise OIDCAuthenticationError("OIDC token validation failed") from exc
+        raise OIDCAuthenticationError(
+            "OIDC ID token signature or claim validation check failed"
+        ) from exc
     claims = token.get("userinfo")
     if not isinstance(claims, Mapping):
-        raise OIDCAuthenticationError("OIDC provider did not return a valid ID token")
-    if claims.get("nonce_supported") is False:
-        raise OIDCAuthenticationError("OIDC provider did not validate the login nonce")
+        raise OIDCAuthenticationError(
+            "OIDC ID token result check failed: provider returned no validated user information"
+        )
     return cast(Mapping[str, object], claims)
 
 
 def _subject(claims: Mapping[str, object]) -> str:
     subject = claims.get("sub")
     if not isinstance(subject, str) or not subject.strip() or len(subject) > 320:
-        raise OIDCAuthenticationError("OIDC subject is invalid")
+        raise OIDCAuthenticationError("OIDC subject claim check failed: sub is missing or invalid")
     return subject
 
 
 def _verified_email(claims: Mapping[str, object]) -> str:
     if claims.get("email_verified") is not True:
-        raise OIDCAuthenticationError("OIDC email is not verified")
+        raise OIDCAuthenticationError(
+            "OIDC email verification check failed: email is not verified because "
+            "email_verified is not true"
+        )
     email = claims.get("email")
     if not isinstance(email, str):
-        raise OIDCAuthenticationError("OIDC email is missing")
+        raise OIDCAuthenticationError("OIDC email claim check failed: email is missing")
     try:
         return str(TypeAdapter(EmailStr).validate_python(email)).strip().lower()
     except ValidationError as exc:
-        raise OIDCAuthenticationError("OIDC email is invalid") from exc
+        raise OIDCAuthenticationError("OIDC email claim check failed: email is invalid") from exc
 
 
 def _display_name(claims: Mapping[str, object], email: str) -> str:
@@ -143,7 +157,9 @@ def _identity_user(db: Session, subject: str) -> tuple[AuthenticationIdentity, U
         return None
     user = db.get(User, identity.user_id)
     if not user:
-        raise OIDCAuthenticationError("OIDC identity has no account")
+        raise OIDCAuthenticationError(
+            "OIDC identity account check failed: linked account does not exist"
+        )
     return identity, user
 
 
@@ -155,7 +171,7 @@ def _finish_login(
     settings: Settings,
 ) -> User:
     if not user.is_active:
-        raise OIDCAuthenticationError("OIDC account is unavailable")
+        raise OIDCAuthenticationError("OIDC account status check failed: account is inactive")
     identity.last_used_at = utcnow()
     _map_admin_group(db, user, claims, settings)
     return user
@@ -181,7 +197,9 @@ def authenticate_oidc_claims(db: Session, claims: Mapping[str, object], settings
     user = db.scalar(select(User).where(func.lower(User.email) == email))
     if not user:
         if not settings.oidc_auto_provision:
-            raise OIDCAuthenticationError("OIDC account provisioning is disabled")
+            raise OIDCAuthenticationError(
+                "OIDC account provisioning check failed: automatic provisioning is disabled"
+            )
         user = User(email=email, display_name=_display_name(claims, email), permissions={})
         db.add(user)
         db.flush()

@@ -69,17 +69,27 @@ def test_oidc_environment_variables_are_loaded(monkeypatch: pytest.MonkeyPatch) 
     assert settings.oidc_display_name == "Corporate SSO"
 
 
-def test_authlib_exchange_requires_configured_issuer_and_audience(
+def test_authlib_exchange_uses_discovered_issuer_and_configured_audience(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class TokenBoundary:
         claims_options: dict[str, dict[str, list[str]]] | None = None
+        provider_claims = {
+            "sub": "validated-subject",
+            "iss": "https://identity.example.com/",
+            "aud": "carhibou",
+        }
+
+        async def load_server_metadata(self) -> dict[str, str]:
+            return {"issuer": "https://identity.example.com/"}
 
         async def authorize_access_token(
             self, _request: Request, **kwargs: object
         ) -> dict[str, object]:
             self.claims_options = cast(dict[str, dict[str, list[str]]], kwargs["claims_options"])
-            return {"userinfo": {"sub": "validated-subject"}}
+            assert self.provider_claims["iss"] in self.claims_options["iss"]["values"]
+            assert self.provider_claims["aud"] in self.claims_options["aud"]["values"]
+            return {"userinfo": self.provider_claims}
 
     boundary = TokenBoundary()
     monkeypatch.setattr(oidc_service, "_client", lambda _settings_value: boundary)
@@ -88,10 +98,57 @@ def test_authlib_exchange_requires_configured_issuer_and_audience(
     claims = run(validated_oidc_claims(request, _settings()))
 
     assert claims["sub"] == "validated-subject"
+    assert claims["iss"] == "https://identity.example.com/"
     assert boundary.claims_options == {
-        "iss": {"values": ["https://identity.example.com"]},
+        "iss": {"values": ["https://identity.example.com/"]},
         "aud": {"values": ["carhibou"]},
     }
+
+
+def test_validated_claims_leave_nonce_supported_handling_to_authlib(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TokenBoundary:
+        async def load_server_metadata(self) -> dict[str, str]:
+            return {"issuer": "https://identity.example.com/"}
+
+        async def authorize_access_token(
+            self, _request: Request, **_kwargs: object
+        ) -> dict[str, object]:
+            return {"userinfo": {"sub": "apple-subject", "nonce_supported": False}}
+
+    monkeypatch.setattr(oidc_service, "_client", lambda _settings_value: TokenBoundary())
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+
+    claims = run(validated_oidc_claims(request, _settings()))
+
+    assert claims["sub"] == "apple-subject"
+
+
+def test_oidc_callback_logs_failed_check_and_underlying_cause(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    settings = _settings(public_url="http://testserver")
+
+    async def rejected_claims(_request: Request, _settings_value: Settings) -> Mapping[str, object]:
+        try:
+            raise ValueError("email_verified claim was false")
+        except ValueError as cause:
+            raise OIDCAuthenticationError(
+                "OIDC email verification check failed: email_verified is not true"
+            ) from cause
+
+    monkeypatch.setattr(auth_routes, "get_settings", lambda: settings)
+    monkeypatch.setattr(auth_routes, "validated_oidc_claims", rejected_claims)
+
+    with caplog.at_level(logging.WARNING, logger="backend.app.auth.routes"):
+        response = client.get("/api/v1/auth/oidc/callback")
+
+    assert response.status_code == 401
+    assert "OIDC email verification check failed" in caplog.text
+    assert "ValueError: email_verified claim was false" in caplog.text
 
 
 def test_oidc_client_uses_discovery_and_pkce() -> None:

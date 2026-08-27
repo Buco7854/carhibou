@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Mapping
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -39,6 +40,7 @@ from backend.app.common.settings import Settings, get_settings
 from backend.app.common.time import utcnow
 from backend.app.users.models import User
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
@@ -128,6 +130,9 @@ async def oidc_callback(request: Request, db: Db) -> RedirectResponse:
         user = authenticate_oidc_claims(db, claims, settings)
     except OIDCAuthenticationError as exc:
         db.rollback()
+        cause = exc.__cause__
+        cause_description = f"{type(cause).__name__}: {cause}" if cause else "none"
+        logger.warning("OIDC authentication failed: %s; cause=%s", exc, cause_description)
         raise HTTPException(status_code=401, detail="OIDC authentication failed") from exc
     response = RedirectResponse(f"{settings.public_url.rstrip('/')}/", status_code=302)
     _establish_session(response, db, request, user)
