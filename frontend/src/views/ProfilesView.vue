@@ -160,7 +160,7 @@ onMounted(load)
 </template>
 
 <style scoped>
-.profiles-page{max-width:1100px;margin-left:0;display:grid;gap:26px}
+.profiles-page{display:grid;gap:26px}
 .profiles-page>.page-header{margin-bottom:0}
 .profile-section{display:grid}
 .profile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}

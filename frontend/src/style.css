@@ -87,24 +87,24 @@
 }
 
 [data-theme="dark"] {
-  /* Every surface sits one notch higher than it used to, keeping the tonal
-     order sidebar < workspace < panel < panel-2 that carries elevation here.
-     Lifting them costs contrast, so muted-2 is re-tuned in step: on the new
-     panel it reads 4.78:1, where leaving it alone would have dropped it to
-     4.15:1 and under the 4.5:1 it needs as caption text. */
-  --workspace: #1a1d17;
-  --text: #f1f3ef;
-  --panel: #2a2e26;
-  --panel-2: #353a31;
-  --sidebar: #131610;
-  --input: #232720;
+  /* Neutral grey, and only grey. Every step used to carry more green than red
+     and more red than blue, which is subtle per swatch and unmistakable once the
+     whole page is built from it. These are true neutrals at the same luminance,
+     so the tonal order sidebar < workspace < panel < panel-2 that carries
+     elevation here is unchanged; only the cast is gone. */
+  --workspace: #1b1b1b;
+  --text: #f2f2f2;
+  --panel: #2c2c2c;
+  --panel-2: #383838;
+  --sidebar: #141414;
+  --input: #242424;
   --panel-line: transparent;
-  --line: #3a3f36;
-  --line-strong: #4a5044;
-  --muted: #a0a69c;
-  --muted-2: #939a8e;
-  --scroll-thumb: rgba(241, 243, 239, .16);
-  --scroll-thumb-hover: rgba(241, 243, 239, .3);
+  --line: #3d3d3d;
+  --line-strong: #4e4e4e;
+  --muted: #a4a4a4;
+  --muted-2: #9b9b9b;
+  --scroll-thumb: rgba(242, 242, 242, .16);
+  --scroll-thumb-hover: rgba(242, 242, 242, .3);
 
   --primary: #60a5fa;
   --primary-hover: #93c5fd;
@@ -249,8 +249,10 @@ a { color: inherit; }
   transition: background-color .12s, border-color .12s, color .12s;
 }
 .button:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
-.button.secondary { color: var(--text); background: var(--panel); border-color: var(--panel-line); box-shadow: var(--shadow-soft); }
-.button.secondary:hover { background: var(--panel-2); border-color: var(--panel-line); }
+/* Bordered, not shadowed. --panel-line is transparent in dark, which left this
+   panel-coloured on a panel with a drop shadow as its only edge. */
+.button.secondary { color: var(--text); background: var(--panel); border-color: var(--line-strong); }
+.button.secondary:hover { background: var(--panel-2); border-color: var(--muted-2); }
 .button.ghost { color: var(--muted); background: transparent; border-color: transparent; }
 .button.ghost:hover { color: var(--text); background: var(--panel-2); border-color: transparent; }
 .button.danger { color: #fff; background: var(--danger); border-color: var(--danger); }
@@ -296,7 +298,9 @@ a { color: inherit; }
 /* Settings and Administration are the same shape: a named group, an explanation
    of it, and its controls. Both used to declare this layout themselves, and both
    left it floating on the page while every other view sat on a panel. */
-.settings-page { width: 100%; max-width: 940px; margin-left: 0; }
+/* The page box is the same everywhere; a form that wants to be narrower caps
+   its own blocks inside it, so switching pages never shifts the left edge. */
+.settings-page > .settings-block { max-width: 940px; }
 .settings-page > .page-header { margin-bottom: 18px; }
 .settings-block {
   display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); align-items: start; gap: 18px 40px;

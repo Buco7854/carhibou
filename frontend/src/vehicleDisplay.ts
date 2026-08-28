@@ -55,6 +55,9 @@ const metricDefinitions: Record<string, MetricDefinition> = {
   'vehicle.handbrake': {
     key: 'vehicle.handbrake', labelKey: 'metrics.handbrake', unit: '', icon: 'vehicle', decimals: 0, kind: 'boolean',
   },
+  'vehicle.ready': {
+    key: 'vehicle.ready', labelKey: 'metrics.ready', unit: '', icon: 'vehicle', decimals: 0, kind: 'boolean',
+  },
   'tyre.warning': {
     key: 'tyre.warning', labelKey: 'metrics.tyreWarning', unit: '', icon: 'vehicle', decimals: 0, kind: 'boolean',
   },

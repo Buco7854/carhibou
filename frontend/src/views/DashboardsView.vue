@@ -521,7 +521,6 @@ onBeforeUnmount(destroyGrid)
 </template>
 
 <style scoped>
-.dashboard-page{max-width:none}
 .dashboard-topbar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px 16px;margin-bottom:20px;border-bottom:1px solid var(--line)}
 .dashboard-topbar h1{margin:0;font-size:var(--font-page-title);font-weight:600;letter-spacing:-.015em}
 .dashboard-view-actions{position:relative;display:flex;align-items:center}
@@ -547,15 +546,13 @@ onBeforeUnmount(destroyGrid)
 .dashboard-name{display:grid;gap:5px}
 .dashboard-name label{color:var(--text);font-size:var(--font-caption);font-weight:500}
 .dashboard-name-input{font-weight:500}
-.editor-hint{align-self:center;margin:0;color:var(--muted);font-size:var(--font-caption);line-height:1.45}
+.editor-hint{align-self:end;margin:0;padding-bottom:9px;color:var(--muted);font-size:var(--font-caption);line-height:1.45}
 .canvas-controls{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:14px}
 .default-label{color:var(--muted);font-size:var(--font-caption)}
 
 .dashboard-canvas{min-width:0;margin:-6px}
 .grid-stack{padding:0;background:transparent}
-/* An outline, not padding: padding narrows the canvas, and a canvas near a
-   column breakpoint would change its column count on entering edit mode. */
-.dashboard-canvas.is-editing{border-radius:var(--radius-lg);outline:1px dashed var(--line-strong);outline-offset:8px}
+
 .grid-stack-item-content{inset:6px!important;min-width:0;overflow:hidden!important;border-radius:var(--radius-lg)}
 .grid-stack.is-narrow .grid-stack-item-content{inset:5px!important}
 .widget-remove{position:absolute;right:6px;top:6px;z-index:600;width:24px;height:24px;display:grid;place-items:center;color:var(--danger);background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);cursor:pointer;transition:color .12s,background-color .12s,border-color .12s}
