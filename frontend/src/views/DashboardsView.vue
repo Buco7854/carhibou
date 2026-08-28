@@ -213,7 +213,11 @@ function initializeGrid(): void {
   applyModelCoordinates()
   grid = GridStack.init({ column:12, cellHeight:76, margin:6, animate:true, float:true, staticGrid:!editing.value }, gridElement.value) ?? undefined
   grid?.on('change', (_event, items: GridStackNode[]) => {
-    if (canvasColumns !== 12) return
+    // Only a person dragging changes the layout. Viewing compacts the canvas to
+    // close the space a hidden card leaves, and at fewer than twelve columns the
+    // whole thing is remapped; both are ways of drawing this layout, not new
+    // layouts, and writing either back turned every redraw into an edit.
+    if (!editing.value || canvasColumns !== 12) return
     for (const item of items) {
       const id = item.el?.dataset.widgetId
       const currentWidget = active.value?.layout.widgets.find((row) => row.id === id)
@@ -230,8 +234,11 @@ function initializeGrid(): void {
   })
   resizeObserver.observe(gridElement.value)
   applyResponsiveGrid(gridElement.value.clientWidth)
-  const total = active.value?.layout.widgets.length ?? 0
-  if (!editing.value && visibleWidgets.value.length < total) grid?.compact?.()
+  // No compaction on view. It existed to close the hole a hidden card left, and
+  // it closed that hole by moving its neighbours, so a card saved in one column
+  // was drawn in another. The layout solves this structurally instead: a card
+  // that may hide sits at the end of its row, so what it leaves is trailing
+  // space. What is stored is now always what is drawn.
 }
 
 function destroyGrid(): void {

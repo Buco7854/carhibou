@@ -9,6 +9,7 @@ interface AgentConfig { vehicle_profile: string | null; vehicle_profile_definiti
 interface EnrolledAgent { agent_id: string; credential: string }
 interface HookRecord { id: string }
 interface HookExecution { status: string; logs: Array<Record<string, unknown>> }
+interface DashboardWidgetRow { type: string; x: number; y: number; w: number; h: number }
 
 const ONE_PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2ZQAAAABJRU5ErkJggg==',
@@ -362,18 +363,27 @@ test('mobile login keeps language, theme, keyboard access and reflow', async ({ 
   expect(accessibility.violations).toEqual([])
 })
 
-test('leaving edit mode leaves the dashboard exactly where it was', async ({ page }) => {
+test('what the dashboard stores is what it draws', async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 1000 })
   await page.goto('/login')
   await page.getByLabel('Email').fill('browser-owner@example.com')
   await page.getByLabel('Password').fill('browser-e2e-password-2026')
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page).toHaveURL('/')
-  await expect(page.locator('.grid-stack-item').first()).toBeVisible()
+  // An earlier test leaves its own dashboard as the default, so this one names
+  // the premade Overview rather than taking whatever opens.
+  async function openOverview(): Promise<void> {
+    await page.locator('.dashboard-tabs').getByRole('button', { name: /Overview/ }).click()
+    await expect(page.locator('.grid-stack-item').first()).toBeVisible()
+  }
+  await openOverview()
 
-  const layout = () => page.$$eval('.grid-stack-item', (nodes) => nodes.map((node) => [
+  // Gridstack leaves an attribute off when it holds the default of 1, so the
+  // missing ones read as 1 rather than as a difference.
+  const drawn = () => page.$$eval('.grid-stack-item', (nodes) => nodes.map((node) => [
     node.getAttribute('data-widget-type'),
-    node.getAttribute('gs-x'), node.getAttribute('gs-y'), node.getAttribute('gs-w'), node.getAttribute('gs-h'),
+    node.getAttribute('gs-x') ?? '0', node.getAttribute('gs-y') ?? '0',
+    node.getAttribute('gs-w') ?? '1', node.getAttribute('gs-h') ?? '1',
   ].join(',')).sort().join(' '))
 
   // The canvas animates into place, so a single read can catch it mid-flight.
@@ -381,7 +391,7 @@ test('leaving edit mode leaves the dashboard exactly where it was', async ({ pag
   async function settled(): Promise<string> {
     let previous = ''
     await expect.poll(async () => {
-      const current = await layout()
+      const current = await drawn()
       const stable = Boolean(current) && current === previous
       previous = current
       return stable
@@ -389,12 +399,23 @@ test('leaving edit mode leaves the dashboard exactly where it was', async ({ pag
     return previous
   }
 
+  // What the server holds, in the same shape, for the cards actually on screen.
+  async function stored(): Promise<string> {
+    const rows = await browserJson<Array<{ layout: { preset?: string; widgets: DashboardWidgetRow[] } }>>(page, 'get', '/api/v1/dashboards')
+    const overview = rows.find((row) => row.layout.preset)
+    const onScreen = new Set((await drawn()).split(' ').map((entry) => entry.split(',')[0]))
+    return overview!.layout.widgets
+      .filter((widget) => onScreen.has(widget.type))
+      .map((widget) => [widget.type, widget.x, widget.y, widget.w, widget.h].join(','))
+      .sort().join(' ')
+  }
+
   const wide = await settled()
+  expect(await stored(), 'the layout on screen at load is not the one on the server').toBe(wide)
 
   // A canvas narrower than 1050px is remapped to six columns, and gridstack writes
   // that remap onto each item's gs-* attributes. Editing tears the grid down and
-  // builds it again; the regression is that rebuild reading those narrow attributes
-  // instead of the widget model, which loses the twelve-column layout for good.
+  // builds it again; nothing about drawing it at either width may reach the model.
   await page.setViewportSize({ width: 900, height: 1000 })
   await settled()
   for (const leaveWith of ['Cancel', 'Save']) {
@@ -408,8 +429,33 @@ test('leaving edit mode leaves the dashboard exactly where it was', async ({ pag
 
   await page.setViewportSize({ width: 1400, height: 1000 })
   expect(await settled(), 'editing on a narrow canvas rewrote the wide layout').toBe(wide)
+  expect(await stored(), 'drawing the canvas narrow rewrote what the server holds').toBe(wide)
 
   await page.reload()
-  await expect(page.locator('.grid-stack-item').first()).toBeVisible()
+  await openOverview()
   expect(await settled()).toBe(wide)
+
+  // And a card dragged somewhere new is drawn there afterwards, not pulled back
+  // by a reflow that closes the gap a hidden card left.
+  await page.getByRole('button', { name: 'Dashboard actions' }).click()
+  await page.getByRole('menuitem', { name: 'Edit dashboard' }).click()
+  await expect(page.locator('.dashboard-editor-bar')).toBeVisible()
+  const card = page.locator('[data-widget-type="metric-card"]')
+  const origin = await card.getAttribute('gs-x')
+  const before = await card.boundingBox()
+  await page.mouse.move(before!.x + 60, before!.y + 20)
+  await page.mouse.down()
+  await page.mouse.move(before!.x + 360, before!.y + 20, { steps: 20 })
+  await page.mouse.up()
+  await expect.poll(() => card.getAttribute('gs-x')).not.toBe(origin)
+  const moved = await card.getAttribute('gs-x')
+  await page.locator('.canvas-controls').getByRole('button', { name: 'Save' }).click()
+  await expect(page.locator('.dashboard-editor-bar')).toHaveCount(0)
+  await settled()
+  expect(await card.getAttribute('gs-x'), 'the card moved back after saving').toBe(moved)
+  await page.reload()
+  await openOverview()
+  await settled()
+  expect(await card.getAttribute('gs-x'), 'the saved position did not survive a reload').toBe(moved)
+  expect(await stored()).toBe(await drawn())
 })
