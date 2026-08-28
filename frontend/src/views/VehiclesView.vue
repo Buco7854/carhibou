@@ -304,7 +304,7 @@ onMounted(load)
 .reading-row strong{font-size:var(--font-value-sm);font-weight:500;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
 .reading-row em{margin-left:2px;color:var(--muted);font-size:var(--font-caption);font-style:normal;font-weight:400}
 .charge-reading .level-bar{margin-top:8px}
-.charge-reading .level-bar b.is-charging{background:var(--success)}
+.charge-reading .level-bar b.is-charging{background:var(--success-fill)}
 .awaiting{margin:0;color:var(--muted-2);font-size:var(--font-body)}
 
 .vehicle-facts{display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 8px;margin:12px 0 0;font-size:var(--font-body);font-variant-numeric:tabular-nums}

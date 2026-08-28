@@ -53,6 +53,14 @@
   --danger: #b93b3b;
   --danger-soft: #f8e9e9;
 
+  /* The tones above are tuned for text, which needs 4.5:1 and so pulls them
+     dark enough that the amber reads brown as a solid fill. A graphical object
+     needs only 3:1 (WCAG 1.4.11), so a fill can be brighter and actually be the
+     colour it is named for. Text keeps the tokens above; fills use these. */
+  --danger-fill: #d92d2d;
+  --warning-fill: #cc7000;
+  --success-fill: #0f9550;
+
   --chart-1: #2563bd;
   --chart-2: #eb6834;
   --chart-3: #1baf7a;
@@ -102,6 +110,12 @@
   --warning-soft: rgba(217, 160, 92, .14);
   --danger: #ef7b7b;
   --danger-soft: rgba(239, 123, 123, .14);
+
+  /* Dark sits its tones against a dark surface, so they are already bright
+     enough to carry a fill. Nothing to split here. */
+  --danger-fill: var(--danger);
+  --warning-fill: var(--warning);
+  --success-fill: var(--success);
 
   --chart-1: #3b7fe0;
   --chart-2: #d95926;
@@ -285,9 +299,9 @@ a { color: inherit; }
    what counts as low. Width carries the reading; the tone only reinforces it. */
 .level-bar { height: 4px; display: block; overflow: hidden; background: var(--panel-2); border-radius: 2px; }
 .level-bar b { display: block; height: 100%; background: var(--muted); border-radius: 2px; transition: background-color .12s; }
-.level-bar b.danger { background: var(--danger); }
-.level-bar b.warning { background: var(--warning); }
-.level-bar b.success { background: var(--success); }
+.level-bar b.danger { background: var(--danger-fill); }
+.level-bar b.warning { background: var(--warning-fill); }
+.level-bar b.success { background: var(--success-fill); }
 .metric-unit { margin-left: 3px; color: var(--muted); font-size: var(--font-body); font-weight: 400; letter-spacing: 0; }
 
 .empty { padding: 44px 24px; color: var(--muted); text-align: center; }
