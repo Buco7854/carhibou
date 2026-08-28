@@ -64,6 +64,7 @@ describe('source profiles', () => {
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
 
+    await wrapper.get('.source-details-toggle').trigger('click')
     expect(wrapper.get('.source-facts').text()).toContain('C-Zero')
     await wrapper.get('.source-actions .button').trigger('click')
     const picker = field(wrapper, '.stack-form', 'Decoding profile').findComponent(AppSelect)

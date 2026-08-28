@@ -99,6 +99,9 @@ withDefaults(defineProps<{ name: string; size?: number }>(), { size: 20 })
     <template v-else-if="name === 'arrow-left'">
       <path d="m14 6-6 6 6 6M8 12h11" />
     </template>
+    <template v-else-if="name === 'alert'">
+      <path d="M12 4.5 2.8 20h18.4L12 4.5Z" /><path d="M12 10v4" /><circle cx="12" cy="17.2" r=".9" fill="currentColor" stroke="none" />
+    </template>
     <template v-else-if="name === 'more'">
       <circle cx="5" cy="12" r="1.25" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.25" fill="currentColor" stroke="none" />
     </template>

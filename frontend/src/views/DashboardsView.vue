@@ -35,7 +35,7 @@ let grid: GridStack | undefined
 let resizeObserver: ResizeObserver | undefined
 let canvasColumns = 12
 let editSnapshot: Dashboard[] | null = null
-const OVERVIEW_PRESET = 'overview-v7'
+const OVERVIEW_PRESET = 'overview-v8'
 
 function cloneDashboards(value: Dashboard[]): Dashboard[] {
   return JSON.parse(JSON.stringify(value)) as Dashboard[]
@@ -107,10 +107,18 @@ const hideWhenEmpty = { settings:{ hide_when_empty:true } }
  * cost.
  *
  * A card hides only when it needs non-standard data: battery state, charging, a
- * photo, a charge curve. Everything else shows unconditionally and answers for
- * itself, because an empty state on standard data is information rather than
- * noise. Both speed cards are standard: `vehicle.speed` resolves from the CAN
- * reading or from the GNSS fix, so either kind of vehicle can answer them.
+ * charge curve. Everything else shows unconditionally and answers for itself,
+ * because an empty state on standard data is information rather than noise. Both
+ * speed cards are standard: `vehicle.speed` resolves from the CAN reading or from
+ * the GNSS fix, so either kind of vehicle can answer them.
+ *
+ * Composition rules this layout keeps, because a premade dashboard is the one
+ * layout nobody chose and so the one that has to look designed:
+ *
+ * - every grid row is covered across all twelve columns, so no row reads ragged;
+ * - a row holds cards of one height, so their tops and bottoms line up;
+ * - the cards that may hide sit at the end of their row, so the gap a hidden one
+ *   leaves is trailing space rather than a hole punched in the middle.
  */
 function premadeLayout(vehicleId?: string): Dashboard['layout'] {
   void vehicleId
@@ -119,23 +127,26 @@ function premadeLayout(vehicleId?: string): Dashboard['layout'] {
   // status card carries the vehicle's state and the agent's separately, which is
   // why it comes first and why nothing else needs to repeat either.
   return { preset:OVERVIEW_PRESET, widgets: [
-    // What is it doing, and how fast. Speed is standard: CAN reading or GNSS fix.
+    // Which vehicle everything below is about.
     widget(clientId('widget'), 'vehicle-selector', undefined, 0, 0, 12, 1),
+    // What is it doing, how fast, how much is left. Four equal cards; the two
+    // that need battery data trail so hiding them shortens the row from the end.
     widget(clientId('widget'), 'online-status', undefined, 0, 1, 3, 2),
     widget(clientId('widget'), 'metric-card', undefined, 3, 1, 3, 2, { metric:'vehicle.speed' }),
-    // How much is left.
     widget(clientId('widget'), 'battery-gauge', undefined, 6, 1, 3, 2, hideWhenEmpty),
     widget(clientId('widget'), 'charging', undefined, 9, 1, 3, 2, hideWhenEmpty),
-    // Where is it, and what has it been up to.
+    // Where is it, and what has it been up to. The map is the one hero card, and
+    // the two lists beside it stack to exactly its height.
     widget(clientId('widget'), 'route-map', undefined, 0, 3, 8, 6, { time_range_days:1 }),
     widget(clientId('widget'), 'activity-feed', undefined, 8, 3, 4, 3, { time_range_days:7 }),
     widget(clientId('widget'), 'telemetry-list', undefined, 8, 6, 4, 3),
-    // What did it cost.
-    widget(clientId('widget'), 'segment-stats', undefined, 0, 9, 4, 3, { time_range_days:7 }),
-    widget(clientId('widget'), 'period-stats', undefined, 4, 9, 4, 3, { time_range_days:7 }),
-    widget(clientId('widget'), 'vehicle-media', undefined, 8, 9, 4, 3, hideWhenEmpty),
-    widget(clientId('widget'), 'time-series', undefined, 0, 12, 6, 4, { metric:'vehicle.speed', time_range_days:1 }),
-    widget(clientId('widget'), 'xy-chart', undefined, 6, 12, 6, 4, { x_metric:'battery.soc', y_metric:'charging.power', time_range_days:7, ...hideWhenEmpty }),
+    // What did it cost. Half and half: both hold a grid of readings that wrapped
+    // badly at a third of the width.
+    widget(clientId('widget'), 'segment-stats', undefined, 0, 9, 6, 2, { time_range_days:7 }),
+    widget(clientId('widget'), 'period-stats', undefined, 6, 9, 6, 2, { time_range_days:7 }),
+    // How it has moved. The charge curve trails, being the one that may hide.
+    widget(clientId('widget'), 'time-series', undefined, 0, 11, 6, 4, { metric:'vehicle.speed', time_range_days:1 }),
+    widget(clientId('widget'), 'xy-chart', undefined, 6, 11, 6, 4, { x_metric:'battery.soc', y_metric:'charging.power', time_range_days:7, ...hideWhenEmpty }),
   ] }
 }
 
@@ -176,9 +187,30 @@ function applyResponsiveGrid(width: number): void {
   grid?.enableResize?.(columns === 12 && editing.value)
 }
 
+/**
+ * Restore every item's gs-* attributes from the widget model.
+ *
+ * Gridstack rewrites those attributes as it lays out, and the responsive remap to
+ * six columns leaves six-column coordinates behind. Vue never patches them back,
+ * because the value it binds never changed, so the next GridStack.init would read
+ * that stale layout as the truth and scatter the cards across the wide grid. The
+ * model is the layout; the attributes are restored from it before every init.
+ */
+function applyModelCoordinates(): void {
+  for (const currentWidget of visibleWidgets.value) {
+    const element = gridElement.value?.querySelector<HTMLElement>(`[data-widget-id="${currentWidget.id}"]`)
+    if (!element) continue
+    element.setAttribute('gs-x', String(currentWidget.x))
+    element.setAttribute('gs-y', String(currentWidget.y))
+    element.setAttribute('gs-w', String(currentWidget.w))
+    element.setAttribute('gs-h', String(currentWidget.h))
+  }
+}
+
 function initializeGrid(): void {
   if (!gridElement.value || grid) return
-  grid = GridStack.init({ column:12, cellHeight:72, margin:8, animate:true, float:true, staticGrid:!editing.value }, gridElement.value) ?? undefined
+  applyModelCoordinates()
+  grid = GridStack.init({ column:12, cellHeight:76, margin:6, animate:true, float:true, staticGrid:!editing.value }, gridElement.value) ?? undefined
   grid?.on('change', (_event, items: GridStackNode[]) => {
     if (canvasColumns !== 12) return
     for (const item of items) {
@@ -479,7 +511,7 @@ onBeforeUnmount(destroyGrid)
 
 <style scoped>
 .dashboard-page{max-width:none}
-.dashboard-topbar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px 16px;margin-bottom:18px;border-bottom:1px solid var(--line)}
+.dashboard-topbar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px 16px;margin-bottom:20px;border-bottom:1px solid var(--line)}
 .dashboard-topbar h1{margin:0;font-size:var(--font-page-title);font-weight:600;letter-spacing:-.015em}
 .dashboard-view-actions{position:relative;display:flex;align-items:center}
 .dashboard-menu-button{width:30px;height:30px;display:grid;place-items:center;color:var(--muted);background:transparent;border:1px solid transparent;border-radius:var(--radius);cursor:pointer;transition:color .12s,background-color .12s}
@@ -508,11 +540,13 @@ onBeforeUnmount(destroyGrid)
 .canvas-controls{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:14px}
 .default-label{color:var(--muted);font-size:var(--font-caption)}
 
-.dashboard-canvas{min-width:0}
+.dashboard-canvas{min-width:0;margin:-6px}
 .grid-stack{padding:0;background:transparent}
-.dashboard-canvas.is-editing{padding:6px;background:var(--panel-2);border-radius:var(--radius-lg)}
-.grid-stack-item-content{inset:4px!important;min-width:0;overflow:hidden!important;border-radius:var(--radius-lg)}
-.grid-stack.is-narrow .grid-stack-item-content{inset:3px!important}
+/* An outline, not padding: padding narrows the canvas, and a canvas near a
+   column breakpoint would change its column count on entering edit mode. */
+.dashboard-canvas.is-editing{border-radius:var(--radius-lg);outline:1px dashed var(--line-strong);outline-offset:8px}
+.grid-stack-item-content{inset:6px!important;min-width:0;overflow:hidden!important;border-radius:var(--radius-lg)}
+.grid-stack.is-narrow .grid-stack-item-content{inset:5px!important}
 .widget-remove{position:absolute;right:6px;top:6px;z-index:600;width:24px;height:24px;display:grid;place-items:center;color:var(--danger);background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);cursor:pointer;transition:color .12s,background-color .12s,border-color .12s}
 .widget-remove:hover{color:#fff;background:var(--danger);border-color:var(--danger)}
 

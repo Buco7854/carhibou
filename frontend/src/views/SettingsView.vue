@@ -105,18 +105,11 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.settings-page{max-width:900px;margin-left:0}
-.settings-block{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:20px 40px;padding:22px 0;border-top:1px solid var(--line)}
-.settings-block:first-of-type{border-top:0;padding-top:0}
-.settings-label h2{margin:0;font-size:14px;font-weight:600}
-.settings-label p{margin:5px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
-.settings-body{display:grid;gap:20px}
-.settings-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 
 .account-facts{display:grid;gap:7px;margin:0}
 .account-facts>div{display:flex;align-items:baseline;gap:12px}
-.account-facts dt{min-width:110px;color:var(--muted);font-size:12px}
-.account-facts dd{margin:0;font-size:13px;font-weight:500}
+.account-facts dt{min-width:110px;color:var(--muted);font-size:var(--font-caption)}
+.account-facts dd{margin:0;font-size:var(--font-body);font-weight:500}
 
 .password-form{display:grid;gap:12px}
 .password-actions{display:flex;align-items:center;gap:16px}
@@ -125,29 +118,24 @@ onMounted(async () => {
 .session-list li{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid var(--line)}
 .session-list li:first-child{padding-top:0}
 .session-list li:last-child{border-bottom:0;padding-bottom:0}
-.session-list strong{display:block;font-size:13px;font-weight:500}
-.session-list small{display:block;margin-top:2px;color:var(--muted);font-size:12px}
+.session-list strong{display:block;font-size:var(--font-body);font-weight:500}
+.session-list small{display:block;margin-top:2px;color:var(--muted);font-size:var(--font-caption)}
 
 .people-list{list-style:none;margin:0;padding:0;display:grid}
 .people-list li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px 12px;padding:10px 0;border-bottom:1px solid var(--line)}
 .people-list li:first-child{padding-top:0}
 .person{min-width:0}
-.person strong{display:block;overflow:hidden;font-size:13px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+.person strong{display:block;overflow:hidden;font-size:var(--font-body);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
 .person strong span{color:var(--muted);font-weight:400}
-.person small{display:block;margin-top:2px;overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
-.person-tag{padding:2px 7px;color:var(--accent);background:var(--accent-soft);border-radius:4px;font-size:11px}
+.person small{display:block;margin-top:2px;overflow:hidden;color:var(--muted);font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}
+.person-tag{padding:2px 7px;color:var(--accent);background:var(--accent-soft);border-radius:var(--radius-sm);font-size:var(--font-micro)}
 .person-actions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:14px}
-.settings-body>.button{justify-self:start}
 .person-form{display:grid;gap:14px}
 .person-form .form-actions{justify-content:flex-end;margin-top:2px}
-.check{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
+.check{display:flex;align-items:center;gap:8px;font-size:var(--font-body);cursor:pointer}
 .check input{width:14px;height:14px;accent-color:var(--accent)}
 .diagnostics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:14px;margin:0}
-.diagnostics-grid dt{color:var(--muted);font-size:12px}
-.diagnostics-grid dd{margin:3px 0 0;font-size:15px;font-weight:500}
+.diagnostics-grid dt{color:var(--muted);font-size:var(--font-caption)}
+.diagnostics-grid dd{margin:3px 0 0;font-size:var(--font-section);font-weight:500}
 
-@media(max-width:760px){
-  .settings-block{grid-template-columns:1fr;gap:14px}
-  .settings-pair{grid-template-columns:1fr}
-}
 </style>

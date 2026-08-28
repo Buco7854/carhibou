@@ -40,6 +40,7 @@ function value(reading: MetricReading): string {
 .telemetry-widget{padding:0}
 .telemetry-widget .widget-head{margin:0;padding:12px 14px 10px;border-bottom:1px solid var(--line)}
 .telemetry-widget dl{min-height:0;margin:0;overflow:auto}
+.telemetry-widget .dashboard-widget-empty{padding:12px 14px}
 .telemetry-widget dl>div{min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 14px;border-bottom:1px solid var(--line)}
 .telemetry-widget dl>div:last-child{border-bottom:0}
 .telemetry-widget dt{overflow:hidden;color:var(--muted);font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}

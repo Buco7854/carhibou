@@ -247,6 +247,9 @@ describe('vehicle and dashboard management', () => {
     await flushPromises()
     // The enrollment modal is still mounted, so scope to the settings one.
     const settings = wrapper.findAll('[role="dialog"]').at(-1)!
+    // Exact intervals are the exception, so the presets show and the four fields
+    // sit behind a disclosure.
+    await settings.get('.cadence-disclosure').trigger('click')
     await settings.findAll('.cadence-states input')[0]!.setValue('60')
     await settings.get('form').trigger('submit')
     await flushPromises()
@@ -268,6 +271,7 @@ describe('vehicle and dashboard management', () => {
     const wrapper = mount(DataSourcesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
     await flushPromises()
 
+    await wrapper.get('.source-details-toggle').trigger('click')
     const facts = wrapper.get('.source-facts').text()
     expect(facts).toContain('acme.esp32')
     expect(facts).toContain('2.4.0')
@@ -430,14 +434,17 @@ describe('vehicle and dashboard management', () => {
     const body = JSON.parse(createCall?.[1]?.body as string)
     expect(body.name).toBe('Overview')
     expect(body.is_default).toBe(true)
-    expect(body.layout.preset).toBe('overview-v7')
+    expect(body.layout.preset).toBe('overview-v8')
     // Ordered by the questions an owner asks: what is it doing, how fast, how
     // much is left, where is it, what happened recently, what did it cost.
     expect(body.layout.widgets.map((row: {type:string}) => row.type)).toEqual([
       'vehicle-selector', 'online-status', 'metric-card', 'battery-gauge', 'charging',
       'route-map', 'activity-feed', 'telemetry-list',
-      'segment-stats', 'period-stats', 'vehicle-media', 'time-series', 'xy-chart',
+      'segment-stats', 'period-stats', 'time-series', 'xy-chart',
     ])
+    // A photo is decoration, not telemetry, and the Vehicles page already shows
+    // it; the widget stays available to add, but the premade layout leaves it out.
+    expect(widgetRegistry['vehicle-media']).toBeDefined()
     // The route map replaces the plain position map, which stays available to add.
     expect(widgetRegistry['position-map']).toBeDefined()
     const speed = body.layout.widgets.find((row: {type:string}) => row.type === 'metric-card')
@@ -457,7 +464,7 @@ describe('vehicle and dashboard management', () => {
       'vehicle-selector', 'online-status', 'metric-card', 'route-map', 'activity-feed',
       'telemetry-list', 'segment-stats', 'period-stats', 'time-series',
     ])
-    expect(flagged(true)).toEqual(['battery-gauge', 'charging', 'vehicle-media', 'xy-chart'])
+    expect(flagged(true)).toEqual(['battery-gauge', 'charging', 'xy-chart'])
     // The two speed cards show because speed is standard, not because the guard
     // is loose: rebinding either to a non-standard metric makes it specific again.
     for (const type of ['metric-card', 'time-series']) {
@@ -474,8 +481,10 @@ describe('vehicle and dashboard management', () => {
     }
     // No widget lands on top of another, and none overflows the 12 columns.
     const cells = new Set<string>()
+    let lastRow = 0
     for (const row of body.layout.widgets as Array<{x:number;y:number;w:number;h:number;type:string}>) {
       expect(row.x + row.w, row.type).toBeLessThanOrEqual(12)
+      lastRow = Math.max(lastRow, row.y + row.h)
       for (let x = row.x; x < row.x + row.w; x += 1) {
         for (let y = row.y; y < row.y + row.h; y += 1) {
           expect(cells.has(`${x},${y}`), `${row.type} at ${x},${y}`).toBe(false)
@@ -483,12 +492,25 @@ describe('vehicle and dashboard management', () => {
         }
       }
     }
+    // And every row is covered edge to edge. A premade layout is the one nobody
+    // chose, so it cannot leave a gap that reads as a card failing to load.
+    for (let y = 0; y < lastRow; y += 1) {
+      for (let x = 0; x < 12; x += 1) expect(cells.has(`${x},${y}`), `gap at ${x},${y}`).toBe(true)
+    }
+    // The cards that may hide sit at the end of their row, so what they leave
+    // behind is trailing space rather than a hole punched in the middle.
+    for (const row of body.layout.widgets as DashboardWidget[]) {
+      if (!row.settings?.hide_when_empty) continue
+      const rightOf = (body.layout.widgets as DashboardWidget[]).filter((other) =>
+        other.x > row.x && other.y < row.y + row.h && row.y < other.y + other.h)
+      expect(rightOf.every((other) => Boolean(other.settings?.hide_when_empty)), row.type).toBe(true)
+    }
     expect(wrapper.get('.dashboard-tabs').text()).toContain('Overview')
   })
 
   it('updates dynamic widgets from the vehicle selector and persists card deletion', async () => {
     const secondVehicle = { ...vehicle, id:'vehicle-2', name:'Nimbus', state:{...vehicle.state,metrics:{'fuel.level':25}} }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v7',widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v8',widgets:[
       {id:'selector',type:'vehicle-selector',x:0,y:0,w:12,h:1},
       {id:'fuel',type:'metric-card',metric:'fuel.level',x:0,y:1,w:3,h:2},
     ]}, created_at:'', updated_at:'' }
@@ -579,7 +601,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('offers types only, so a soc-versus-power chart is configured not conjured', async () => {
-    const dashboard = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v7', widgets:[] }, created_at:'', updated_at:'' }
+    const dashboard = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v8', widgets:[] }, created_at:'', updated_at:'' }
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
       if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
@@ -612,7 +634,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('renders a saved charge-curve layout as the x-y chart that replaced it', async () => {
-    const legacy = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v7', widgets:[
+    const legacy = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v8', widgets:[
       { id:'legacy', type:'charge-curve', x:0, y:0, w:6, h:3 },
     ] }, created_at:'', updated_at:'' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
@@ -636,7 +658,7 @@ describe('vehicle and dashboard management', () => {
   it('hides opted-in widgets for a vehicle that cannot report them, and keeps the rest', async () => {
     // A standard OBD-II diesel: no traction battery, and no fuel-level PID support.
     const diesel = { ...vehicle, id:'vehicle-2', name:'Golf', photo_url:null, state:{ ...vehicle.state, metrics:{ 'engine.rpm':1800 } } }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v7', widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v8', widgets:[
       { id:'selector', type:'vehicle-selector', x:0, y:0, w:12, h:1 },
       { id:'energy', type:'battery-gauge', x:0, y:1, w:4, h:2, settings:{ hide_when_empty:true } },
       { id:'charge', type:'charging', x:4, y:1, w:4, h:2, settings:{ hide_when_empty:true } },

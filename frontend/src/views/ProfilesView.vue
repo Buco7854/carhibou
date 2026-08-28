@@ -179,8 +179,10 @@ onMounted(load)
 .metric-chips span{color:var(--muted);font-size:var(--font-micro)}
 .profile-card>footer{display:flex;align-items:center;flex-wrap:wrap;gap:4px 14px;margin-top:auto;padding-top:12px;color:var(--muted);font-size:var(--font-caption)}
 .profile-card>footer>span+span::before{content:"·";margin-right:14px}
-.empty-profile{min-height:96px;display:grid;place-items:center;align-content:center;gap:4px;padding:24px;color:var(--muted);border-style:dashed;cursor:pointer;transition:border-color .12s}
-.empty-profile:hover{border-color:var(--muted-2)}
+/* A dashed outline needs a border to be dashed; .panel separates with a shadow
+   ring, so this read as a solid card asking to be filled in. */
+.empty-profile{min-height:96px;display:grid;place-items:center;align-content:center;gap:4px;padding:24px;color:var(--muted);background:transparent;border:1px dashed var(--line-strong);border-radius:var(--radius-lg);box-shadow:none;cursor:pointer;transition:border-color .12s,background-color .12s}
+.empty-profile:hover{background:var(--panel);border-color:var(--muted-2)}
 .empty-profile strong{color:var(--text);font-size:var(--font-body);font-weight:500}
 .empty-profile span{font-size:var(--font-caption)}
 @media(max-width:560px){.profile-grid{grid-template-columns:1fr}}

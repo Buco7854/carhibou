@@ -162,7 +162,7 @@ onMounted(load)
           </div>
         </section>
 
-        <section class="rail-group">
+        <section class="rail-group rail-card">
           <h2 class="rail-title">{{ t('hooks.secrets') }}</h2>
           <p class="rail-note">{{ t('hooks.secretsHint') }}</p>
           <ul v-if="secrets.length" class="secret-list">
@@ -257,6 +257,9 @@ onMounted(load)
 
 .hooks-rail{display:grid;gap:22px;align-content:start}
 .rail-group{display:grid;gap:7px}
+/* Secrets are a form, and a form standing on the page beside a panel reads as
+   something that fell out of one. */
+.rail-card{padding:13px 14px;background:var(--panel);border-radius:var(--radius-lg);box-shadow:0 0 0 1px var(--panel-line),var(--shadow-soft)}
 .rail-title{margin:0;color:var(--muted);font-size:var(--font-caption);font-weight:600}
 .rail-note{margin:0;color:var(--muted);font-size:var(--font-caption);line-height:1.45}
 
@@ -275,12 +278,12 @@ onMounted(load)
 
 .secret-list{list-style:none;margin:0;padding:0;display:grid;gap:1px}
 .secret-list li{display:grid;grid-template-columns:minmax(0,1fr) 22px;align-items:center;padding:5px 2px 5px 0}
-.secret-list strong{overflow:hidden;font-size:12px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
-.secret-list small{grid-column:1;color:var(--muted-2);font-size:11px;letter-spacing:.06em}
+.secret-list strong{overflow:hidden;font-size:var(--font-caption);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+.secret-list small{grid-column:1;color:var(--muted-2);font-size:var(--font-micro);letter-spacing:.06em}
 .secret-list .icon-button{width:22px;height:22px}
 .secret-form{display:grid;gap:6px;margin-top:4px}
-.secret-form .input{min-height:30px;padding:5px 8px;font-size:12px}
-.secret-form .button{justify-self:start;height:28px;font-size:12px}
+.secret-form .input{min-height:30px;padding:5px 8px;font-size:var(--font-caption)}
+.secret-form .button{justify-self:start;height:28px;font-size:var(--font-caption)}
 
 .hook-detail{min-width:0}
 .detail-bar{

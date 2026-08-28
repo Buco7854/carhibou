@@ -89,7 +89,7 @@ function positionMenu(): void {
   const bounds = root.value?.getBoundingClientRect()
   if (!bounds) return
   const edge = 8
-  const desiredHeight = Math.min(320, options.value.length * 39 + 10 + (props.searchable ? 47 : 0))
+  const desiredHeight = Math.min(320, options.value.length * 39 + 10 + (props.searchable ? 40 : 0))
   const roomBelow = window.innerHeight - bounds.bottom - edge
   const roomAbove = bounds.top - edge
   const above = roomBelow < Math.min(180, desiredHeight) && roomAbove > roomBelow
@@ -278,9 +278,12 @@ onBeforeUnmount(() => {
 }
 .app-select-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app-select-trigger:hover{border-color:var(--muted-2)}
-.app-select-trigger:focus-visible,.app-select.open .app-select-trigger{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.app-select-arrow{justify-self:end;color:var(--muted);transition:transform .12s}
-.app-select.open .app-select-arrow{transform:rotate(180deg)}
+/* Focus and open are the same edge, drawn once. The border takes the accent and a
+   1px spread thickens it to 2px, so there is a single ring in a single colour
+   where a saturated border inside a pale halo used to read as two. */
+.app-select-trigger:focus-visible,.app-select.open .app-select-trigger{border-color:var(--accent);box-shadow:var(--focus-ring)}
+.app-select-arrow{justify-self:end;color:var(--muted);transition:transform .12s,color .12s}
+.app-select.open .app-select-arrow{color:var(--accent);transform:rotate(180deg)}
 .app-select.compact{width:max-content}
 .app-select.compact .app-select-trigger{min-width:52px;min-height:30px;padding:4px 6px 4px 9px;background:transparent;border-color:transparent;font-size:12px}
 .app-select.compact .app-select-trigger:hover{border-color:var(--line-strong)}
@@ -288,16 +291,19 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
-.app-select-menu{position:fixed;z-index:5000;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.app-select-menu{position:fixed;z-index:5000;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:4px;background:var(--panel);border-radius:var(--radius-lg);box-shadow:0 0 0 1px var(--line),var(--shadow)}
 .app-select-options{min-height:0;overflow:auto}
 .app-select-menu button{width:100%;min-height:32px;display:grid;grid-template-columns:minmax(0,1fr) 15px;align-items:center;gap:8px;padding:6px 8px;color:var(--text);background:transparent;border:0;border-radius:var(--radius);text-align:left;font-size:13px;cursor:pointer}
 .app-select-menu button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app-select-menu button:hover,.app-select-menu button.active{background:var(--panel-2)}
 .app-select-menu button.selected{font-weight:500}
+.app-select-menu button.selected{color:var(--accent)}
 .app-select-menu button.selected .app-icon{color:var(--accent)}
 .app-select-menu button:disabled{opacity:.4;cursor:not-allowed}
-.app-select-search{height:34px;display:grid;grid-template-columns:16px minmax(0,1fr);align-items:center;gap:7px;margin-bottom:4px;padding:0 8px;color:var(--muted);background:var(--input);border:1px solid var(--line);border-radius:var(--radius)}
-.app-select-search:focus-within{border-color:var(--accent)}
+/* A boxed field inside a bordered menu is a frame inside a frame, so the search
+   is a flush header the hairline separates instead of a control of its own. */
+.app-select-search{height:36px;display:grid;grid-template-columns:15px minmax(0,1fr);align-items:center;gap:8px;margin:-4px -4px 4px;padding:0 11px;color:var(--muted-2);border-bottom:1px solid var(--line)}
+.app-select-search:focus-within{color:var(--accent)}
 .app-select-search input{min-width:0;width:100%;padding:0;color:var(--text);background:transparent;border:0;outline:0;font:inherit;font-size:13px}
 .app-select-search input::placeholder{color:var(--muted-2)}
 .app-select-group{margin:6px 8px 3px;color:var(--muted);font-size:var(--font-caption);font-weight:500}

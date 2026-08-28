@@ -110,6 +110,7 @@ watch([() => vehicle.value?.id, () => drive.value && `${drive.value.start}-${dri
 
 <style scoped>
 .route-map-widget{padding:0}
+.route-map-widget .dashboard-widget-empty{padding:12px 14px}
 .route-map-widget .widget-head{min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px 10px;border-bottom:1px solid var(--line)}
 .route-map-widget .widget-head>div{min-width:0}
 .route-map-widget h2{margin:0;overflow:hidden;color:var(--muted);font-size:var(--font-caption);font-weight:500;letter-spacing:.01em;text-overflow:ellipsis;white-space:nowrap}

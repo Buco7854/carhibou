@@ -41,6 +41,7 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days], loadRoute, 
 
 <style scoped>
 .map-widget{padding:0}
+.map-widget .dashboard-widget-empty{padding:12px 14px}
 .map-widget .widget-head{min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px 10px;border-bottom:1px solid var(--line)}
 .map-widget .widget-head>div{min-width:0}
 .map-widget h2{margin:0;overflow:hidden;color:var(--muted);font-size:var(--font-caption);font-weight:500;letter-spacing:.01em;text-overflow:ellipsis;white-space:nowrap}

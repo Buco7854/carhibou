@@ -22,7 +22,7 @@ function withMetrics(metrics: Record<string, unknown>, position: unknown = null)
 
 const dashboard = {
   id: 'd1', name: 'Overview', is_default: true,
-  layout: { preset: 'overview-v7', widgets: [] }, created_at: '', updated_at: '',
+  layout: { preset: 'overview-v8', widgets: [] }, created_at: '', updated_at: '',
 }
 
 function mountDashboards(vehicles: Vehicle[]) {

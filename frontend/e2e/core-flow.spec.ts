@@ -220,9 +220,10 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   for (const type of ['metric-card', 'charging', 'time-series', 'xy-chart']) {
     await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(1)
   }
-  // This vehicle was given a photo earlier, so every card in the preset is up.
-  await expect(page.locator('[data-widget-type="vehicle-media"]')).toHaveCount(1)
-  await expect(page.locator('.grid-stack-item')).toHaveCount(13)
+  // Every card in the preset is up. The photo is not one of them: it is decoration
+  // rather than telemetry, and the Vehicles page already shows it.
+  await expect(page.locator('[data-widget-type="vehicle-media"]')).toHaveCount(0)
+  await expect(page.locator('.grid-stack-item')).toHaveCount(12)
 
   const liveSample = {
     id: randomUUID(),
@@ -310,6 +311,10 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
 
   await page.getByRole('link', { name: 'Data sources' }).click()
   await expect(page.getByRole('heading', { name: 'Vehicle agent' })).toBeVisible()
+  // The row carries what identifies the agent and how it is doing; the build it
+  // runs is one of the facts behind the disclosure.
+  await expect(page.getByText('e2e-1.0.0')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Details' }).first().click()
   await expect(page.getByText('e2e-1.0.0')).toBeVisible()
 
   await page.setViewportSize({ width: 375, height: 812 })
@@ -355,4 +360,56 @@ test('mobile login keeps language, theme, keyboard access and reflow', async ({ 
   expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.viewport)
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations).toEqual([])
+})
+
+test('leaving edit mode leaves the dashboard exactly where it was', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 1000 })
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('browser-owner@example.com')
+  await page.getByLabel('Password').fill('browser-e2e-password-2026')
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page).toHaveURL('/')
+  await expect(page.locator('.grid-stack-item').first()).toBeVisible()
+
+  const layout = () => page.$$eval('.grid-stack-item', (nodes) => nodes.map((node) => [
+    node.getAttribute('data-widget-type'),
+    node.getAttribute('gs-x'), node.getAttribute('gs-y'), node.getAttribute('gs-w'), node.getAttribute('gs-h'),
+  ].join(',')).sort().join(' '))
+
+  // The canvas animates into place, so a single read can catch it mid-flight.
+  // Two identical reads in a row mean the layout has settled.
+  async function settled(): Promise<string> {
+    let previous = ''
+    await expect.poll(async () => {
+      const current = await layout()
+      const stable = Boolean(current) && current === previous
+      previous = current
+      return stable
+    }).toBe(true)
+    return previous
+  }
+
+  const wide = await settled()
+
+  // A canvas narrower than 1050px is remapped to six columns, and gridstack writes
+  // that remap onto each item's gs-* attributes. Editing tears the grid down and
+  // builds it again; the regression is that rebuild reading those narrow attributes
+  // instead of the widget model, which loses the twelve-column layout for good.
+  await page.setViewportSize({ width: 900, height: 1000 })
+  await settled()
+  for (const leaveWith of ['Cancel', 'Save']) {
+    await page.getByRole('button', { name: 'Dashboard actions' }).click()
+    await page.getByRole('menuitem', { name: 'Edit dashboard' }).click()
+    await expect(page.locator('.dashboard-editor-bar')).toBeVisible()
+    await page.locator('.canvas-controls').getByRole('button', { name: leaveWith }).click()
+    await expect(page.locator('.dashboard-editor-bar')).toHaveCount(0)
+    await settled()
+  }
+
+  await page.setViewportSize({ width: 1400, height: 1000 })
+  expect(await settled(), 'editing on a narrow canvas rewrote the wide layout').toBe(wide)
+
+  await page.reload()
+  await expect(page.locator('.grid-stack-item').first()).toBeVisible()
+  expect(await settled()).toBe(wide)
 })

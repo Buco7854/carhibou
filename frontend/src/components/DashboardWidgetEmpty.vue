@@ -23,7 +23,7 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
-.dashboard-widget-empty{min-width:0;min-height:0;flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;color:var(--muted-2);text-align:center}
+.dashboard-widget-empty{min-width:0;min-height:0;flex:1;display:flex;align-items:flex-start;gap:7px;padding:2px 0 12px;color:var(--muted-2)}
 .dashboard-widget-empty .app-icon{flex:none}
 .dashboard-widget-empty span{overflow:hidden;font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}
 </style>

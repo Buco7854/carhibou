@@ -24,6 +24,7 @@ const vehicle = useDashboardVehicle(props.widget)
 
 <style scoped>
 .media-widget{position:relative;padding:0}
+.media-widget .dashboard-widget-empty{padding:12px 14px}
 .media-head{margin:0;padding:12px 14px 10px;border-bottom:1px solid var(--line)}
 /* Here the heading is the vehicle's name, not a label over a reading, so it
    keeps the text colour the photo caption uses. */

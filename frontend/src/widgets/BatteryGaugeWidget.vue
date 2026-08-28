@@ -24,7 +24,9 @@ const energy = computed(() => energySummary(vehicle.value))
 </template>
 
 <style scoped>
-.gauge{min-height:0;display:flex;align-items:baseline;flex:1;padding-bottom:10px}
-.gauge strong{font-size:clamp(30px,3.4vw,44px);font-weight:500;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums}
-.gauge em{margin-left:4px;color:var(--muted);font-size:var(--font-body);font-style:normal}
+/* The reading is set at --font-value like every other card's, so the four cards
+   of the status row share one type size and their numbers sit on one line. */
+.gauge{display:flex;align-items:baseline;margin-top:auto;padding-bottom:9px}
+.gauge strong{font-size:var(--font-value);font-weight:500;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
+.gauge em{margin-left:3px;color:var(--muted);font-size:var(--font-body);font-style:normal}
 </style>

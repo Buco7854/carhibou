@@ -45,6 +45,8 @@ describe('external data connectors', () => {
     expect(chips[3]!.classes()).toEqual(['status'])
 
     const connected = wrapper.findAll('.connector-row')[0]!
+    // Kind, broker and interval live behind the row's details disclosure.
+    await connected.get('.source-details-toggle').trigger('click')
     expect(connected.text()).toContain('TeslaMate (MQTT)')
     expect(connected.text()).toContain('mqtt.local:1883')
     expect(connected.text()).toContain(new Date('2026-01-01T00:05:00Z').toLocaleString())
@@ -53,9 +55,13 @@ describe('external data connectors', () => {
     // The last error is the only thing that explains an error chip, so it is on the row.
     expect(wrapper.findAll('.connector-row')[2]!.get('.connector-error').text()).toBe('broker refused the credentials')
     expect(connected.find('.connector-error').exists()).toBe(false)
-    // Disabling is how a data source is stood down, so the action reads as the inverse.
-    expect(wrapper.findAll('.connector-row')[3]!.text()).toContain('Enable')
-    expect(connected.text()).toContain('Disable')
+    // Disabling is how a data source is stood down, so the action reads as the
+    // inverse. It sits in the row menu, which each row opens for itself.
+    const paused = wrapper.findAll('.connector-row')[3]!
+    await paused.get('.row-menu-button').trigger('click')
+    expect(paused.get('.row-menu-list').text()).toContain('Enable')
+    await connected.get('.row-menu-button').trigger('click')
+    expect(connected.get('.row-menu-list').text()).toContain('Disable')
   })
 
   it('creates a data source with exactly the fields the catalog contract defines', async () => {
@@ -164,7 +170,8 @@ describe('external data connectors', () => {
     const wrapper = mount(DataSourcesView, { global: { plugins: [i18n], stubs: { Teleport: true } } })
     await flushPromises()
 
-    await wrapper.findAll('.connector-row .source-actions .button')[1]!.trigger('click')
+    await wrapper.get('.connector-row .row-menu-button').trigger('click')
+    await wrapper.get('.connector-row .row-menu-list button').trigger('click')
     await flushPromises()
     expect(lastBody(fetchMock, 'PUT', '/connectors/connector-1')).toEqual({
       name: 'Garage broker', enabled: false, mapping_profile: 'teslamate-mqtt-v1', config: connectorRow().config,

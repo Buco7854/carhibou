@@ -36,15 +36,19 @@
   --scroll-thumb: rgba(26, 28, 25, .18);
   --scroll-thumb-hover: rgba(26, 28, 25, .32);
 
-  --primary: #24479f;
-  --primary-hover: #1b3679;
+  /* A classic blue. The hue barely moved from the navy this replaces (221deg
+     against 223deg); what made that one read as cobalt was its value, so the
+     accent is brightened rather than shifted. Measured against white it carries
+     5.17:1 both as text and as a fill behind white text. */
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
   --primary-contrast: #ffffff;
 
-  --accent: #24479f;
-  --accent-hover: #1b3679;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
   --accent-contrast: #ffffff;
-  --accent-soft: #e3e9f7;
-  --accent-rgb: 36, 71, 159;
+  --accent-soft: #dbeafe;
+  --accent-rgb: 37, 99, 235;
 
   --success: #1c7343;
   --success-soft: #e5f1e9;
@@ -61,7 +65,7 @@
   --warning-fill: #cc7000;
   --success-fill: #0f9550;
 
-  --chart-1: #2563bd;
+  --chart-1: #2563eb;
   --chart-2: #eb6834;
   --chart-3: #1baf7a;
   --chart-4: #4a3aa7;
@@ -76,33 +80,41 @@
      alone, unchanged to the pixel. */
   --shadow-soft: 0 1px 3px rgba(24, 28, 22, .07);
   --shadow: 0 14px 40px rgba(24, 28, 22, .16);
-  --focus-ring: 0 0 0 3px var(--accent-soft);
+  /* One ring, one colour. A saturated border wrapped in a pale halo reads as two
+     outlines; a 1px spread on top of the 1px border reads as a single 2px edge,
+     and costs no layout because it is a shadow. */
+  --focus-ring: 0 0 0 1px var(--accent);
 }
 
 [data-theme="dark"] {
-  --workspace: #0f110e;
+  /* Every surface sits one notch higher than it used to, keeping the tonal
+     order sidebar < workspace < panel < panel-2 that carries elevation here.
+     Lifting them costs contrast, so muted-2 is re-tuned in step: on the new
+     panel it reads 4.78:1, where leaving it alone would have dropped it to
+     4.15:1 and under the 4.5:1 it needs as caption text. */
+  --workspace: #1a1d17;
   --text: #f1f3ef;
-  --panel: #22251f;
-  --panel-2: #2c2f29;
-  --sidebar: #0a0b09;
-  --input: #1c1f1a;
+  --panel: #2a2e26;
+  --panel-2: #353a31;
+  --sidebar: #131610;
+  --input: #232720;
   --panel-line: transparent;
-  --line: #303430;
-  --line-strong: #3d4139;
+  --line: #3a3f36;
+  --line-strong: #4a5044;
   --muted: #a0a69c;
-  --muted-2: #888f83;
+  --muted-2: #939a8e;
   --scroll-thumb: rgba(241, 243, 239, .16);
   --scroll-thumb-hover: rgba(241, 243, 239, .3);
 
-  --primary: #7fa2f2;
-  --primary-hover: #9db9ff;
+  --primary: #60a5fa;
+  --primary-hover: #93c5fd;
   --primary-contrast: #10141b;
 
-  --accent: #7fa2f2;
-  --accent-hover: #9db9ff;
+  --accent: #60a5fa;
+  --accent-hover: #93c5fd;
   --accent-contrast: #10141b;
-  --accent-soft: rgba(127, 162, 242, .16);
-  --accent-rgb: 127, 162, 242;
+  --accent-soft: rgba(96, 165, 250, .18);
+  --accent-rgb: 96, 165, 250;
 
   --success: #56c98a;
   --success-soft: rgba(86, 201, 138, .14);
@@ -117,7 +129,7 @@
   --warning-fill: var(--warning);
   --success-fill: var(--success);
 
-  --chart-1: #3b7fe0;
+  --chart-1: #60a5fa;
   --chart-2: #d95926;
   --chart-3: #199e70;
   --chart-4: #9085e9;
@@ -267,9 +279,41 @@ a { color: inherit; }
 .input::placeholder, .textarea::placeholder { color: var(--muted-2); }
 .input:focus, .textarea:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; }
+
+/* A long form reads as a wall until it is grouped. A section carries a heading
+   and the hairline that separates it from the one before, so the eye can skip a
+   whole group instead of reading every label to find out it did not want it. */
+.form-section { display: grid; align-content: start; gap: 12px; }
+.form-section + .form-section { margin-top: 4px; padding-top: 16px; border-top: 1px solid var(--line); }
+.form-section > h3 { margin: 0; font-size: var(--font-caption); font-weight: 600; letter-spacing: -.005em; }
+.form-section > .field-hint:first-of-type { margin-top: -6px; }
 .form-actions { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
 .error { color: var(--danger); font-size: 13px; }
 .success { color: var(--success); }
+
+/* ---------- settings pages ---------- */
+
+/* Settings and Administration are the same shape: a named group, an explanation
+   of it, and its controls. Both used to declare this layout themselves, and both
+   left it floating on the page while every other view sat on a panel. */
+.settings-page { width: 100%; max-width: 940px; margin-left: 0; }
+.settings-page > .page-header { margin-bottom: 18px; }
+.settings-block {
+  display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); align-items: start; gap: 18px 40px;
+  padding: 20px 22px; color: var(--text); background: var(--panel);
+  border-radius: var(--radius-lg); box-shadow: 0 0 0 1px var(--panel-line), var(--shadow-soft);
+}
+.settings-block + .settings-block { margin-top: 14px; }
+.settings-label h2 { margin: 0; font-size: var(--font-body); font-weight: 600; letter-spacing: -.005em; }
+.settings-label p { margin: 5px 0 0; color: var(--muted); font-size: var(--font-caption); line-height: 1.5; }
+.settings-body { min-width: 0; display: grid; align-content: start; gap: 18px; }
+.settings-body > .button { justify-self: start; }
+.settings-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+
+@media (max-width: 760px) {
+  .settings-block { grid-template-columns: 1fr; gap: 14px; padding: 18px; }
+  .settings-pair { grid-template-columns: 1fr; }
+}
 
 /* ---------- data ---------- */
 

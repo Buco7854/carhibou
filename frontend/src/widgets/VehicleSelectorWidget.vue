@@ -44,7 +44,7 @@ function vehicleDetails(vehicle: Vehicle): string {
 <style scoped>
 .vehicle-selector-widget{flex-direction:row;align-items:center;gap:12px;padding:8px 14px}
 .selector-label{flex:none;color:var(--muted);font-size:var(--font-caption);font-weight:500;letter-spacing:.01em}
-.vehicle-select{width:min(100%,460px);flex:1}
+.vehicle-select{width:min(100%,300px);flex:0 1 300px}
 .vehicle-select :deep(.app-select-trigger){min-height:32px;padding-block:5px}
 .vehicle-selector-widget>.status{flex:none;margin-left:auto}
 @media(max-width:700px){.vehicle-selector-widget{gap:9px;padding-inline:10px}.selector-label{display:none}}
