@@ -28,6 +28,18 @@ const xDefinition = computed(() => metricDefinition(xMetric.value))
 const yDefinition = computed(() => metricDefinition(yMetric.value))
 const days = computed(() => props.widget.time_range_days ?? 7)
 const preset = computed(() => presetFor(props.widget))
+/**
+ * A chart plotting battery against power must not read "X-Y chart". The head
+ * names the axes it is actually bound to, so a rebound card retitles itself.
+ * A configuration a preset recognises keeps that preset's own name, and only a
+ * chart with nothing chosen falls back to the generic one.
+ */
+const heading = computed(() => {
+  if (props.widget.title) return props.widget.title
+  if (preset.value) return t(preset.value.titleKey)
+  if (!configured.value) return t('dashboards.xyChart')
+  return t('dashboards.axisPair', { y: metricLabel(yDefinition.value, t), x: metricLabel(xDefinition.value, t) })
+})
 
 // A selection this range holds scopes the chart to that window. One it does not
 // hold is said so, and no selection at all plots the widget's own range rather
@@ -97,7 +109,7 @@ watch(
 <template>
   <article class="widget-card xy-chart-widget">
     <div class="widget-head">
-      <h2>{{ widget.title || t(preset?.titleKey ?? 'dashboards.xyChart') }}</h2>
+      <h2>{{ heading }}</h2>
       <small v-if="hasData && peak !== undefined">{{ t('insights.peakAverage', { peak: peak.toFixed(1), average: (average ?? 0).toFixed(1) }) }}</small>
     </div>
     <div v-if="hasData" class="chart">

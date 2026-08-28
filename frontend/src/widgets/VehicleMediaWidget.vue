@@ -12,7 +12,7 @@ const vehicle = useDashboardVehicle(props.widget)
 
 <template>
   <article class="widget-card media-widget">
-    <div v-if="vehicle && !vehicle.photo_url" class="widget-head media-head"><h2>{{ widget.title || vehicle.name }}</h2><small>{{ [vehicle.manufacturer, vehicle.model, vehicle.year].filter(Boolean).join(' · ') }}</small></div>
+    <div v-if="vehicle && !vehicle.photo_url" class="widget-head media-head"><h2>{{ widget.title || t('dashboards.vehicleMedia') }}</h2><small>{{ vehicle.name }}</small></div>
     <VehicleMedia v-if="vehicle" :vehicle="vehicle" />
     <DashboardWidgetEmpty v-else icon="vehicle" :message="t('vehicles.noVehicles')" />
     <div v-if="vehicle?.photo_url" class="media-caption">

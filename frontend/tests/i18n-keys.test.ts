@@ -80,9 +80,12 @@ describe('translation coverage', () => {
       const source = readFileSync(files.find((path) => path.includes(fileFor(type)))!, 'utf8')
       expect(source, type).toContain(`t('${widgetRegistry[type]!.titleKey}')`)
     }
-    // The generic chart names itself after the preset it matches, else its own key.
+    // The generic chart falls back to its own registry key, and only there: the
+    // configured cases name themselves after the preset or the bound axes.
     const chart = readFileSync(files.find((path) => path.includes('XyChartWidget.vue'))!, 'utf8')
-    expect(chart).toContain(`?? '${widgetRegistry['xy-chart']!.titleKey}'`)
+    expect(chart).toContain(`t('${widgetRegistry['xy-chart']!.titleKey}')`)
+    expect(chart).toContain('t(preset.value.titleKey)')
+    expect(chart).toContain(`t('dashboards.axisPair'`)
   })
 
   it('resolves every widget preset title in both locales', () => {
