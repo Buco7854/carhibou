@@ -105,7 +105,7 @@ function apply(preset: Cadence): void {
 .preset strong{font-size:12px;font-weight:600}
 .preset small{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
 .cadence-states{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
-.cadence-state{min-width:0;margin:0;padding:10px 12px 12px;border:1px solid var(--line);border-radius:var(--radius)}
+.cadence-state{min-width:0;margin:0;padding:10px 12px 12px;background:var(--panel-2);border-radius:var(--radius)}
 .cadence-state legend{padding:0 5px;color:var(--muted);font-size:12px;font-weight:600}
 .cadence-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .cadence-estimate{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;color:var(--muted);font-size:12px}

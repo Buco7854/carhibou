@@ -29,7 +29,7 @@ const vehicle = useDashboardVehicle(props.widget)
    keeps the text colour the photo caption uses. */
 .media-head h2{color:var(--text);font-size:var(--font-body);letter-spacing:0}
 .media-widget :deep(.vehicle-media){min-height:0;border:0;border-radius:0}
-.media-caption{position:absolute;right:10px;bottom:10px;left:10px;padding:7px 10px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:var(--radius);backdrop-filter:blur(8px)}
+.media-caption{position:absolute;right:10px;bottom:10px;left:10px;padding:7px 10px;background:color-mix(in srgb,var(--panel) 92%,transparent);border-radius:var(--radius);box-shadow:var(--shadow-soft);backdrop-filter:blur(8px)}
 .media-caption strong,.media-caption small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .media-caption strong{font-size:var(--font-body);font-weight:500}
 .media-caption small{margin-top:1px;color:var(--muted);font-size:var(--font-caption)}

@@ -453,10 +453,10 @@ onMounted(load)
 .enrollment-fields{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
 .enrollment-fields>.field-hint{margin:-6px 0 0}
 .enrollment-panel>.button{justify-self:start}
-.implementation-card{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius)}
+.implementation-card{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:12px;background:var(--panel-2);border-radius:var(--radius)}
 .implementation-heading{display:flex;align-items:center;gap:8px}
 .implementation-heading strong{font-size:var(--font-body);font-weight:600}
-.origin-tag{flex:none;padding:2px 6px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:var(--font-micro)}
+.origin-tag{flex:none;padding:2px 6px;color:var(--muted);background:var(--panel);border-radius:var(--radius-sm);font-size:var(--font-micro)}
 .implementation-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0}
 .implementation-facts>div{min-width:0}
 .implementation-facts dt{color:var(--muted);font-size:var(--font-caption)}
@@ -477,7 +477,7 @@ onMounted(load)
 .step-text{margin:0;font-size:var(--font-caption)}
 .step-value .step-text{color:var(--muted)}
 .step-link{margin:0;font-size:var(--font-caption)}
-.copy-surface{position:relative;min-width:0;display:flex;align-items:center;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius)}
+.copy-surface{position:relative;min-width:0;display:flex;align-items:center;background:var(--panel-2);border-radius:var(--radius)}
 .copy-surface pre,.copy-surface code{min-width:0;display:block;flex:1;overflow:auto;margin:0;padding:11px 44px 11px 12px;color:var(--text);font-size:var(--font-caption);white-space:pre}
 .copy-surface pre:focus-visible,.copy-surface code:focus-visible{outline:none;box-shadow:var(--focus-ring)}
 .copy-button{position:absolute;top:6px;right:6px;width:30px;height:30px;display:grid;place-items:center;color:var(--muted);background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);cursor:pointer;transition:color .12s,border-color .12s}

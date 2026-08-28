@@ -252,7 +252,7 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
-.app-select-menu{position:fixed;z-index:5000;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:4px;background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.app-select-menu{position:fixed;z-index:5000;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
 .app-select-options{min-height:0;overflow:auto}
 .app-select-menu button{width:100%;min-height:32px;display:grid;grid-template-columns:minmax(0,1fr) 15px;align-items:center;gap:8px;padding:6px 8px;color:var(--text);background:transparent;border:0;border-radius:var(--radius);text-align:left;font-size:13px;cursor:pointer}
 .app-select-menu button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

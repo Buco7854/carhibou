@@ -460,7 +460,7 @@ onBeforeUnmount(destroyGrid)
 .dashboard-tabs button:disabled{opacity:.45;cursor:not-allowed}
 .dashboard-tabs span{margin-left:5px;padding:1px 4px;color:var(--muted);background:var(--panel-2);border-radius:var(--radius-sm);font-size:10px;font-weight:400;text-transform:uppercase;letter-spacing:.04em}
 
-.dashboard-message{position:fixed;right:20px;bottom:20px;z-index:1200;margin:0;padding:9px 13px;font-size:var(--font-body);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.dashboard-message{position:fixed;right:20px;bottom:20px;z-index:1200;margin:0;padding:9px 13px;font-size:var(--font-body);background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow)}
 
 .dashboard-editor-bar{display:grid;grid-template-columns:minmax(200px,300px) minmax(140px,1fr) auto;align-items:end;gap:14px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
 .dashboard-name{display:grid;gap:5px}

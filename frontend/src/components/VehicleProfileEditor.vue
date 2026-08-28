@@ -206,7 +206,7 @@ watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => {
 .signal-section>header{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}
 .signal-section h3,.field-section h3{margin:0;font-size:13px;font-weight:600}
 .signal-section p,.field-section header p{margin:3px 0 0;color:var(--muted);font-size:12px;line-height:1.45}
-.signal-rows{overflow:hidden;border:1px solid var(--line);border-radius:var(--radius-lg)}
+.signal-rows{overflow:hidden;background:var(--panel-2);border-radius:var(--radius-lg)}
 .signal-row{min-height:52px;display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line)}
 .signal-row:last-child{border-bottom:0}
 .signal-row>div{min-width:0;flex:1}
