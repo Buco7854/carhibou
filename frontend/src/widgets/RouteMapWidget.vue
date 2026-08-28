@@ -82,8 +82,8 @@ async function loadTrail(): Promise<void> {
   if (current === historyRequest && result) history.value = result
 }
 
-watch([() => vehicle.value?.id, () => props.widget.time_range_days], loadFeed, { immediate: true })
-watch([() => vehicle.value?.id, () => drive.value && `${drive.value.start}-${drive.value.end}`], loadTrail, { immediate: true })
+watch([() => vehicle.value?.id, () => props.widget.time_range_days, runtime.dataVersion], loadFeed, { immediate: true })
+watch([() => vehicle.value?.id, () => drive.value && `${drive.value.start}-${drive.value.end}`, runtime.dataVersion], loadTrail, { immediate: true })
 </script>
 
 <template>

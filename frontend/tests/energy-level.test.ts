@@ -27,7 +27,7 @@ function mountGauge(current: Vehicle) {
         vehicles: ref([current]),
         selectedVehicleId: ref(current.id),
         selectedSegment: ref(null),
-        liveStatus: ref('open' as const),
+        liveStatus: ref('open' as const), dataVersion: ref(0),
         selectVehicle: vi.fn(),
         selectSegment: vi.fn(),
       })

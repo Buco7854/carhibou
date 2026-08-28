@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errorMessage } from '../api/client'
+import { useLiveRefresh } from '../api/live'
 import type { Vehicle, VehicleProfile } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import CadenceFields from '../components/CadenceFields.vue'
@@ -264,6 +265,16 @@ const onlineCount = computed(() => enrolledAgents.value.filter((agent) => agent.
 // Agent versions belong to their own implementations and are never comparable
 // across them, so the roster counts protocol incompatibility instead.
 const incompatibleCount = computed(() => enrolledAgents.value.filter((agent) => agent.compatibility === 'incompatible').length)
+/**
+ * Agents and connectors are not in the stream.
+ *
+ * The one event carries a vehicle snapshot, so an enrollment or a revoked
+ * credential is invisible to it and the page would sit stale until reloaded,
+ * which is what a reader watching an enrollment not appear was seeing. The
+ * throttled signal covers what telemetry moves (an agent's last contact) and the
+ * slow poll covers the rest. See useLiveRefresh for the pause when hidden.
+ */
+useLiveRefresh(load, { pollMs: 10_000 })
 onMounted(load)
 </script>
 

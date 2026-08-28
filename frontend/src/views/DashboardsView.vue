@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { clientId } from '../clientId'
 import { api, errorMessage } from '../api/client'
 import type { LiveConnectionStatus } from '../api/events'
-import { useLiveVehicles } from '../api/live'
+import { useLiveRefresh, useLiveVehicles } from '../api/live'
 import type { Dashboard, DashboardWidget, SelectedSegment, Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
@@ -29,6 +29,7 @@ const newDashboardName = ref('')
 const narrowCanvas = ref(false)
 const selectedVehicleId = ref('')
 const liveStatus = ref<LiveConnectionStatus>('connecting')
+const dataVersion = ref(0)
 const selectedSegment = ref<SelectedSegment | null>(null)
 const form = ref({ type:'metric-card', vehicle_id:'', metric:'vehicle.speed', metrics:'vehicle.speed', x_metric:'battery.soc', y_metric:'charging.power', title:'', unit:'km/h', time_range_days:1, hide_when_empty:false })
 let grid: GridStack | undefined
@@ -295,6 +296,9 @@ function selectSegment(segment: SelectedSegment | null): void {
 function connectLiveEvents(): void {
   const live = useLiveVehicles()
   watch(live.status, (status) => { liveStatus.value = status }, { immediate: true })
+  // History and segment widgets cannot see new telemetry in the snapshot they are
+  // handed, so one throttled counter tells them all to refetch at once.
+  useLiveRefresh(() => { dataVersion.value += 1 })
   watch(live.vehicles, (nextVehicles) => {
     if (!nextVehicles.length) return
     vehicles.value = nextVehicles
@@ -302,7 +306,7 @@ function connectLiveEvents(): void {
   }, { immediate: true })
 }
 
-provide(dashboardRuntimeKey, { vehicles, selectedVehicleId, selectedSegment, liveStatus, selectVehicle, selectSegment })
+provide(dashboardRuntimeKey, { vehicles, selectedVehicleId, selectedSegment, liveStatus, dataVersion, selectVehicle, selectSegment })
 
 async function selectDashboard(id: string): Promise<void> {
   if (id === activeId.value || editing.value) return

@@ -56,7 +56,7 @@ function mountWidget(type: string, widget: Partial<DashboardWidget> = {}, select
         vehicles: ref<Vehicle[]>([vehicle as unknown as Vehicle]),
         selectedVehicleId: ref(vehicle.id),
         selectedSegment,
-        liveStatus: ref('open' as const),
+        liveStatus: ref('open' as const), dataVersion: ref(0),
         selectVehicle: vi.fn(),
         selectSegment,
       })

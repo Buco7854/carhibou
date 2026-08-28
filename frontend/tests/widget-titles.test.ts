@@ -32,7 +32,7 @@ async function head(type: string, config: Partial<DashboardWidget> = {}, current
     setup() {
       provide(dashboardRuntimeKey, {
         vehicles: ref([current]), selectedVehicleId: ref(current.id), selectedSegment: ref(null),
-        liveStatus: ref('open' as const), selectVehicle: vi.fn(), selectSegment: vi.fn(),
+        liveStatus: ref('open' as const), dataVersion: ref(0), selectVehicle: vi.fn(), selectSegment: vi.fn(),
       })
       return () => h(widgetRegistry[type]!.component, { widget: { id: 'w', type, x: 0, y: 0, w: 4, h: 3, ...config } })
     },

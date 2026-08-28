@@ -7,6 +7,16 @@ export interface DashboardRuntime {
   selectedVehicleId: Ref<string>
   selectedSegment: Ref<SelectedSegment | null>
   liveStatus: Ref<LiveConnectionStatus>
+  /**
+   * Bumped when telemetry-derived data should be refetched.
+   *
+   * Widgets reading current vehicle state need nothing: `vehicles` is already the
+   * stream's own payload. Widgets that fetch history or segments cannot see that
+   * far, so they watch this instead. It is one throttled counter for the whole
+   * canvas, because a dozen widgets each holding their own timer is the refetch
+   * storm this is meant to avoid.
+   */
+  dataVersion: Ref<number>
   selectVehicle: (id: string) => void
   selectSegment: (segment: SelectedSegment | null) => void
 }

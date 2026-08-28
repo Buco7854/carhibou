@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errorMessage } from '../api/client'
+import { useLiveRefresh } from '../api/live'
 import type { HistoryEntries, HistoryEntry } from '../api/types'
 import { formatInstant, metricDefinition, metricLabel } from '../vehicleDisplay'
 import AppIcon from './AppIcon.vue'
@@ -268,6 +269,26 @@ watch(() => props.days, () => { offset.value = 0 })
 watch(activeFilters, () => { offset.value = 0 })
 watch([() => props.vehicleId, () => props.days, sort, direction, limit, offset, activeFilters], load, { immediate: true })
 
+/**
+ * New telemetry while the reader is in the table.
+ *
+ * On the first page the newest rows are the ones being looked at, so the table
+ * refetches in place. Deeper in, refetching would slide rows under the cursor as
+ * newer ones are inserted above, so the table says there is new data and waits to
+ * be asked. Page, sort and filters are never changed by either path.
+ */
+const staleRows = ref(false)
+useLiveRefresh(() => {
+  if (offset.value === 0) void load()
+  else staleRows.value = true
+})
+watch([() => props.vehicleId, () => props.days, sort, direction, limit, offset, activeFilters], () => { staleRows.value = false })
+
+function showNewRows(): void {
+  staleRows.value = false
+  void load()
+}
+
 function closeColumns(event: PointerEvent): void {
   if (!columnsTools.value?.contains(event.target as Node)) columnsOpen.value = false
 }
@@ -327,6 +348,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
       </div>
     </div>
 
+    <p v-if="staleRows" class="entries-fresh">
+      <span>{{ t('history.newEntries') }}</span>
+      <button class="link-button" type="button" @click="showNewRows">{{ t('history.showNewEntries') }}</button>
+    </p>
+
     <p v-if="error" class="entries-note error" role="alert">{{ error }}</p>
 
     <div v-else-if="data?.entries?.length" class="table-wrap" :aria-busy="loading">
@@ -366,6 +392,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
 
 <style scoped>
 .entries{display:grid;overflow:hidden}
+.entries-fresh{display:flex;align-items:center;justify-content:center;gap:8px;margin:0;padding:8px 16px;color:var(--muted);background:var(--panel-2);font-size:var(--font-caption);border-bottom:1px solid var(--line)}
 .entries-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:14px 16px;border-bottom:1px solid var(--line)}
 .entries-head h2{margin:0;font-size:13px;font-weight:600}
 .entries-head p{margin:3px 0 0;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}

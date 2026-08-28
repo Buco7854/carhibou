@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget, Segments } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
-import { useDashboardVehicle } from './dashboardContext'
+import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { EMPTY_SEGMENTS, loadSegmentsBetween } from '../api/segments'
 
 interface PeriodTotals {
@@ -16,6 +16,7 @@ interface PeriodTotals {
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const { t } = useI18n()
+const runtime = useDashboardRuntime()
 const vehicle = useDashboardVehicle(props.widget)
 const current = ref<Segments | null>(null)
 const previous = ref<Segments | null>(null)
@@ -65,7 +66,7 @@ async function load(): Promise<void> {
   current.value = latest
   previous.value = earlier
 }
-watch([() => vehicle.value?.id, days], load, { immediate: true })
+watch([() => vehicle.value?.id, days, runtime.dataVersion], load, { immediate: true })
 </script>
 
 <template>

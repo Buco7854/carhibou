@@ -49,7 +49,7 @@ async function load(): Promise<void> {
   const result = await loadSegments(id, props.widget.time_range_days ?? 7)
   if (current === request) segments.value = result
 }
-watch([() => vehicle.value?.id, () => props.widget.time_range_days], load, { immediate: true })
+watch([() => vehicle.value?.id, () => props.widget.time_range_days, runtime.dataVersion], load, { immediate: true })
 </script>
 
 <template>

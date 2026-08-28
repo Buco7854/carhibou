@@ -5,10 +5,11 @@ import { loadHistory, rangeStart } from '../api/segments'
 import type { DashboardWidget, History } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import VehicleMap from '../components/VehicleMap.vue'
-import { useDashboardVehicle } from './dashboardContext'
+import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const { t } = useI18n()
+const runtime = useDashboardRuntime()
 const vehicle = useDashboardVehicle(props.widget)
 const history = ref<History|null>(null)
 let request = 0
@@ -25,7 +26,7 @@ async function loadRoute(): Promise<void> {
   const result = await loadHistory(id, { start: rangeStart(props.widget.time_range_days ?? 1) })
   if (current===request) history.value=result
 }
-watch([() => vehicle.value?.id, () => props.widget.time_range_days], loadRoute, { immediate:true })
+watch([() => vehicle.value?.id, () => props.widget.time_range_days, runtime.dataVersion], loadRoute, { immediate:true })
 </script>
 
 <template>

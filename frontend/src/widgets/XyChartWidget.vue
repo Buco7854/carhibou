@@ -96,7 +96,7 @@ async function loadFeed(): Promise<void> {
   if (current === segmentRequest) segments.value = result
 }
 
-watch([() => vehicle.value?.id, days], loadFeed, { immediate: true })
+watch([() => vehicle.value?.id, days, runtime.dataVersion], loadFeed, { immediate: true })
 watch(
   [() => vehicle.value?.id, days, xMetric, yMetric, () => follow.value.state === 'segment' ? follow.value.segment.start : follow.value.state],
   load,

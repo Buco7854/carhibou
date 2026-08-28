@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../api/client'
 import { loadHistory } from '../api/segments'
-import { useLiveVehicles } from '../api/live'
+import { useLiveRefresh, useLiveVehicles } from '../api/live'
 import type { History, Position, Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import AppSelect from '../components/AppSelect.vue'
@@ -18,8 +18,10 @@ const route = useRoute()
 const vehicle = ref<Vehicle | null>(null)
 
 // The header and the map marker show the vehicle's current state, so they follow
-// the stream. The charts and the table below are a stated time range and are left
-// alone: a range that reloaded under the reader would move what they are reading.
+// the stream directly. The chart and the route are a stated range, refetched on
+// the throttled signal instead: they carry no scroll position or selection, so
+// bringing them up to date moves nothing under the reader. The table below keeps
+// its own counsel, because it does.
 const live = useLiveVehicles()
 watch(live.vehicles, (next) => {
   const current = next.find((item) => item.id === vehicle.value?.id)
@@ -69,6 +71,7 @@ async function load() {
   } catch (reason) { error.value = errorMessage(reason, t('common.error')) }
 }
 watch(days, load)
+useLiveRefresh(load)
 onMounted(load)
 </script>
 

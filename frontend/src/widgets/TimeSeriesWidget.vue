@@ -6,10 +6,11 @@ import type { DashboardWidget, History } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import { historyValue, metricDefinition, metricLabel, preferredHistoryMetric } from '../vehicleDisplay'
-import { useDashboardVehicle } from './dashboardContext'
+import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const { t } = useI18n()
+const runtime = useDashboardRuntime()
 const vehicle = useDashboardVehicle(props.widget)
 const history = ref<History|null>(null)
 let request = 0
@@ -26,7 +27,7 @@ async function loadSeries(): Promise<void> {
   const result=await loadHistory(id, { start: rangeStart(props.widget.time_range_days ?? 1) })
   if(current===request)history.value=result
 }
-watch([() => vehicle.value?.id, () => props.widget.time_range_days], loadSeries, { immediate:true })
+watch([() => vehicle.value?.id, () => props.widget.time_range_days, runtime.dataVersion], loadSeries, { immediate:true })
 </script>
 <template>
   <article class="widget-card history-widget">
