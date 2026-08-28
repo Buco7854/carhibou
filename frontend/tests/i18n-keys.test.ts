@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import en from '../src/i18n/locales/en'
 import fr from '../src/i18n/locales/fr'
-import { widgetPresets, widgetRegistry } from '../src/widgets/registry'
+import { widgetRegistry } from '../src/widgets/registry'
 
 function flatten(value: unknown, prefix = ''): string[] {
   if (!value || typeof value !== 'object') return [prefix]
@@ -80,21 +80,15 @@ describe('translation coverage', () => {
       const source = readFileSync(files.find((path) => path.includes(fileFor(type)))!, 'utf8')
       expect(source, type).toContain(`t('${widgetRegistry[type]!.titleKey}')`)
     }
-    // The generic chart falls back to its own registry key, and only there: the
-    // configured cases name themselves after the preset or the bound axes.
+    // The generic chart falls back to its own registry key, and only there: a
+    // configured one names itself after the axes it is bound to. No preset name
+    // reaches the head, so a shape never borrows a concept it does not own.
     const chart = readFileSync(files.find((path) => path.includes('XyChartWidget.vue'))!, 'utf8')
     expect(chart).toContain(`t('${widgetRegistry['xy-chart']!.titleKey}')`)
-    expect(chart).toContain('t(preset.value.titleKey)')
     expect(chart).toContain(`t('dashboards.axisPair'`)
+    expect(chart).not.toContain('titleKey')
   })
 
-  it('resolves every widget preset title in both locales', () => {
-    for (const preset of widgetPresets) {
-      expect(enKeys.has(preset.titleKey), preset.id).toBe(true)
-      expect(frKeys.has(preset.titleKey), preset.id).toBe(true)
-      expect(widgetRegistry[preset.type], preset.id).toBeDefined()
-    }
-  })
 })
 
 function fileFor(type: string): string {

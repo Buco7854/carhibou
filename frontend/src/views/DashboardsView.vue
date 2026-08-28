@@ -11,7 +11,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 import { defaultDashboardMetrics, metricDefinition, reportedChartMetrics } from '../vehicleDisplay'
-import { isGeneralChoice, needsSpecificData, normalizeWidget, widgetPresets, widgetRegistry } from '../widgets/registry'
+import { isGeneralChoice, needsSpecificData, normalizeWidget, widgetRegistry } from '../widgets/registry'
 import { dashboardRuntimeKey } from '../widgets/dashboardContext'
 
 const { t } = useI18n()
@@ -75,15 +75,13 @@ const definitions = computed(() => Object.values(widgetRegistry))
 const pickerGroups = computed(() => {
   const choices = [
     ...definitions.value.map((definition) => ({ value: definition.type, label: t(definition.titleKey) })),
-    ...widgetPresets.map((preset) => ({ value: `preset:${preset.id}`, label: t(preset.titleKey) })),
   ]
   return [
     { label: t('dashboards.groupGeneral'), options: choices.filter((choice) => isGeneralChoice(choice.value)) },
     { label: t('dashboards.groupSpecific'), options: choices.filter((choice) => !isGeneralChoice(choice.value)) },
   ]
 })
-const chosenPreset = computed(() => widgetPresets.find((preset) => `preset:${preset.id}` === form.value.type))
-const chosenDefinition = computed(() => widgetRegistry[chosenPreset.value?.type ?? form.value.type])
+const chosenDefinition = computed(() => widgetRegistry[form.value.type])
 const selectedVehicle = computed(() => vehicles.value.find((row) => row.id === selectedVehicleId.value))
 const metricSuggestion = computed(() => {
   const vehicle = vehicles.value.find((row) => row.id === form.value.vehicle_id) ?? selectedVehicle.value
@@ -158,15 +156,13 @@ function applyVehicleDefaults(): void {
 
 /** Hiding defaults on only for a card that would need non-standard data. */
 function applyTierDefaults(): void {
-  const preset = widgetPresets.find((row) => `preset:${row.id}` === form.value.type)
-  const definition = widgetRegistry[preset?.type ?? form.value.type]
+  const definition = chosenDefinition.value
   if (!definition) return
   form.value.hide_when_empty = needsSpecificData({
     id:'draft', type:definition.type, x:0, y:0, w:0, h:0,
     ...(definition.needsMetric ? { metric:form.value.metric } : {}),
     ...(definition.needsMetrics ? { metrics:form.value.metrics.split(',').map((value) => value.trim()).filter(Boolean) } : {}),
-    ...(preset ? preset.config : definition.configSchema.fields.includes('x_metric')
-      ? { x_metric:form.value.x_metric, y_metric:form.value.y_metric } : {}),
+    ...(definition.configSchema.fields.includes('x_metric') ? { x_metric:form.value.x_metric, y_metric:form.value.y_metric } : {}),
   })
 }
 
@@ -326,7 +322,6 @@ async function addWidget(): Promise<void> {
   if (!active.value) return
   const definition = chosenDefinition.value
   if (!definition) return
-  const preset = chosenPreset.value
   const newWidget: DashboardWidget = {
     id:clientId('widget'), type:definition.type, x:0, y:0,
     w:definition.defaultSize.w, h:definition.defaultSize.h,
@@ -335,8 +330,7 @@ async function addWidget(): Promise<void> {
     ...(definition.needsMetric ? { metric:form.value.metric, unit:form.value.unit } : {}),
     ...(definition.needsMetrics ? { metrics:[...new Set(form.value.metrics.split(',').map((value) => value.trim()).filter(Boolean))] } : {}),
     ...(definition.configSchema.fields.includes('time_range_days') ? { time_range_days:form.value.time_range_days } : {}),
-    ...(preset ? preset.config : {}),
-    ...(definition.configSchema.fields.includes('x_metric') && !preset ? { x_metric:form.value.x_metric, y_metric:form.value.y_metric } : {}),
+    ...(definition.configSchema.fields.includes('x_metric') ? { x_metric:form.value.x_metric, y_metric:form.value.y_metric } : {}),
     ...(definition.isEmpty && form.value.hide_when_empty ? { settings:{ hide_when_empty:true } } : {}),
   }
   active.value.layout.widgets.push(newWidget)
@@ -464,7 +458,7 @@ onBeforeUnmount(destroyGrid)
         <label v-if="chosenDefinition?.needsMetric" class="field"><span>{{ t('history.metric') }}</span><input v-model="form.metric" class="input mono" list="metric-options" /><datalist id="metric-options"><option v-for="name in availableMetrics" :key="name">{{ name }}</option></datalist></label>
         <label v-if="chosenDefinition?.needsMetrics" class="field"><span>{{ t('dashboards.metrics') }}</span><input v-model="form.metrics" class="input mono" :placeholder="metricSuggestion" /></label>
         <label v-if="chosenDefinition?.configSchema.fields.includes('time_range_days')" class="field"><span>{{ t('dashboards.timeRange') }}</span><AppSelect v-model="form.time_range_days"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></AppSelect></label>
-        <template v-if="chosenDefinition?.configSchema.fields.includes('x_metric') && !chosenPreset">
+        <template v-if="chosenDefinition?.configSchema.fields.includes('x_metric')">
           <label class="field"><span>{{ t('dashboards.xMetric') }}</span><input v-model="form.x_metric" class="input mono" list="metric-options" /></label>
           <label class="field"><span>{{ t('dashboards.yMetric') }}</span><input v-model="form.y_metric" class="input mono" list="metric-options" /></label>
         </template>

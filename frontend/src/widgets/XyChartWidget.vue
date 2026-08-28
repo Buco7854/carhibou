@@ -7,7 +7,6 @@ import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import { historyValue, metricDefinition, metricLabel } from '../vehicleDisplay'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
-import { presetFor } from './registry'
 import { followSelection, mergeSegments } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
@@ -27,16 +26,15 @@ const configured = computed(() => Boolean(xMetric.value && yMetric.value))
 const xDefinition = computed(() => metricDefinition(xMetric.value))
 const yDefinition = computed(() => metricDefinition(yMetric.value))
 const days = computed(() => props.widget.time_range_days ?? 7)
-const preset = computed(() => presetFor(props.widget))
 /**
- * A chart plotting battery against power must not read "X-Y chart". The head
- * names the axes it is actually bound to, so a rebound card retitles itself.
- * A configuration a preset recognises keeps that preset's own name, and only a
- * chart with nothing chosen falls back to the generic one.
+ * This card is a shape, so its head names the axes it is bound to and nothing
+ * else. A concept name would claim the card is about that concept when it is
+ * about whatever the reader pointed it at, so the Charge-curve entry in the
+ * picker is only a shortcut for the prefill and does not survive into the head.
+ * The generic name is honest just once: when no axes have been chosen.
  */
 const heading = computed(() => {
   if (props.widget.title) return props.widget.title
-  if (preset.value) return t(preset.value.titleKey)
   if (!configured.value) return t('dashboards.xyChart')
   return t('dashboards.axisPair', { y: metricLabel(yDefinition.value, t), x: metricLabel(xDefinition.value, t) })
 })

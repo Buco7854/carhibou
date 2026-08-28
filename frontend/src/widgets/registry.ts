@@ -61,37 +61,19 @@ const definitions: DashboardWidgetDefinition[] = [
 export const widgetRegistry: Record<string, DashboardWidgetDefinition> =
   Object.fromEntries(definitions.map((item) => [item.type, item]))
 
-export interface WidgetPreset {
-  id: string
-  titleKey: string
-  type: string
-  config: Partial<DashboardWidget>
-}
-
 /**
- * A preset is a starting configuration for a generic widget, not a type of its
- * own. `LEGACY_TYPES` maps types that were once first class onto the preset that
- * replaced them, so saved layouts keep rendering.
+ * Types that were once first class, and the configuration that stands in for
+ * them now. This is data migration for saved layouts, not a feature: nothing
+ * offers these to the reader, and a card restored through one titles itself
+ * from its axes like any other shape.
  */
-export const widgetPresets: WidgetPreset[] = [
-  { id: 'charge-curve', titleKey: 'dashboards.chargeCurve', type: 'xy-chart', config: { x_metric: 'battery.soc', y_metric: 'charging.power' } },
-]
-
-const LEGACY_TYPES: Record<string, WidgetPreset> = Object.fromEntries(
-  widgetPresets.map((preset) => [preset.id, preset]),
-)
-
-/** The preset a widget's configuration matches, so its head can carry that name. */
-export function presetFor(widget: DashboardWidget): WidgetPreset | undefined {
-  return widgetPresets.find((preset) => preset.type === widget.type
-    && Object.entries(preset.config).every(([key, value]) => widget[key as keyof DashboardWidget] === value))
+const LEGACY_TYPES: Record<string, Partial<DashboardWidget> & { type: string }> = {
+  'charge-curve': { type: 'xy-chart', x_metric: 'battery.soc', y_metric: 'charging.power' },
 }
 
-/** Whether a picker value names a widget type that adapts to any vehicle. */
-export function isGeneralChoice(value: string): boolean {
-  // A preset is an opinionated configuration by definition, never general.
-  if (value.startsWith('preset:')) return false
-  return widgetRegistry[value]?.general ?? false
+/** Whether a widget type adapts to any vehicle. */
+export function isGeneralChoice(type: string): boolean {
+  return widgetRegistry[type]?.general ?? false
 }
 
 /**
@@ -121,7 +103,7 @@ export function needsSpecificData(widget: DashboardWidget): boolean {
 }
 
 export function normalizeWidget(widget: DashboardWidget): DashboardWidget {
-  const preset = LEGACY_TYPES[widget.type]
-  if (!preset || widgetRegistry[widget.type]) return widget
-  return { ...preset.config, ...widget, type: preset.type }
+  const replacement = LEGACY_TYPES[widget.type]
+  if (!replacement || widgetRegistry[widget.type]) return widget
+  return { ...replacement, ...widget, type: replacement.type }
 }

@@ -578,7 +578,7 @@ describe('vehicle and dashboard management', () => {
     expect(wrapper.get('.profile-editor').isVisible()).toBe(true)
   })
 
-  it('inserts the charging curve preset as a preconfigured x-y chart', async () => {
+  it('offers types only, so a soc-versus-power chart is configured not conjured', async () => {
     const dashboard = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v7', widgets:[] }, created_at:'', updated_at:'' }
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
@@ -593,15 +593,22 @@ describe('vehicle and dashboard management', () => {
     await wrapper.findAll('.dashboard-menu button')[0]!.trigger('click')
     await wrapper.get('.dashboard-editor-bar .button.secondary').trigger('click')
     const typeSelect = wrapper.findAllComponents(AppSelect).find((row) => row.props('modelValue') === 'metric-card')!
-    typeSelect.vm.$emit('update:modelValue', 'preset:charge-curve')
+
+    // 'preset:charge-curve' is no longer a value the picker can even produce;
+    // widget-tiers covers the menu contents. Here the reader configures a chart.
+    typeSelect.vm.$emit('update:modelValue', 'xy-chart')
     await flushPromises()
+    const [x, y] = wrapper.findAll('.widget-modal-form input.mono')
+    await x!.setValue('battery.soc')
+    await y!.setValue('charging.power')
     await wrapper.get('.widget-modal-form').trigger('submit')
     await flushPromises()
 
-    const added = wrapper.vm.$el.querySelector('[data-widget-type="xy-chart"]')
-    expect(added).toBeTruthy()
+    expect(wrapper.vm.$el.querySelector('[data-widget-type="xy-chart"]')).toBeTruthy()
     const [widget] = (wrapper.vm as unknown as { active: { layout: { widgets: Array<Record<string, unknown>> } } }).active.layout.widgets
     expect(widget).toMatchObject({ type:'xy-chart', x_metric:'battery.soc', y_metric:'charging.power' })
+    // Configured by hand, so it heads by its axes like every other shape.
+    expect(wrapper.get('[data-widget-type="xy-chart"]').text()).toContain('Charge rate vs Battery level')
   })
 
   it('renders a saved charge-curve layout as the x-y chart that replaced it', async () => {
@@ -616,11 +623,14 @@ describe('vehicle and dashboard management', () => {
     const wrapper = mount(DashboardsView, { global:{plugins:[i18n],stubs:{Teleport:true,TimeSeriesChart:{template:'<div data-chart />'},VehicleMap:{template:'<div data-map />'}}} })
     await flushPromises()
 
-    // No crash, no blank card: the old type resolves to the generic widget.
+    // No crash, no blank card: the old type resolves to the generic widget, and
+    // titles itself from the axes the migration gave it rather than the concept
+    // name it used to carry.
     expect(wrapper.find('[data-widget-type="charge-curve"]').exists()).toBe(false)
     const card = wrapper.get('[data-widget-type="xy-chart"]')
     expect(card.find('.widget-card').exists()).toBe(true)
-    expect(card.text()).toContain('Charge curve')
+    expect(card.text()).toContain('Charge rate vs Battery level')
+    expect(card.text()).not.toContain('Charge curve')
   })
 
   it('hides opted-in widgets for a vehicle that cannot report them, and keeps the rest', async () => {

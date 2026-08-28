@@ -5,7 +5,7 @@ import i18n from '../src/i18n'
 import { auth } from '../src/api/auth'
 import type { DashboardWidget, Vehicle } from '../src/api/types'
 import { dashboardRuntimeKey } from '../src/widgets/dashboardContext'
-import { needsSpecificData, widgetPresets, widgetRegistry } from '../src/widgets/registry'
+import { needsSpecificData, widgetRegistry } from '../src/widgets/registry'
 import { adminUser, mockApi, vehicle } from './helpers'
 
 vi.mock('../src/components/VehicleMap.vue', () => ({
@@ -70,11 +70,12 @@ describe('opinionated cards name their data', () => {
     expect(await head('multi-series', { metrics: [] })).toBe('Multi-series chart')
   })
 
-  it('titles an x-y chart from both axes, and keeps a preset name when it matches', async () => {
+  it('titles an x-y chart from both axes, whatever put them there', async () => {
     expect(await head('xy-chart', { x_metric: 'battery.soc', y_metric: 'battery.power' })).toBe('Battery power vs Battery level')
     expect(await head('xy-chart', { x_metric: 'vehicle.speed', y_metric: 'custom.draw' })).toBe('custom.draw vs Road speed')
-    // The preset is the named instance and keeps its own name.
-    expect(await head('xy-chart', widgetPresets[0]!.config)).toBe('Charge curve')
+    // The pair the default Overview creates is titled from its axes like any
+    // other, with no concept name anywhere to borrow.
+    expect(await head('xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' })).toBe('Charge rate vs Battery level')
     // Unconfigured is the only case the generic name is honest.
     expect(await head('xy-chart', {})).toBe('X-Y chart')
   })
@@ -96,7 +97,7 @@ describe('opinionated cards name their data', () => {
       ['time-series', { metric: 'vehicle.speed' }],
       ['multi-series', { metrics: ['battery.soc'] }],
       ['xy-chart', { x_metric: 'battery.soc', y_metric: 'battery.power' }],
-      ['xy-chart', widgetPresets[0]!.config],
+      ['xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' }],
     ]
     for (const [type, config] of cases) {
       expect(await head(type, { ...config, title: 'My card' }), type).toBe('My card')
@@ -109,15 +110,14 @@ describe('opinionated cards name their data', () => {
     expect(await head('battery-gauge', {}, EV)).toBe('Niveau de batterie')
     expect(await head('time-series', { metric: 'vehicle.speed' })).toBe('Vitesse')
     expect(await head('vehicle-media', {}, EV)).toBe('Photo du véhicule')
-    // Not the preset pair, so the axes name the card themselves.
     expect(await head('xy-chart', { x_metric: 'battery.soc', y_metric: 'battery.power' }))
       .toBe('Puissance batterie en fonction de Niveau de batterie')
-    // The preset pair still yields the preset's own French name.
-    expect(await head('xy-chart', widgetPresets[0]!.config)).toBe('Courbe de charge')
+    expect(await head('xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' }))
+      .toBe('Puissance de charge en fonction de Niveau de batterie')
   })
 
   it('leaves no data-bound card able to render a title that names nothing', async () => {
-    // Every specific card, configured as the preset would, must render a head
+    // Every specific card, configured as the Overview would, must render a head
     // that is neither blank nor the bare type name it shares with the picker.
     const cases: Array<[string, Partial<DashboardWidget>]> = [
       ['metric-card', { metric: 'battery.soc' }],
@@ -126,7 +126,7 @@ describe('opinionated cards name their data', () => {
       ['vehicle-media', {}],
       ['time-series', { metric: 'battery.soc' }],
       ['multi-series', { metrics: ['battery.soc'] }],
-      ['xy-chart', widgetPresets[0]!.config],
+      ['xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' }],
     ]
     for (const [type, config] of cases) {
       expect(needsSpecificData({ id: 'w', type, x: 0, y: 0, w: 4, h: 3, ...config }), type).toBe(true)

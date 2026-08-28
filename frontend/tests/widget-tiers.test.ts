@@ -6,7 +6,7 @@ import type { DashboardWidget, Vehicle } from '../src/api/types'
 import AppSelect from '../src/components/AppSelect.vue'
 import { historyValue, metricNumber, reportedChartMetrics, speedReading } from '../src/vehicleDisplay'
 import DashboardsView from '../src/views/DashboardsView.vue'
-import { STANDARD_METRICS, isGeneralChoice, needsSpecificData, widgetPresets, widgetRegistry } from '../src/widgets/registry'
+import { STANDARD_METRICS, isGeneralChoice, needsSpecificData, widgetRegistry } from '../src/widgets/registry'
 import { adminUser, jsonResponse, vehicle } from './helpers'
 
 function speedy(metrics: Record<string, unknown>, positionSpeed: number | null): Vehicle {
@@ -59,13 +59,10 @@ describe('the general and specific tiers', () => {
     auth.user = { ...adminUser }
   })
 
-  it('classifies every registered type exactly once, and never a preset as general', () => {
+  it('classifies every registered type exactly once', () => {
     for (const definition of Object.values(widgetRegistry)) {
       expect(typeof definition.general, definition.type).toBe('boolean')
       expect(isGeneralChoice(definition.type), definition.type).toBe(definition.general)
-    }
-    for (const preset of widgetPresets) {
-      expect(isGeneralChoice(`preset:${preset.id}`), preset.id).toBe(false)
     }
   })
 
@@ -83,10 +80,14 @@ describe('the general and specific tiers', () => {
     const general = Object.values(widgetRegistry).filter((row) => row.general)
     const specific = Object.values(widgetRegistry).filter((row) => !row.general)
     expect(membership['Suits any vehicle']).toHaveLength(general.length)
-    expect(membership['Needs specific data']).toHaveLength(specific.length + widgetPresets.length)
-    // The opinionated presets sit with the data-bound cards, under their own names.
-    for (const preset of widgetPresets) {
-      expect(membership['Needs specific data']).toContain(i18n.global.t(preset.titleKey))
+    expect(membership['Needs specific data']).toHaveLength(specific.length)
+    // The picker offers types and nothing else: no shortcut entry carrying a
+    // concept name that the card it inserts would not answer to.
+    const offered = [...membership['Suits any vehicle']!, ...membership['Needs specific data']!]
+    expect(offered).toHaveLength(Object.keys(widgetRegistry).length)
+    expect(offered).not.toContain('Charge curve')
+    for (const definition of specific) {
+      expect(membership['Needs specific data'], definition.type).toContain(i18n.global.t(definition.titleKey))
     }
     for (const definition of general) {
       expect(membership['Suits any vehicle'], definition.type).toContain(i18n.global.t(definition.titleKey))
@@ -109,8 +110,8 @@ describe('the general and specific tiers', () => {
     expect(hidden(), 'metric-card').toBe(true)
     await choose('period-stats')
     expect(hidden(), 'period-stats').toBe(false)
-    await choose('preset:charge-curve')
-    expect(hidden(), 'charge-curve preset').toBe(true)
+    await choose('xy-chart')
+    expect(hidden(), 'xy-chart').toBe(true)
 
     // Still per-card: the toggle stays visible and the reader can overrule it.
     await wrapper.get('.widget-toggle input').setValue(false)
