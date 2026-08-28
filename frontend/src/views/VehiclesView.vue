@@ -8,7 +8,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import VehicleMedia from '../components/VehicleMedia.vue'
 import { canOperate, isAdmin } from '../access'
-import { chargingState, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber, agentStatus, vehicleActivity } from '../vehicleDisplay'
+import { chargingState, energySummary, energyTone, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber, agentStatus, vehicleActivity } from '../vehicleDisplay'
 
 type VehicleFilter = 'all' | 'online' | 'parked'
 
@@ -53,6 +53,16 @@ function headlineProgress(vehicle: Vehicle): number | null {
   const reading = headlineReading(vehicle)
   if (!reading || !isPercentage(reading)) return null
   return Math.min(100, Math.max(0, Number(reading.value)))
+}
+/**
+ * The fill for the level bar. Charging keeps the bar, as it always has: a pack
+ * that is filling is being handled whatever it currently reads. Only an energy
+ * headline is toned, so a card led by engine load stays neutral.
+ */
+function levelFill(vehicle: Vehicle): string {
+  if (charging(vehicle).active) return 'is-charging'
+  const energy = energySummary(vehicle)
+  return energy.value === null ? '' : energyTone(energy.value)
 }
 function vehicleSpeed(vehicle: Vehicle): number | null { return metricNumber(vehicle, 'vehicle.speed') }
 /** Relative time reads faster than a timestamp when the only question is "recently?". */
@@ -225,7 +235,7 @@ onMounted(load)
                 <span>{{ metricLabel(headline(vehicle)!, t) }}</span>
                 <strong>{{ headlineValue(vehicle) }}<em v-if="headline(vehicle)!.unit">{{ headline(vehicle)!.unit }}</em></strong>
               </div>
-              <i v-if="headlineProgress(vehicle) !== null"><b :class="{ 'is-charging':charging(vehicle).active }" :style="{ width: `${headlineProgress(vehicle)}%` }" /></i>
+              <i v-if="headlineProgress(vehicle) !== null" class="level-bar"><b :class="levelFill(vehicle)" :style="{ width: `${headlineProgress(vehicle)}%` }" /></i>
             </template>
             <p v-else class="awaiting">{{ t('vehicles.awaitingTelemetry') }}</p>
           </section>
@@ -293,9 +303,8 @@ onMounted(load)
 .reading-row span{color:var(--muted);font-size:var(--font-caption)}
 .reading-row strong{font-size:var(--font-value-sm);font-weight:500;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
 .reading-row em{margin-left:2px;color:var(--muted);font-size:var(--font-caption);font-style:normal;font-weight:400}
-.charge-reading>i{height:4px;display:block;margin-top:8px;overflow:hidden;background:var(--panel-2);border-radius:2px}
-.charge-reading>i b{display:block;height:100%;background:var(--muted);border-radius:2px}
-.charge-reading>i b.is-charging{background:var(--success)}
+.charge-reading .level-bar{margin-top:8px}
+.charge-reading .level-bar b.is-charging{background:var(--success)}
 .awaiting{margin:0;color:var(--muted-2);font-size:var(--font-body)}
 
 .vehicle-facts{display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 8px;margin:12px 0 0;font-size:var(--font-body);font-variant-numeric:tabular-nums}

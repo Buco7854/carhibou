@@ -279,6 +279,15 @@ a { color: inherit; }
 @media (max-width: 700px) { .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat-grid dd { font-size: var(--font-section); } }
 
 .metric-value { font-size: var(--font-value); font-weight: 500; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+
+/* An energy level, drawn once for every card that shows one. The fill takes its
+   tone from energyTone(), so a vehicle card and a gauge cannot disagree about
+   what counts as low. Width carries the reading; the tone only reinforces it. */
+.level-bar { height: 4px; display: block; overflow: hidden; background: var(--panel-2); border-radius: 2px; }
+.level-bar b { display: block; height: 100%; background: var(--muted); border-radius: 2px; transition: background-color .12s; }
+.level-bar b.danger { background: var(--danger); }
+.level-bar b.warning { background: var(--warning); }
+.level-bar b.success { background: var(--success); }
 .metric-unit { margin-left: 3px; color: var(--muted); font-size: var(--font-body); font-weight: 400; letter-spacing: 0; }
 
 .empty { padding: 44px 24px; color: var(--muted); text-align: center; }

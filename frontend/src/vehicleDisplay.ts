@@ -291,6 +291,21 @@ export function formatInstantOrNever(value: string | null | undefined, never: st
   return value ? new Date(value).toLocaleString() : never
 }
 
+/**
+ * The tone a card paints an energy level with, named for the token it uses.
+ *
+ * Both boundaries are inclusive at the low side: exactly 20 is danger, exactly
+ * 40 is warning. Nothing else in the application sets a low-energy threshold,
+ * so these two numbers are the convention, and the vehicle card and the gauge
+ * read them from here rather than each keeping their own.
+ */
+export function energyTone(percent: number | null | undefined): 'danger' | 'warning' | 'success' | '' {
+  if (typeof percent !== 'number' || !Number.isFinite(percent)) return ''
+  if (percent <= 20) return 'danger'
+  if (percent <= 40) return 'warning'
+  return 'success'
+}
+
 /** Maps any state word onto the three tones the .status chip knows. */
 export function statusTone(state: string | null | undefined): 'online' | 'warning' | 'failed' | '' {
   if (state === 'online' || state === 'connected' || state === 'active' || state === 'success' || state === 'driving' || state === 'charging') return 'online'
