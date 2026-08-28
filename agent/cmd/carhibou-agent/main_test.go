@@ -12,6 +12,7 @@ import (
 func TestCommandsRejectNonPositiveDurations(t *testing.T) {
 	tests := [][]string{
 		{"gps-info", "--seconds", "0"},
+		{"obd-info", "--seconds", "0"},
 		{"can-record", "--seconds", "-1", "capture.jsonl"},
 		{"run", "--config-sync-seconds", "0"},
 	}
@@ -19,6 +20,42 @@ func TestCommandsRejectNonPositiveDurations(t *testing.T) {
 		if err := execute(arguments); err == nil || !strings.Contains(err.Error(), "greater than zero") {
 			t.Fatalf("execute(%v) error = %v", arguments, err)
 		}
+	}
+}
+
+func TestOBDWatchCANIDAndCountsUseDisplayIdentifiers(t *testing.T) {
+	for input, want := range map[string]int{"373": 0x373, "0x101": 0x101, "18DAF110": 0x18DAF110} {
+		parsed, err := parseOptionalCANID(input)
+		if err != nil || parsed == nil || *parsed != want {
+			t.Fatalf("parseOptionalCANID(%q)=%v, %v; want %#x", input, parsed, err, want)
+		}
+	}
+	if _, err := parseOptionalCANID("not-hex"); err == nil {
+		t.Fatal("invalid watch identifier accepted")
+	}
+	counts := canIDCounts(map[int]int{0x101: 12, 0x18DAF110: 3})
+	if counts["101"] != 12 || counts["18DAF110"] != 3 {
+		t.Fatalf("counts=%v", counts)
+	}
+}
+
+func TestFlaggedCANFramesAppearInTheOBDCensus(t *testing.T) {
+	seen := map[int]int{}
+	for _, line := range []string{
+		"374 8F 90 9D FE 4F 4B 47 14 <DATA ERROR",
+		"373 BB BB 7F 4E 0C 65 00 16 <DATA ERROR",
+		"412 FE 00 01 19 7A 00 21 12 <DATA ERROR",
+		"298 43 42 4A 42 43 00 27 10 <DATA ERROR",
+	} {
+		frame, err := providers.ParseCANFrame(line, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen[frame.CANID]++
+	}
+	ids := strings.Join(sortedCANIDs(seen), ",")
+	if ids != "298,373,374,412" {
+		t.Fatalf("can_ids=%s", ids)
 	}
 }
 

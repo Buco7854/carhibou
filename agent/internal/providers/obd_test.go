@@ -1,11 +1,13 @@
 package providers
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Buco7854/carhibou/agent/internal/model"
+	"go.bug.st/serial"
 )
 
 func TestCANAndStandardOBDParsing(t *testing.T) {
@@ -30,6 +32,41 @@ func TestCANAndStandardOBDParsing(t *testing.T) {
 	codes := ParseDTC([]string{"7E8 06 43 01 33 C1 23 00"})
 	if len(codes) != 2 || codes[0] != "P0133" || codes[1] != "U0123" {
 		t.Fatalf("codes=%#v", codes)
+	}
+}
+
+func TestCANParsingKeepsFramesWithDataErrorSuffix(t *testing.T) {
+	tests := []struct {
+		line  string
+		canID int
+		first byte
+	}{
+		{"374 8F 90 9D FE 4F 4B 47 14 <DATA ERROR", 0x374, 0x8F},
+		{"373 BB BB 7F 4E 0C 65 00 16 <DATA ERROR", 0x373, 0xBB},
+		{"412 FE 00 01 19 7A 00 21 12 <DATA ERROR", 0x412, 0xFE},
+		{"298 43 42 4A 42 43 00 27 10 <DATA ERROR", 0x298, 0x43},
+	}
+	for _, test := range tests {
+		frame, err := ParseCANFrame(test.line, 1)
+		if err != nil {
+			t.Fatalf("ParseCANFrame(%q): %v", test.line, err)
+		}
+		if frame.CANID != test.canID || len(frame.Data) != 8 || frame.Data[0] != test.first {
+			t.Fatalf("ParseCANFrame(%q)=%#v", test.line, frame)
+		}
+	}
+}
+
+func TestDataErrorMarkerIsCountedWithoutDiscardingItsFrame(t *testing.T) {
+	report := MonitorReport{}
+	frames := 0
+	observeMonitorLine(
+		"374 8F 90 9D FE 4F 4B 47 14 <DATA ERROR",
+		func(model.CANFrame) { frames++ },
+		&report,
+	)
+	if frames != 1 || report.DataErrors != 1 || report.DroppedData {
+		t.Fatalf("frames=%d report=%+v", frames, report)
 	}
 }
 
@@ -187,21 +224,22 @@ func TestMonitorCommandsKeepRuntimeFilteredAndDiagnosticsUnfiltered(t *testing.T
 			monitor: func(adapter *OBDAdapter) error {
 				return adapter.Monitor(20*time.Millisecond, func(model.CANFrame) {})
 			},
-			want: "STFAP 101,FFF\rSTFAP 373,FFF\rSTM\r\r",
+			want: "STFAP 101,FFF\rSTFAP 373,FFF\rATCAF0\rSTM\r\r",
 		},
 		{
 			name: "unfiltered diagnostics",
 			monitor: func(adapter *OBDAdapter) error {
 				return adapter.MonitorAll(20*time.Millisecond, func(model.CANFrame) {})
 			},
-			want: "STMA\r\r",
+			want: "ATCAF0\rSTMA\r\r",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			port := &recordingPort{scriptedPort: scriptedPort{replies: map[string]string{
-				"STFAP": "OK\r>",
-				"STM":   "374 8 96 00 00 00 00 00 00 00\r",
-				"\r":    "STOPPED\r>",
+				"ATCAF0": "OK\r>",
+				"STFAP":  "OK\r>",
+				"STM":    "374 8 96 00 00 00 00 00 00 00\r",
+				"\r":     "STOPPED\r>",
 			}}}
 			adapter := NewOBDAdapter("scripted")
 			adapter.port = port
@@ -220,6 +258,147 @@ func TestMonitorCommandsKeepRuntimeFilteredAndDiagnosticsUnfiltered(t *testing.T
 			}
 		})
 	}
+}
+
+func TestHighSpeedNegotiationFallsBackAndRestoresDefaultOnClose(t *testing.T) {
+	port := &baudPort{current: defaultOBDBaudRate, supported: map[int]bool{
+		1000000: true, defaultOBDBaudRate: true,
+	}}
+	adapter := NewOBDAdapter("scripted")
+	adapter.port = port
+	adapter.BaudSwitchWindow = 5 * time.Millisecond
+
+	adapter.negotiateHighSpeed()
+	if adapter.BaudRate() != 1000000 {
+		t.Fatalf("baud=%d, want the highest supported fallback", adapter.BaudRate())
+	}
+	adapter.Close()
+
+	wantWrites := "STBRT 500\rSTBR 2000000\rSTBR 1000000\r\rSTBR 115200\r\r"
+	if port.written != wantWrites {
+		t.Fatalf("wrote %q, want %q", port.written, wantWrites)
+	}
+	wantModes := []int{2000000, defaultOBDBaudRate, 1000000, defaultOBDBaudRate}
+	if len(port.modes) != len(wantModes) {
+		t.Fatalf("baud modes=%v, want %v", port.modes, wantModes)
+	}
+	for index, want := range wantModes {
+		if port.modes[index] != want {
+			t.Fatalf("baud modes=%v, want %v", port.modes, wantModes)
+		}
+	}
+}
+
+func TestHighSpeedNegotiationLeavesNonSTNAdapterAtDefault(t *testing.T) {
+	port := &scriptedPort{replies: map[string]string{"STBRT": "?\r>"}}
+	adapter := NewOBDAdapter("scripted")
+	adapter.port = port
+	adapter.negotiateHighSpeed()
+	if adapter.BaudRate() != defaultOBDBaudRate {
+		t.Fatalf("baud=%d, want default", adapter.BaudRate())
+	}
+}
+
+func TestHighSpeedNegotiationVerifiesANewRateWhenTheFinalOKIsLost(t *testing.T) {
+	port := &baudPort{
+		current: defaultOBDBaudRate,
+		supported: map[int]bool{
+			2000000: true, defaultOBDBaudRate: true,
+		},
+		dropFinalOK: true,
+	}
+	adapter := NewOBDAdapter("scripted")
+	adapter.port = port
+	adapter.BaudSwitchWindow = 5 * time.Millisecond
+
+	adapter.negotiateHighSpeed()
+	if adapter.BaudRate() != 2000000 {
+		t.Fatalf("baud=%d, want verified 2000000", adapter.BaudRate())
+	}
+	if port.written != "STBRT 500\rSTBR 2000000\r\rSTI\r" {
+		t.Fatalf("wrote %q", port.written)
+	}
+}
+
+func TestMonitorKeepsFlaggedFramesInCensusAndReportsDroppedData(t *testing.T) {
+	port := &scriptedPort{replies: map[string]string{
+		"ATCAF0": "OK\r>",
+		"STMA": "374 8F 90 9D FE 4F 4B 47 14 <DATA ERROR\r" +
+			"373 BB BB 7F 4E 0C 65 00 16 <DATA ERROR\r" +
+			"412 FE 00 01 19 7A 00 21 12 <DATA ERROR\r" +
+			"298 43 42 4A 42 43 00 27 10 <DATA ERROR\r389 8 01 02\r<RX ERROR\r",
+		"\r": "BUFFER FULL\rSTOPPED\r>",
+	}}
+	adapter := NewOBDAdapter("scripted")
+	adapter.port = port
+	adapter.CommandWindow = time.Second
+	seen := map[int]int{}
+	report, err := adapter.MonitorAllReport(20*time.Millisecond, func(frame model.CANFrame) { seen[frame.CANID]++ })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, canID := range []int{0x374, 0x373, 0x412, 0x298} {
+		if seen[canID] != 1 {
+			t.Fatalf("census=%v, missing flagged identifier %03X", seen, canID)
+		}
+	}
+	if !report.BufferFull || report.DataErrors != 4 || report.AdapterErrors != 1 || report.MalformedFrames != 1 || !report.DroppedData {
+		t.Fatalf("census=%v report=%+v", seen, report)
+	}
+}
+
+func TestWatchCANIDSetsOneHardwareReceiveFilter(t *testing.T) {
+	port := &recordingPort{scriptedPort: scriptedPort{replies: map[string]string{"ATCRA": "OK\r>"}}}
+	adapter := NewOBDAdapter("scripted")
+	adapter.port = port
+	if err := adapter.WatchCANID(0x373); err != nil {
+		t.Fatal(err)
+	}
+	if port.written != "ATCRA 373\r" {
+		t.Fatalf("wrote %q", port.written)
+	}
+}
+
+type baudPort struct {
+	scriptedPort
+	written     string
+	current     int
+	requested   int
+	supported   map[int]bool
+	modes       []int
+	dropFinalOK bool
+}
+
+func (port *baudPort) Write(payload []byte) (int, error) {
+	command := string(payload)
+	port.written += command
+	switch {
+	case strings.HasPrefix(command, "STBRT"):
+		port.pending = "OK\r>"
+	case strings.HasPrefix(command, "STBR "):
+		port.requested, _ = strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(command, "STBR ")))
+		port.pending = ""
+	case command == "\r" && port.current == port.requested && port.supported[port.current]:
+		if port.dropFinalOK {
+			port.dropFinalOK = false
+			port.pending = ""
+		} else {
+			port.pending = "OK\r>"
+		}
+		port.requested = 0
+	case command == "STI\r" && port.supported[port.current]:
+		port.pending = "STN1130 v4.0.1\r>"
+	}
+	return len(payload), nil
+}
+
+func (port *baudPort) SetMode(mode *serial.Mode) error {
+	port.current = mode.BaudRate
+	port.modes = append(port.modes, mode.BaudRate)
+	if port.current == port.requested && port.supported[port.current] {
+		port.pending = "STN1130 v4.0.1\r"
+	}
+	return nil
 }
 
 type recordingPort struct {

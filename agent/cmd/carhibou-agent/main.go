@@ -131,7 +131,7 @@ Commands:
   config        Print the accepted configuration; --pull fetches it from the server now
   devices       Show device choices; use "devices set" to change them
   gps-info      Enable the receiver and print position fixes
-  obd-info      Read adapter identity, VIN, and diagnostic codes
+  obd-info      Read adapter, request, and CAN traffic diagnostics
   monitor       Print live position and vehicle metrics together
   can-record    Record CAN frames to a portable JSONL capture
   replay-can    Replay a capture, optionally through a profile
@@ -393,7 +393,19 @@ func commandOBD(locations paths, arguments []string) error {
 	}
 	flags := flag.NewFlagSet("obd-info", flag.ContinueOnError)
 	device := flags.String("device", "", "serial device")
+	seconds := flags.Int("seconds", defaultCANSurveySeconds, "CAN listen duration in seconds")
+	watch := flags.String("watch", "", "monitor one hexadecimal CAN identifier")
 	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	if *seconds <= 0 {
+		return fmt.Errorf("--seconds must be greater than zero")
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("obd-info accepts flags only")
+	}
+	watchID, err := parseOptionalCANID(*watch)
+	if err != nil {
 		return err
 	}
 	if *device == "" {
@@ -416,7 +428,10 @@ func commandOBD(locations paths, arguments []string) error {
 	if err != nil {
 		return err
 	}
-	result := map[string]any{"device": *device, "adapter": identity["adapter"], "firmware": identity["firmware"]}
+	result := map[string]any{
+		"device": *device, "adapter": identity["adapter"], "firmware": identity["firmware"],
+		"uart_baud_rate": adapter.BaudRate(),
+	}
 	// The adapter answers whether or not a vehicle is listening, so what it says
 	// about itself is reported separately from what the vehicle said. Voltage in
 	// particular comes from the connector and works with the ignition off.
@@ -449,28 +464,75 @@ func commandOBD(locations paths, arguments []string) error {
 	// second one matters. Plenty of vehicles answer no standard diagnostic request
 	// at all while broadcasting everything a profile decodes, so asking 0902 and
 	// stopping there measured the wrong thing and then explained it wrongly.
-	fmt.Fprintf(os.Stderr, "Listening for CAN frames for %s\n", canSurvey)
+	duration := time.Duration(*seconds) * time.Second
+	if watchID != nil {
+		if err := adapter.WatchCANID(*watchID); err != nil {
+			return err
+		}
+		result["watch_id"] = formatCANID(*watchID)
+		fmt.Fprintf(os.Stderr, "Watching CAN identifier %s for %s\n", formatCANID(*watchID), duration)
+	} else {
+		fmt.Fprintf(os.Stderr, "Listening for CAN frames for %s\n", duration)
+	}
 	seen := map[int]int{}
 	frames := 0
-	if err := adapter.MonitorAll(canSurvey, func(frame model.CANFrame) {
-		frames++
-		seen[frame.CANID]++
-	}); err != nil {
+	started := time.Now()
+	var monitorReport providers.MonitorReport
+	if watchID != nil {
+		monitorReport, err = adapter.MonitorReport(duration, func(frame model.CANFrame) {
+			frames++
+			seen[frame.CANID]++
+		})
+	} else {
+		monitorReport, err = adapter.MonitorAllReport(duration, func(frame model.CANFrame) {
+			frames++
+			seen[frame.CANID]++
+		})
+	}
+	elapsed := time.Since(started).Seconds()
+	if err != nil {
 		result["can_error"] = err.Error()
 	}
 	result["can_frames"] = frames
+	result["can_duration_seconds"] = elapsed
+	result["can_frame_rate_hz"] = float64(frames) / elapsed
+	result["can_id_counts"] = canIDCounts(seen)
 	result["can_ids"] = sortedCANIDs(seen)
+	result["can_capture"] = monitorReport
 	printJSON(result)
-	explainOBD(result, answered, frames)
+	explainOBD(result, answered, frames, monitorReport)
 	return nil
 }
 
-// canSurvey is long enough to see every identifier a vehicle repeats, and short
-// enough to run while somebody watches. Nothing is filtered, so a busy bus sends
-// more than the serial link carries and the result is a sample rather than a
-// census: an identifier listed is certainly present, one absent may merely have
-// been dropped.
-const canSurvey = 3 * time.Second
+const defaultCANSurveySeconds = 10
+
+func parseOptionalCANID(value string) (*int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseUint(strings.TrimPrefix(strings.ToLower(value), "0x"), 16, 29)
+	if err != nil || parsed > 0x1FFFFFFF {
+		return nil, fmt.Errorf("--watch must be a hexadecimal CAN identifier between 0 and 1FFFFFFF")
+	}
+	canID := int(parsed)
+	return &canID, nil
+}
+
+func formatCANID(canID int) string {
+	if canID <= 0x7FF {
+		return fmt.Sprintf("%03X", canID)
+	}
+	return fmt.Sprintf("%08X", canID)
+}
+
+func canIDCounts(seen map[int]int) map[string]int {
+	counts := make(map[string]int, len(seen))
+	for canID, count := range seen {
+		counts[formatCANID(canID)] = count
+	}
+	return counts
+}
 
 func sortedCANIDs(seen map[int]int) []string {
 	ids := make([]int, 0, len(seen))
@@ -480,12 +542,18 @@ func sortedCANIDs(seen map[int]int) []string {
 	sort.Ints(ids)
 	listed := make([]string, 0, len(ids))
 	for _, canID := range ids {
-		listed = append(listed, fmt.Sprintf("%03X", canID))
+		listed = append(listed, formatCANID(canID))
 	}
 	return listed
 }
 
-func explainOBD(result map[string]any, answered bool, frames int) {
+func explainOBD(result map[string]any, answered bool, frames int, report providers.MonitorReport) {
+	if report.DroppedData {
+		fmt.Fprintln(os.Stderr, "The adapter reported dropped or malformed CAN data; counts are incomplete.")
+	}
+	if report.DataErrors > 0 {
+		fmt.Fprintf(os.Stderr, "The adapter marked %d CAN frames with receive-validation errors; valid payload prefixes were retained.\n", report.DataErrors)
+	}
 	if frames > 0 {
 		if !answered {
 			fmt.Fprintln(os.Stderr, "The vehicle answers no standard diagnostic request, which is normal on many")
@@ -496,6 +564,10 @@ func explainOBD(result map[string]any, answered bool, frames int) {
 	}
 	// No broadcasts at all. The adapter's own supply says whether that is a
 	// sleeping vehicle or a live one that is not talking on this protocol.
+	if watchID, ok := result["watch_id"].(string); ok {
+		fmt.Fprintf(os.Stderr, "No frames arrived for CAN identifier %s.\n", watchID)
+		return
+	}
 	voltage, _ := result["supply_voltage"].(string)
 	awake := false
 	if trimmed := strings.TrimSuffix(strings.TrimSpace(voltage), "V"); trimmed != "" {

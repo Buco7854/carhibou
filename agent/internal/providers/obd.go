@@ -17,9 +17,13 @@ var compactFrame = regexp.MustCompile(`^([0-9A-Fa-f]{3}|[0-9A-Fa-f]{8})([0-9A-Fa
 // obdReadPoll is how long one read waits before the deadline is re-checked, and
 // obdCommandWindow is the longest an adapter may take to answer a command.
 const (
-	obdReadPoll      = 200 * time.Millisecond
-	obdCommandWindow = 5 * time.Second
+	obdReadPoll        = 200 * time.Millisecond
+	obdCommandWindow   = 5 * time.Second
+	defaultOBDBaudRate = 115200
+	baudSwitchTimeout  = 500 * time.Millisecond
 )
+
+var highSpeedBaudRates = []int{2000000, 1000000, 921600, 500000, 460800, 230400}
 
 type OBDAdapter struct {
 	device string
@@ -29,16 +33,21 @@ type OBDAdapter struct {
 	// serial read returns whatever has arrived rather than one whole response.
 	pending string
 	// CommandWindow bounds how long one command may wait for its reply.
-	CommandWindow time.Duration
+	CommandWindow    time.Duration
+	BaudSwitchWindow time.Duration
+	baudRate         int
 }
 
 func NewOBDAdapter(device string) *OBDAdapter {
-	return &OBDAdapter{device: device, buffer: make([]byte, 512), CommandWindow: obdCommandWindow}
+	return &OBDAdapter{
+		device: device, buffer: make([]byte, 512), CommandWindow: obdCommandWindow,
+		BaudSwitchWindow: baudSwitchTimeout, baudRate: defaultOBDBaudRate,
+	}
 }
 
 func (adapter *OBDAdapter) Connect() error {
 	adapter.Close()
-	port, err := serial.Open(adapter.device, &serial.Mode{BaudRate: 115200})
+	port, err := serial.Open(adapter.device, &serial.Mode{BaudRate: defaultOBDBaudRate})
 	if err != nil {
 		return err
 	}
@@ -57,15 +66,117 @@ func (adapter *OBDAdapter) Connect() error {
 			return err
 		}
 	}
+	adapter.negotiateHighSpeed()
 	return nil
 }
 
 func (adapter *OBDAdapter) Close() {
 	if adapter.port != nil {
+		adapter.restoreDefaultBaud()
 		adapter.port.Close()
 	}
 	adapter.port = nil
 	adapter.pending = ""
+	adapter.baudRate = defaultOBDBaudRate
+}
+
+func (adapter *OBDAdapter) BaudRate() int { return adapter.baudRate }
+
+func (adapter *OBDAdapter) negotiateHighSpeed() {
+	if _, err := adapter.Command(fmt.Sprintf("STBRT %d", baudSwitchTimeout.Milliseconds()), 0); err != nil {
+		return
+	}
+	for _, baudRate := range highSpeedBaudRates {
+		if adapter.switchBaud(baudRate) == nil {
+			return
+		}
+	}
+}
+
+func (adapter *OBDAdapter) switchBaud(baudRate int) error {
+	previous := adapter.baudRate
+	if err := adapter.port.ResetInputBuffer(); err != nil {
+		return err
+	}
+	adapter.pending = ""
+	if _, err := adapter.port.Write([]byte(fmt.Sprintf("STBR %d\r", baudRate))); err != nil {
+		return err
+	}
+	if err := adapter.port.Drain(); err != nil {
+		return err
+	}
+	if err := adapter.port.SetMode(&serial.Mode{BaudRate: baudRate}); err != nil {
+		adapter.recoverBaud(previous)
+		return err
+	}
+	identity, err := adapter.readUntil('\r', adapter.BaudSwitchWindow)
+	if err != nil || !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(identity)), "STN") {
+		adapter.recoverBaud(previous)
+		return fmt.Errorf("adapter did not confirm %d baud", baudRate)
+	}
+	if _, err := adapter.port.Write([]byte("\r")); err != nil {
+		adapter.recoverBaud(previous)
+		return err
+	}
+	if err := adapter.port.Drain(); err != nil {
+		adapter.recoverBaud(previous)
+		return err
+	}
+	response, err := adapter.readUntil('>', adapter.BaudSwitchWindow)
+	if err != nil || !responseContains(response, "OK") {
+		if adapter.probeBaud() {
+			adapter.baudRate = baudRate
+			return nil
+		}
+		adapter.recoverBaud(previous)
+		return fmt.Errorf("adapter did not accept %d baud", baudRate)
+	}
+	adapter.baudRate = baudRate
+	return nil
+}
+
+func (adapter *OBDAdapter) probeBaud() bool {
+	_ = adapter.port.ResetInputBuffer()
+	adapter.pending = ""
+	if _, err := adapter.port.Write([]byte("STI\r")); err != nil {
+		return false
+	}
+	if err := adapter.port.Drain(); err != nil {
+		return false
+	}
+	response, err := adapter.readUntil('>', adapter.BaudSwitchWindow)
+	return err == nil && strings.Contains(strings.ToUpper(response), "STN")
+}
+
+func responseContains(response, expected string) bool {
+	for _, line := range strings.FieldsFunc(response, func(r rune) bool { return r == '\r' || r == '\n' }) {
+		if strings.EqualFold(strings.TrimSpace(line), expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func (adapter *OBDAdapter) recoverBaud(baudRate int) {
+	time.Sleep(adapter.BaudSwitchWindow + obdReadPoll)
+	_ = adapter.port.SetMode(&serial.Mode{BaudRate: baudRate})
+	_ = adapter.port.ResetInputBuffer()
+	adapter.pending = ""
+}
+
+func (adapter *OBDAdapter) restoreDefaultBaud() {
+	if adapter.baudRate == defaultOBDBaudRate {
+		return
+	}
+	current := adapter.baudRate
+	if adapter.switchBaud(defaultOBDBaudRate) == nil {
+		return
+	}
+	_ = adapter.port.SetMode(&serial.Mode{BaudRate: current})
+	_, _ = adapter.port.Write([]byte("ATZ\r"))
+	_ = adapter.port.Drain()
+	time.Sleep(time.Second)
+	_ = adapter.port.SetMode(&serial.Mode{BaudRate: defaultOBDBaudRate})
 }
 
 // readUntil collects bytes until the terminator arrives or the window closes.
@@ -211,11 +322,8 @@ func (adapter *OBDAdapter) Query(mode, pid int) ([]string, error) {
 
 // PassFilters restricts monitoring to the given CAN identifiers.
 //
-// Without them a monitor sees every frame on the bus. A vehicle CAN bus runs at
-// 500 kbit/s and the serial link carries 115200, so an unfiltered monitor asks the
-// adapter to forward roughly four times what the cable can take: it overruns, and
-// what arrives is truncated frames rather than the handful the profile wanted.
-// Filtering is done in the adapter, before the bottleneck.
+// Without them a monitor sees every frame on the bus. ASCII expansion can overrun
+// even a faster UART on a busy CAN bus, so filtering happens in the adapter.
 //
 // A reset clears filters, and Connect resets, so there is nothing to clear first.
 func (adapter *OBDAdapter) PassFilters(canIDs []int) error {
@@ -231,17 +339,46 @@ func (adapter *OBDAdapter) PassFilters(canIDs []int) error {
 	return nil
 }
 
-// Monitor streams frames for a fixed period. Diagnostics use it; sampling does
-// not, because a window that blocks for its whole duration cannot be part of a
-// loop that has to produce a sample every second.
+func (adapter *OBDAdapter) WatchCANID(canID int) error {
+	if canID < 0 || canID > 0x1FFFFFFF {
+		return fmt.Errorf("CAN identifier %#x is outside 29-bit bounds", canID)
+	}
+	width := 3
+	if canID > 0x7FF {
+		width = 8
+	}
+	_, err := adapter.Command(fmt.Sprintf("ATCRA %0*X", width, canID), 0)
+	return err
+}
+
+type MonitorReport struct {
+	BufferFull      bool `json:"buffer_full"`
+	DataErrors      int  `json:"data_errors"`
+	AdapterErrors   int  `json:"adapter_errors"`
+	MalformedFrames int  `json:"malformed_frames"`
+	DroppedData     bool `json:"dropped_data"`
+}
+
+// Monitor streams filtered frames for a fixed period. Sampling uses MonitorUntil
+// because a fixed window cannot be part of a loop that samples every second.
 func (adapter *OBDAdapter) Monitor(duration time.Duration, onFrame func(model.CANFrame)) error {
+	_, err := adapter.MonitorReport(duration, onFrame)
+	return err
+}
+
+func (adapter *OBDAdapter) MonitorReport(duration time.Duration, onFrame func(model.CANFrame)) (MonitorReport, error) {
 	stop := make(chan struct{})
 	timer := time.AfterFunc(duration, func() { close(stop) })
 	defer timer.Stop()
-	return adapter.MonitorUntil(stop, onFrame)
+	return adapter.monitorUntil(stop, "STM", onFrame)
 }
 
 func (adapter *OBDAdapter) MonitorAll(duration time.Duration, onFrame func(model.CANFrame)) error {
+	_, err := adapter.MonitorAllReport(duration, onFrame)
+	return err
+}
+
+func (adapter *OBDAdapter) MonitorAllReport(duration time.Duration, onFrame func(model.CANFrame)) (MonitorReport, error) {
 	stop := make(chan struct{})
 	timer := time.AfterFunc(duration, func() { close(stop) })
 	defer timer.Stop()
@@ -257,28 +394,40 @@ func (adapter *OBDAdapter) MonitorAll(duration time.Duration, onFrame func(model
 // current in the background, which costs nothing per sample and misses nothing
 // between them.
 func (adapter *OBDAdapter) MonitorUntil(stop <-chan struct{}, onFrame func(model.CANFrame)) error {
-	return adapter.monitorUntil(stop, "STM", onFrame)
+	_, err := adapter.monitorUntil(stop, "STM", onFrame)
+	return err
 }
 
-func (adapter *OBDAdapter) monitorUntil(stop <-chan struct{}, command string, onFrame func(model.CANFrame)) error {
+func (adapter *OBDAdapter) monitorUntil(
+	stop <-chan struct{}, command string, onFrame func(model.CANFrame),
+) (MonitorReport, error) {
+	report := MonitorReport{}
 	if adapter.port == nil {
-		return fmt.Errorf("adapter is not connected")
+		return report, fmt.Errorf("adapter is not connected")
+	}
+	// Broadcast payloads are raw CAN, not ISO 15765 messages for CAF to validate.
+	if _, err := adapter.Command("ATCAF0", 0); err != nil {
+		return report, err
 	}
 	if err := adapter.port.ResetInputBuffer(); err != nil {
-		return err
+		return report, err
 	}
 	adapter.pending = ""
 	if _, err := adapter.port.Write([]byte(command + "\r")); err != nil {
-		return err
+		return report, err
 	}
 	for {
 		select {
 		case <-stop:
 			_, err := adapter.port.Write([]byte("\r"))
 			if err == nil {
-				_, err = adapter.readUntil('>', adapter.CommandWindow)
+				var response string
+				response, err = adapter.readUntil('>', adapter.CommandWindow)
+				for _, line := range strings.FieldsFunc(response, func(r rune) bool { return r == '\r' || r == '\n' }) {
+					observeMonitorLine(strings.TrimSpace(line), onFrame, &report)
+				}
 			}
-			return err
+			return report, err
 		default:
 		}
 		// A short read window keeps the stop signal responsive on a quiet bus
@@ -287,14 +436,41 @@ func (adapter *OBDAdapter) monitorUntil(stop <-chan struct{}, command string, on
 		if err != nil {
 			continue
 		}
-		line = strings.TrimSpace(line)
-		if line == "" || line == "SEARCHING..." {
-			continue
-		}
-		frame, err := ParseCANFrame(line, float64(time.Now().UnixNano())/1e9)
-		if err == nil {
-			onFrame(frame)
-		}
+		observeMonitorLine(strings.TrimSpace(line), onFrame, &report)
+	}
+}
+
+func observeMonitorLine(line string, onFrame func(model.CANFrame), report *MonitorReport) {
+	if line == "" || line == "SEARCHING..." {
+		return
+	}
+	upper := strings.ToUpper(line)
+	if strings.Contains(upper, "BUFFER FULL") {
+		report.BufferFull = true
+		report.DroppedData = true
+		return
+	}
+	if marker := strings.Index(upper, "<DATA ERROR"); marker >= 0 {
+		report.DataErrors++
+		line = strings.TrimSpace(line[:marker])
+		upper = strings.ToUpper(line)
+	}
+	if strings.Contains(upper, "DATA ERROR") {
+		report.DataErrors++
+		report.DroppedData = true
+		return
+	}
+	if strings.Contains(upper, "CAN ERROR") || strings.Contains(upper, "RX ERROR") {
+		report.AdapterErrors++
+		report.DroppedData = true
+		return
+	}
+	frame, err := ParseCANFrame(line, float64(time.Now().UnixNano())/1e9)
+	if err == nil {
+		onFrame(frame)
+	} else if upper != "STOPPED" {
+		report.MalformedFrames++
+		report.DroppedData = true
 	}
 }
 
@@ -303,6 +479,9 @@ func (adapter *OBDAdapter) monitorUntil(stop <-chan struct{}, command string, on
 const monitorReadWindow = 300 * time.Millisecond
 
 func ParseCANFrame(line string, timestamp float64) (model.CANFrame, error) {
+	if marker := strings.Index(strings.ToUpper(line), "<DATA ERROR"); marker >= 0 {
+		line = line[:marker]
+	}
 	cleaned := strings.TrimSpace(strings.ReplaceAll(line, ":", " "))
 	parts := strings.Fields(cleaned)
 	var canIDText, dataText string
