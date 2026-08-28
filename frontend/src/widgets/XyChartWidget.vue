@@ -5,10 +5,10 @@ import { EMPTY_SEGMENTS, loadHistory, loadSegments, rangeStart } from '../api/se
 import type { DashboardWidget, History, Segments } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
-import { metricDefinition, metricLabel } from '../vehicleDisplay'
+import { historyValue, metricDefinition, metricLabel } from '../vehicleDisplay'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { presetFor } from './registry'
-import { followSelection, mergeSegments, metricNumber } from './segments'
+import { followSelection, mergeSegments } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const { t } = useI18n()
@@ -37,9 +37,7 @@ const follow = computed(() => runtime.selectedSegment.value
   : ({ state: 'none' } as const))
 const outOfRange = computed(() => follow.value.state === 'out-of-range')
 
-function reading(point: History['points'][number], key: string): number | null {
-  return key === 'vehicle.speed' ? metricNumber(point.speed) : metricNumber(point.metrics[key])
-}
+
 
 // A source reports keys as they change, so a point rarely carries both. Each
 // series carries its last known value forward before the two are paired.
@@ -48,8 +46,8 @@ const paired = computed<Array<[number, number]>>(() => {
   let y: number | null = null
   const points: Array<[number, number]> = []
   for (const point of history.value?.points ?? []) {
-    x = reading(point, xMetric.value) ?? x
-    y = reading(point, yMetric.value) ?? y
+    x = historyValue(point, xMetric.value) ?? x
+    y = historyValue(point, yMetric.value) ?? y
     if (x !== null && y !== null) points.push([x, y])
   }
   return points

@@ -2,12 +2,19 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../src/i18n'
 import { auth } from '../src/api/auth'
-import type { Vehicle } from '../src/api/types'
+import type { DashboardWidget, Vehicle } from '../src/api/types'
 import AppSelect from '../src/components/AppSelect.vue'
-import { reportedChartMetrics } from '../src/vehicleDisplay'
+import { historyValue, metricNumber, reportedChartMetrics, speedReading } from '../src/vehicleDisplay'
 import DashboardsView from '../src/views/DashboardsView.vue'
-import { isGeneralChoice, widgetPresets, widgetRegistry } from '../src/widgets/registry'
+import { STANDARD_METRICS, isGeneralChoice, needsSpecificData, widgetPresets, widgetRegistry } from '../src/widgets/registry'
 import { adminUser, jsonResponse, vehicle } from './helpers'
+
+function speedy(metrics: Record<string, unknown>, positionSpeed: number | null): Vehicle {
+  return {
+    ...vehicle,
+    state: { ...vehicle.state!, metrics, position: positionSpeed === null ? null : { latitude: 48, longitude: 2, altitude: null, speed: positionSpeed, heading: null, accuracy: null } },
+  } as unknown as Vehicle
+}
 
 function withMetrics(metrics: Record<string, unknown>, position: unknown = null): Vehicle {
   return { ...vehicle, state: { ...vehicle.state!, position, metrics } } as unknown as Vehicle
@@ -109,6 +116,22 @@ describe('the general and specific tiers', () => {
     await wrapper.get('.widget-toggle input').setValue(false)
     expect(hidden()).toBe(false)
   })
+
+  it('follows the chosen metric, not just the chosen type', async () => {
+    // The fixture vehicle reports battery state, so a fresh metric card is bound
+    // to it and counts as specific.
+    const wrapper = await openPicker([vehicle as unknown as Vehicle])
+    const hidden = () => (wrapper.get('.widget-toggle input').element as HTMLInputElement).checked
+    typePicker(wrapper).vm.$emit('update:modelValue', 'metric-card')
+    await flushPromises()
+    expect(hidden()).toBe(true)
+
+    // Rebinding the same card to standard data makes it general, with no need to
+    // touch the toggle: a speed card belongs on any vehicle's dashboard.
+    await wrapper.get('.widget-modal-form input.mono').setValue('vehicle.speed')
+    await flushPromises()
+    expect(hidden()).toBe(false)
+  })
 })
 
 describe('generic chart axis defaults', () => {
@@ -154,6 +177,63 @@ describe('generic chart axis defaults', () => {
       const axes = wrapper.findAll('.widget-modal-form input.mono').map((input) => (input.element as HTMLInputElement).value)
       const filled = axes.filter(Boolean)
       expect(new Set(filled).size, JSON.stringify(metrics)).toBe(filled.length)
+    }
+  })
+})
+
+
+describe('speed as standard, source-flexible data', () => {
+  it('prefers the measured reading and falls back to the fix', () => {
+    expect(speedReading(speedy({ 'vehicle.speed': 54 }, 47))).toBe(54)
+    expect(speedReading(speedy({}, 47))).toBe(47)
+    expect(speedReading(speedy({ 'vehicle.speed': 54 }, null))).toBe(54)
+    expect(speedReading(speedy({}, null))).toBe(null)
+    expect(speedReading(null)).toBe(null)
+  })
+
+  it('resolves the same way for any caller asking by key', () => {
+    expect(metricNumber(speedy({}, 47), 'vehicle.speed')).toBe(47)
+    // Only speed is special; every other key still reads the metric map alone.
+    expect(metricNumber(speedy({ 'battery.soc': 61 }, 47), 'battery.soc')).toBe(61)
+    expect(metricNumber(speedy({}, 47), 'battery.soc')).toBe(null)
+  })
+
+  it('resolves a history point across the metric map and the gps column', () => {
+    const point = (metrics: Record<string, unknown>, speed: number | null) => ({ speed, metrics })
+    expect(historyValue(point({ 'vehicle.speed': 54 }, 47), 'vehicle.speed')).toBe(54)
+    expect(historyValue(point({}, 47), 'vehicle.speed')).toBe(47)
+    expect(historyValue(point({}, null), 'vehicle.speed')).toBe(null)
+    expect(historyValue(point({ 'battery.soc': 61 }, 47), 'battery.soc')).toBe(61)
+    expect(historyValue(point({}, 47), 'battery.soc')).toBe(null)
+  })
+})
+
+describe('needsSpecificData', () => {
+  const at = (type: string, extra: Partial<DashboardWidget> = {}): DashboardWidget =>
+    ({ id: 'w', type, x: 0, y: 0, w: 4, h: 3, ...extra })
+
+  it('treats a standard binding as general and any other binding as specific', () => {
+    expect([...STANDARD_METRICS]).toEqual(['vehicle.speed'])
+    expect(needsSpecificData(at('metric-card', { metric: 'vehicle.speed' }))).toBe(false)
+    expect(needsSpecificData(at('time-series', { metric: 'vehicle.speed' }))).toBe(false)
+    expect(needsSpecificData(at('multi-series', { metrics: ['vehicle.speed'] }))).toBe(false)
+    // The guard is not loosened for arbitrary metrics.
+    expect(needsSpecificData(at('metric-card', { metric: 'battery.soc' }))).toBe(true)
+    expect(needsSpecificData(at('multi-series', { metrics: ['vehicle.speed', 'battery.soc'] }))).toBe(true)
+    expect(needsSpecificData(at('xy-chart', { x_metric: 'vehicle.speed', y_metric: 'battery.power' }))).toBe(true)
+  })
+
+  it('counts a type bound by its own nature as specific, with or without a metric', () => {
+    for (const type of ['battery-gauge', 'charging', 'vehicle-media', 'xy-chart']) {
+      expect(needsSpecificData(at(type)), type).toBe(true)
+    }
+    // An unbound metric card has chosen nothing yet, so it cannot claim standing.
+    expect(needsSpecificData(at('metric-card'))).toBe(true)
+  })
+
+  it('leaves every general type general however it is configured', () => {
+    for (const definition of Object.values(widgetRegistry).filter((row) => row.general)) {
+      expect(needsSpecificData(at(definition.type, { metric: 'battery.soc' })), definition.type).toBe(false)
     }
   })
 })

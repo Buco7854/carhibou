@@ -17,7 +17,7 @@ import VehicleSelectorWidget from './VehicleSelectorWidget.vue'
 import XyChartWidget from './XyChartWidget.vue'
 import type { DashboardWidgetDefinition } from './types'
 import type { DashboardWidget, Vehicle } from '../api/types'
-import { chargingState, energySummary, metricReading, secondaryReadings } from '../vehicleDisplay'
+import { SPEED_KEY, chargingState, energySummary, metricReading, secondaryReadings } from '../vehicleDisplay'
 
 const reports = (vehicle: Vehicle | null | undefined, key: string): boolean =>
   metricReading(vehicle, key).value !== null
@@ -87,11 +87,37 @@ export function presetFor(widget: DashboardWidget): WidgetPreset | undefined {
     && Object.entries(preset.config).every(([key, value]) => widget[key as keyof DashboardWidget] === value))
 }
 
-/** Whether a picker value names a widget that adapts to any vehicle. */
+/** Whether a picker value names a widget type that adapts to any vehicle. */
 export function isGeneralChoice(value: string): boolean {
   // A preset is an opinionated configuration by definition, never general.
   if (value.startsWith('preset:')) return false
   return widgetRegistry[value]?.general ?? false
+}
+
+/**
+ * Metric keys every vehicle can answer, whatever its agent can see.
+ *
+ * Speed is the only one: a CAN or OBD-II agent reports it, and a GNSS-only agent
+ * still derives it from the fix, so `speedReading` and `historyValue` resolve it
+ * across both sources. A card bound to one of these is asking for standard data
+ * and belongs on any dashboard, its empty state reading as ordinary no-data.
+ */
+export const STANDARD_METRICS: ReadonlySet<string> = new Set([SPEED_KEY])
+
+/**
+ * Whether a configured widget depends on data a vehicle may never produce.
+ *
+ * This is about the instance, not the type. `metric-card` is a data-bound type,
+ * because choosing it means choosing a metric, yet an instance bound to speed
+ * asks only for standard data and shows unconditionally. An instance bound to
+ * battery state does not. A type with no metric field at all (energy, charging,
+ * the photo) is bound by its own nature and always counts as specific.
+ */
+export function needsSpecificData(widget: DashboardWidget): boolean {
+  const definition = widgetRegistry[widget.type]
+  if (!definition || definition.general) return false
+  const bound = [widget.metric, widget.x_metric, widget.y_metric, ...(widget.metrics ?? [])].filter(Boolean)
+  return bound.length === 0 || !bound.every((key) => STANDARD_METRICS.has(key!))
 }
 
 export function normalizeWidget(widget: DashboardWidget): DashboardWidget {

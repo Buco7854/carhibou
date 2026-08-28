@@ -198,26 +198,31 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByPlaceholder('Search vehicles…').fill('Touring')
   await expect(page.getByRole('option')).toHaveCount(1)
   await page.getByRole('option', { name:'Touring', exact:true }).click()
-  // Every card bound to a named metric hides, speed included: this vehicle has
-  // no agent reporting, so a road-speed card would sit permanently blank.
-  for (const type of ['metric-card', 'battery-gauge', 'charging', 'time-series', 'xy-chart', 'vehicle-media']) {
+  // Only the cards needing non-standard data hide: battery state, charging, a
+  // charge curve, a photo. Speed is standard, so both speed cards stay.
+  for (const type of ['battery-gauge', 'charging', 'xy-chart', 'vehicle-media']) {
     await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(0)
   }
-  // What remains is exactly the general tier, each card answering for itself.
+  // This vehicle has neither a CAN reading nor a fix yet, so the speed cards say
+  // so like any other card rather than vanishing.
   await expect(page.locator('[data-widget-type="telemetry-list"] .dashboard-widget-empty')).toContainText('No data yet')
-  for (const type of ['vehicle-selector', 'online-status', 'route-map', 'activity-feed', 'telemetry-list', 'segment-stats', 'period-stats']) {
+  await expect(page.locator('[data-widget-type="metric-card"] .dashboard-widget-empty')).toContainText('No data yet')
+  for (const type of ['vehicle-selector', 'online-status', 'metric-card', 'route-map', 'activity-feed', 'telemetry-list', 'segment-stats', 'period-stats', 'time-series']) {
     await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(1)
   }
-  await expect(page.locator('.grid-stack-item')).toHaveCount(7)
+  await expect(page.locator('.grid-stack-item')).toHaveCount(9)
   await expect(page.locator('[data-widget-type="position-map"] .vehicle-map')).toHaveCount(0)
   await vehicleSelector.getByRole('combobox').click()
   await page.getByPlaceholder('Search vehicles…').fill('Éclair')
   await page.getByRole('option', { name:/Éclair/ }).click()
   await expect(page.locator('[data-widget-type="battery-gauge"] .energy-value')).toHaveText('77')
-  // The EV reports battery.soc and road speed, so every metric-bound card returns.
+  // The EV reports battery state too, so the non-standard cards come back with it.
   for (const type of ['metric-card', 'charging', 'time-series', 'xy-chart']) {
     await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(1)
   }
+  // This vehicle was given a photo earlier, so every card in the preset is up.
+  await expect(page.locator('[data-widget-type="vehicle-media"]')).toHaveCount(1)
+  await expect(page.locator('.grid-stack-item')).toHaveCount(13)
 
   const liveSample = {
     id: randomUUID(),

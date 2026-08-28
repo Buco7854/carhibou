@@ -11,7 +11,7 @@ import AppSelect from '../components/AppSelect.vue'
 import TelemetryTable from '../components/TelemetryTable.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import VehicleMap from '../components/VehicleMap.vue'
-import { formatMetricNumber, metricDefinition, metricLabel, preferredHistoryMetric } from '../vehicleDisplay'
+import { formatMetricNumber, historyValue, metricDefinition, metricLabel, preferredHistoryMetric } from '../vehicleDisplay'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -46,8 +46,8 @@ const series = computed(() => [{
   name: metricLabel(selectedMetric.value, t),
   unit: selectedMetric.value.unit,
   data: (history.value?.points ?? []).flatMap((point) => {
-    const value = metric.value === 'vehicle.speed' ? point.speed : point.metrics[metric.value]
-    return typeof value === 'number' ? [[point.recorded_at, value] as [string, number]] : []
+    const value = historyValue(point, metric.value)
+    return value !== null ? [[point.recorded_at, value] as [string, number]] : []
   }),
 }])
 const latestValue = computed(() => [...(series.value[0]?.data ?? [])].at(-1)?.[1])

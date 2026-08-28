@@ -8,7 +8,8 @@ import DashboardsView from '../src/views/DashboardsView.vue'
 import DataSourcesView from '../src/views/DataSourcesView.vue'
 import ProfilesView from '../src/views/ProfilesView.vue'
 import VehiclesView from '../src/views/VehiclesView.vue'
-import { widgetRegistry } from '../src/widgets/registry'
+import type { DashboardWidget } from '../src/api/types'
+import { needsSpecificData, widgetRegistry } from '../src/widgets/registry'
 import { adminUser, agentImplementations, agentRow, connectorKinds, jsonResponse, vehicle } from './helpers'
 
 vi.mock('gridstack', () => ({
@@ -453,16 +454,23 @@ describe('vehicle and dashboard management', () => {
       .filter((row: {settings?:{hide_when_empty?:boolean}}) => Boolean(row.settings?.hide_when_empty) === want)
       .map((row: {type:string}) => row.type)
     expect(flagged(false)).toEqual([
-      'vehicle-selector', 'online-status', 'route-map', 'activity-feed',
-      'telemetry-list', 'segment-stats', 'period-stats',
+      'vehicle-selector', 'online-status', 'metric-card', 'route-map', 'activity-feed',
+      'telemetry-list', 'segment-stats', 'period-stats', 'time-series',
     ])
-    expect(flagged(true)).toEqual([
-      'metric-card', 'battery-gauge', 'charging', 'vehicle-media', 'time-series', 'xy-chart',
-    ])
-    // Both lists are derived, not restated: the layout reads the same `general`
-    // flag the picker and the hide default do, so the three cannot drift apart.
-    for (const row of body.layout.widgets as Array<{type:string;settings?:{hide_when_empty?:boolean}}>) {
-      expect(Boolean(row.settings?.hide_when_empty), row.type).toBe(!widgetRegistry[row.type]!.general)
+    expect(flagged(true)).toEqual(['battery-gauge', 'charging', 'vehicle-media', 'xy-chart'])
+    // The two speed cards show because speed is standard, not because the guard
+    // is loose: rebinding either to a non-standard metric makes it specific again.
+    for (const type of ['metric-card', 'time-series']) {
+      const row = body.layout.widgets.find((widget: {type:string}) => widget.type === type)
+      expect(row.metric, type).toBe('vehicle.speed')
+      expect(needsSpecificData(row), type).toBe(false)
+      expect(needsSpecificData({ ...row, metric: 'battery.soc' }), type).toBe(true)
+      expect(needsSpecificData({ ...row, metric: '' }), type).toBe(true)
+    }
+    // Derived, not restated: the layout, the editor default and this assertion
+    // all ask needsSpecificData, so the three cannot drift apart.
+    for (const row of body.layout.widgets as DashboardWidget[]) {
+      expect(Boolean(row.settings?.hide_when_empty), row.type).toBe(needsSpecificData(row))
     }
     // No widget lands on top of another, and none overflows the 12 columns.
     const cells = new Set<string>()

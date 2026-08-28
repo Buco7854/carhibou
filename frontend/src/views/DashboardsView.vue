@@ -11,7 +11,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 import { defaultDashboardMetrics, metricDefinition, reportedChartMetrics } from '../vehicleDisplay'
-import { isGeneralChoice, normalizeWidget, widgetPresets, widgetRegistry } from '../widgets/registry'
+import { isGeneralChoice, needsSpecificData, normalizeWidget, widgetPresets, widgetRegistry } from '../widgets/registry'
 import { dashboardRuntimeKey } from '../widgets/dashboardContext'
 
 const { t } = useI18n()
@@ -108,12 +108,11 @@ const hideWhenEmpty = { settings:{ hide_when_empty:true } }
  * how fast, how much is left, where is it, what happened recently, what did it
  * cost.
  *
- * Two tiers. A card stays only if it adapts to whatever the vehicle reports, so
- * its empty state is itself an answer: "no drives yet" tells the reader
- * something. Every card bound to a named metric hides instead, because a
- * permanently blank card claims the vehicle should have data it can never
- * produce. That covers the electrical cards and both speed cards: road speed is
- * a CAN or OBD-II reading, and a GPS-only agent never sends it.
+ * A card hides only when it needs non-standard data: battery state, charging, a
+ * photo, a charge curve. Everything else shows unconditionally and answers for
+ * itself, because an empty state on standard data is information rather than
+ * noise. Both speed cards are standard: `vehicle.speed` resolves from the CAN
+ * reading or from the GNSS fix, so either kind of vehicle can answer them.
  */
 function premadeLayout(vehicleId?: string): Dashboard['layout'] {
   void vehicleId
@@ -122,10 +121,10 @@ function premadeLayout(vehicleId?: string): Dashboard['layout'] {
   // status card carries the vehicle's state and the agent's separately, which is
   // why it comes first and why nothing else needs to repeat either.
   return { preset:OVERVIEW_PRESET, widgets: [
-    // What is it doing, and how fast. Speed is a reported metric, not a given.
+    // What is it doing, and how fast. Speed is standard: CAN reading or GNSS fix.
     widget(clientId('widget'), 'vehicle-selector', undefined, 0, 0, 12, 1),
     widget(clientId('widget'), 'online-status', undefined, 0, 1, 3, 2),
-    widget(clientId('widget'), 'metric-card', undefined, 3, 1, 3, 2, { metric:'vehicle.speed', ...hideWhenEmpty }),
+    widget(clientId('widget'), 'metric-card', undefined, 3, 1, 3, 2, { metric:'vehicle.speed' }),
     // How much is left.
     widget(clientId('widget'), 'battery-gauge', undefined, 6, 1, 3, 2, hideWhenEmpty),
     widget(clientId('widget'), 'charging', undefined, 9, 1, 3, 2, hideWhenEmpty),
@@ -137,7 +136,7 @@ function premadeLayout(vehicleId?: string): Dashboard['layout'] {
     widget(clientId('widget'), 'segment-stats', undefined, 0, 9, 4, 3, { time_range_days:7 }),
     widget(clientId('widget'), 'period-stats', undefined, 4, 9, 4, 3, { time_range_days:7 }),
     widget(clientId('widget'), 'vehicle-media', undefined, 8, 9, 4, 3, hideWhenEmpty),
-    widget(clientId('widget'), 'time-series', undefined, 0, 12, 6, 4, { metric:'vehicle.speed', time_range_days:1, ...hideWhenEmpty }),
+    widget(clientId('widget'), 'time-series', undefined, 0, 12, 6, 4, { metric:'vehicle.speed', time_range_days:1 }),
     widget(clientId('widget'), 'xy-chart', undefined, 6, 12, 6, 4, { x_metric:'battery.soc', y_metric:'charging.power', time_range_days:7, ...hideWhenEmpty }),
   ] }
 }
@@ -157,9 +156,18 @@ function applyVehicleDefaults(): void {
   form.value.y_metric = usable ? pair[1]! : ''
 }
 
-/** Hiding defaults to on for a card bound to named data, off for a general one. */
+/** Hiding defaults on only for a card that would need non-standard data. */
 function applyTierDefaults(): void {
-  form.value.hide_when_empty = !isGeneralChoice(form.value.type)
+  const preset = widgetPresets.find((row) => `preset:${row.id}` === form.value.type)
+  const definition = widgetRegistry[preset?.type ?? form.value.type]
+  if (!definition) return
+  form.value.hide_when_empty = needsSpecificData({
+    id:'draft', type:definition.type, x:0, y:0, w:0, h:0,
+    ...(definition.needsMetric ? { metric:form.value.metric } : {}),
+    ...(definition.needsMetrics ? { metrics:form.value.metrics.split(',').map((value) => value.trim()).filter(Boolean) } : {}),
+    ...(preset ? preset.config : definition.configSchema.fields.includes('x_metric')
+      ? { x_metric:form.value.x_metric, y_metric:form.value.y_metric } : {}),
+  })
 }
 
 function applyResponsiveGrid(width: number): void {
@@ -399,7 +407,7 @@ watch(() => visibleWidgets.value.map((row) => row.id).join(','), async (next, pr
   initializeGrid()
 })
 watch([() => form.value.vehicle_id, selectedVehicleId], applyVehicleDefaults)
-watch(() => form.value.type, applyTierDefaults)
+watch([() => form.value.type, () => form.value.metric, () => form.value.metrics], applyTierDefaults)
 watch(() => form.value.metric, (metric) => { form.value.unit = metricDefinition(metric).unit })
 onMounted(async () => { await load(); connectLiveEvents() })
 onBeforeUnmount(destroyGrid)

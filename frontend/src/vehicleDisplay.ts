@@ -96,6 +96,9 @@ const metricDefinitions: Record<string, MetricDefinition> = {
   },
 }
 
+/** The one metric key that resolves across sources; see speedReading. */
+export const SPEED_KEY = 'vehicle.speed'
+
 const unknownEnergy: MetricDefinition = {
   key: '', labelKey: 'metrics.energyLevel', unit: '%', icon: 'energy', decimals: 0, kind: 'number',
 }
@@ -151,11 +154,36 @@ export function metricDefinition(key: string): MetricDefinition {
   return metricDefinitions[key] ?? { key, labelKey: '', unit: '', icon: 'signal', decimals: 1, kind: 'number' }
 }
 
-export function metricNumber(vehicle: Vehicle | null | undefined, key: string): number | null {
-  const value = key === 'vehicle.speed'
-    ? vehicle?.state?.position?.speed ?? vehicle?.state?.metrics[key]
-    : vehicle?.state?.metrics[key]
+function finite(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/**
+ * How fast the vehicle is going, whatever it is able to say.
+ *
+ * Speed is standard data: a CAN or OBD-II agent reports it as a metric, and an
+ * agent with only a GNSS fix still carries it on the position. The vehicle's own
+ * reading wins because it is measured rather than derived, and the fix is the
+ * fallback, so a card asking for speed is answered for either kind of vehicle.
+ */
+export function speedReading(vehicle: Vehicle | null | undefined): number | null {
+  return finite(vehicle?.state?.metrics['vehicle.speed']) ?? finite(vehicle?.state?.position?.speed)
+}
+
+/**
+ * One history point's value for a metric, resolved the same way.
+ *
+ * The history endpoint returns a GNSS speed column alongside the metric map, so
+ * a series for the standard speed key reads whichever of the two the point has.
+ */
+export function historyValue(point: { speed: number | null; metrics: Record<string, unknown> }, key: string): number | null {
+  if (key === SPEED_KEY) return finite(point.metrics[SPEED_KEY]) ?? finite(point.speed)
+  return finite(point.metrics[key])
+}
+
+export function metricNumber(vehicle: Vehicle | null | undefined, key: string): number | null {
+  if (key === SPEED_KEY) return speedReading(vehicle)
+  return finite(vehicle?.state?.metrics[key])
 }
 
 export function metricReading(vehicle: Vehicle | null | undefined, key: string): MetricReading {

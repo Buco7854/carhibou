@@ -5,7 +5,7 @@ import { loadHistory, rangeStart } from '../api/segments'
 import type { DashboardWidget, History } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
-import { metricDefinition, metricLabel, preferredHistoryMetric } from '../vehicleDisplay'
+import { historyValue, metricDefinition, metricLabel, preferredHistoryMetric } from '../vehicleDisplay'
 import { useDashboardVehicle } from './dashboardContext'
 
 const props = defineProps<{ widget: DashboardWidget }>()
@@ -15,7 +15,7 @@ const history = ref<History|null>(null)
 let request = 0
 const metric = computed(() => props.widget.metric || preferredHistoryMetric(vehicle.value, history.value?.available_metrics ?? [], (history.value?.points ?? []).some((point) => typeof point.speed==='number')))
 const definition = computed(() => metricDefinition(metric.value))
-const series = computed(() => [{name:props.widget.title||metricLabel(definition.value,t),unit:props.widget.unit??definition.value.unit,data:(history.value?.points??[]).flatMap((point) => {const value=metric.value==='vehicle.speed'?point.speed:point.metrics[metric.value];return typeof value==='number'?[[point.recorded_at,value] as [string,number]]:[]})}])
+const series = computed(() => [{name:props.widget.title||metricLabel(definition.value,t),unit:props.widget.unit??definition.value.unit,data:(history.value?.points??[]).flatMap((point) => {const value=historyValue(point,metric.value);return value!==null?[[point.recorded_at,value] as [string,number]]:[]})}])
 const hasData = computed(() => series.value.some((row) => row.data.length > 0))
 
 async function loadSeries(): Promise<void> {
