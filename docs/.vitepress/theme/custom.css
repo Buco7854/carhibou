@@ -1,0 +1,5 @@
+/* The mark carries fine detail that the default 24px nav logo loses, so it is
+   scaled to sit within the 64px header rather than to the theme default. */
+:root {
+  --vp-nav-logo-height: 34px;
+}

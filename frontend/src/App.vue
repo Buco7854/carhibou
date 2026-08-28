@@ -36,7 +36,7 @@ async function signOut() {
   <div v-else class="app-shell">
     <aside class="sidebar">
       <RouterLink class="brand" to="/" aria-label="Carhibou">
-        <BrandMark :size="30" />
+        <BrandMark :size="40" />
         <strong>{{ APP_NAME }}</strong>
       </RouterLink>
 

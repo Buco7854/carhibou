@@ -72,7 +72,7 @@ async function submit() {
 
     <section class="login-card">
       <div class="login-brand">
-        <BrandMark :size="36" />
+        <BrandMark :size="54" />
         <div><strong>{{ APP_NAME }}</strong><small>{{ t('auth.workspaceTitle') }}</small></div>
       </div>
 
@@ -101,7 +101,7 @@ async function submit() {
 
 /* The mark stands alone above the card, the way a sign-in door carries the
    nameplate: centred, quiet, no copy beyond the product's own name. */
-.login-brand{display:grid;justify-items:center;gap:12px;text-align:center}
+.login-brand{display:grid;justify-items:center;gap:14px;text-align:center}
 .login-brand strong,.login-brand small{display:block}
 .login-brand strong{font-size:var(--font-card-title);font-weight:600;letter-spacing:-.01em}
 .login-brand small{margin-top:2px;color:var(--muted);font-size:var(--font-caption)}
