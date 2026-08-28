@@ -22,12 +22,13 @@
   --font-value-sm: 22px;  /* a card's inline reading — weight 500, tabular */
   --font-value-xs: 15px;  /* a value inside a list row — weight 500, tabular */
 
-  --workspace: #eae7df;
+  --workspace: #f7f6f3;
   --text: #1a1c19;
   --panel: #ffffff;
   --panel-2: #f2f0ea;
-  --sidebar: #e2dfd6;
+  --sidebar: #f0eee8;
   --input: #ffffff;
+  --panel-line: #efeee8;
   --line: #e5e3db;
   --line-strong: #cfcdc3;
   --muted: #5c5f58;
@@ -60,9 +61,11 @@
   --radius-sm: 4px;
   --radius: 6px;
   --radius-lg: 8px;
-  /* Two elevations only: a resting surface sits on a lighter tone than the page
-     and carries --shadow-soft, anything floating above the page (menus, dialogs,
-     toasts) uses --shadow. Structure comes from the tone step, not an outline. */
+  /* Two elevations only: a resting surface carries --shadow-soft over the page,
+     anything floating above it (menus, dialogs, toasts) uses --shadow. Light
+     adds --panel-line, a hairline far quieter than --line, drawn as a ring so
+     it costs no layout; dark sets that token transparent and separates by tone
+     alone, unchanged to the pixel. */
   --shadow-soft: 0 1px 3px rgba(24, 28, 22, .07);
   --shadow: 0 14px 40px rgba(24, 28, 22, .16);
   --focus-ring: 0 0 0 3px var(--accent-soft);
@@ -75,6 +78,7 @@
   --panel-2: #2c2f29;
   --sidebar: #0a0b09;
   --input: #1c1f1a;
+  --panel-line: transparent;
   --line: #303430;
   --line-strong: #3d4139;
   --muted: #a0a69c;
@@ -207,7 +211,7 @@ a { color: inherit; }
 
 /* ---------- surfaces ---------- */
 
-.panel { color: var(--text); background: var(--panel); border-radius: var(--radius-lg); box-shadow: var(--shadow-soft); }
+.panel { color: var(--text); background: var(--panel); border-radius: var(--radius-lg); box-shadow: 0 0 0 1px var(--panel-line), var(--shadow-soft); }
 
 /* ---------- controls ---------- */
 
@@ -219,8 +223,8 @@ a { color: inherit; }
   transition: background-color .12s, border-color .12s, color .12s;
 }
 .button:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
-.button.secondary { color: var(--text); background: var(--panel); border-color: transparent; box-shadow: var(--shadow-soft); }
-.button.secondary:hover { background: var(--panel-2); border-color: transparent; }
+.button.secondary { color: var(--text); background: var(--panel); border-color: var(--panel-line); box-shadow: var(--shadow-soft); }
+.button.secondary:hover { background: var(--panel-2); border-color: var(--panel-line); }
 .button.ghost { color: var(--muted); background: transparent; border-color: transparent; }
 .button.ghost:hover { color: var(--text); background: var(--panel-2); border-color: transparent; }
 .button.danger { color: #fff; background: var(--danger); border-color: var(--danger); }

@@ -106,7 +106,7 @@ async function submit() {
 .login-brand strong{font-size:var(--font-card-title);font-weight:600;letter-spacing:-.01em}
 .login-brand small{margin-top:2px;color:var(--muted);font-size:var(--font-caption)}
 
-.login-form{display:grid;gap:14px;padding:24px;background:var(--panel);border-radius:var(--radius-lg);box-shadow:var(--shadow-soft)}
+.login-form{display:grid;gap:14px;padding:24px;background:var(--panel);border-radius:var(--radius-lg);box-shadow:0 0 0 1px var(--panel-line),var(--shadow-soft)}
 .login-form h1{margin:0;font-size:var(--font-subtitle);font-weight:600;letter-spacing:-.01em}
 .login-hint{margin:-9px 0 3px;color:var(--muted);font-size:var(--font-body)}
 .login-button{width:100%;height:36px;margin-top:4px}
