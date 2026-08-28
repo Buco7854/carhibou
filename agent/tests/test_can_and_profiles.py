@@ -48,9 +48,18 @@ def test_experimental_c_zero_profile_decodes_documented_starting_points() -> Non
     assert values["battery.current"] == pytest.approx(1.0)
     assert values["battery.pack_voltage"] == pytest.approx(330.0)
 
-    # 0x101 is transmitted only while the car is awake, and says which way.
-    state = decoder.decode(CANFrame(3, 0x101, bytes.fromhex("04")))
-    assert {value.name: value.value for value in state}["vehicle.state"] == "ready"
+    states = {
+        payload: {
+            value.name: value.value
+            for value in decoder.decode(CANFrame(3, 0x286, bytes.fromhex(payload)))
+        }
+        for payload in ("0000", "0020", "00A0")
+    }
+    assert states == {
+        "0000": {"charging.active": False},
+        "0020": {"charging.active": True},
+        "00A0": {"charging.active": True},
+    }
 
 
 def test_standard_obd_parsing() -> None:

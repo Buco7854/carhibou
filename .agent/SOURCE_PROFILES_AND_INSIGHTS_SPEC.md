@@ -87,8 +87,12 @@ telemetry using canonical metrics only, so it works for any source:
   equal to driving-like values; position speed above 1 km/h; charging false plus
   movement between consecutive positions. Contiguous drive evidence with gaps under
   180 seconds joins into one drive; drives shorter than 60 seconds are dropped.
-- Charge detection: `charging.active` true, else `charging.power` > 0. Same join rule.
-  Charges shorter than 60 seconds are dropped.
+- Charge detection: `charging.active` true, else `charging.power` >= 0.5 kW. The
+  floor excludes parked pack noise and auxiliary loads; raw power below the floor is
+  still retained and may be integrated inside a session established by explicit
+  charge evidence. `battery.power` is not charge evidence and is not floored because
+  segments derive drive energy from SOC and capacity. Same join rule. Charges shorter
+  than 60 seconds are dropped.
 - Response:
 
 ```

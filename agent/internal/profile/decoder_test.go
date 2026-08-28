@@ -47,13 +47,18 @@ func TestProfileNamesTheIdentifiersItNeeds(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids := decoder.CANIDs()
-	for _, wanted := range []int{0x101, 0x298, 0x346, 0x373, 0x374, 0x389, 0x412} {
+	for _, wanted := range []int{0x286, 0x298, 0x346, 0x373, 0x374, 0x389, 0x412} {
 		found := false
 		for _, id := range ids {
 			found = found || id == wanted
 		}
 		if !found {
 			t.Fatalf("identifiers %#x do not include %#x", ids, wanted)
+		}
+	}
+	for _, id := range ids {
+		if id == 0x101 {
+			t.Fatalf("identifiers %#x still include unsupported 0x101", ids)
 		}
 	}
 	for index := 1; index < len(ids); index++ {
@@ -113,37 +118,23 @@ func TestBuiltInProfileDecodesBodyAndTyreSignals(t *testing.T) {
 	}
 }
 
-// Vehicles do not agree on what their states are called, so a profile translates
-// its own raw values into the canonical meanings and the agent recognises nothing
-// else. A state the profile does not describe decodes to no reading, rather than
-// to a placeholder that anything reading it would have to know to disbelieve.
-func TestStateFrameYieldsCanonicalMeaningsAndNothingElse(t *testing.T) {
+func TestStandardChargerBitYieldsCanonicalChargingState(t *testing.T) {
 	decoder, err := FromFile(filepath.Join("..", "..", "profiles", "citroen-c-zero-v1.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	values := func(raw byte) map[string]any {
 		result := map[string]any{}
-		for _, signal := range decoder.Decode(model.CANFrame{CANID: 0x101, Data: []byte{raw}}, nil) {
+		for _, signal := range decoder.Decode(model.CANFrame{CANID: 0x286, Data: []byte{0, raw}}, nil) {
 			result[signal.Name] = signal.Value
 		}
 		return result
 	}
 
-	ready := values(0x04)
-	if ready["vehicle.ready"] != true || ready["charging.active"] != false || ready["vehicle.state"] != "ready" {
-		t.Fatalf("ready=%#v", ready)
-	}
-	charging := values(0x00)
-	if charging["charging.active"] != true || charging["vehicle.ready"] != false || charging["vehicle.state"] != "charging" {
-		t.Fatalf("charging=%#v", charging)
-	}
-
-	// Neither of the two. Nothing is claimed, so nothing is published.
-	other := values(0x02)
-	for _, name := range []string{"vehicle.state", "vehicle.ready", "charging.active"} {
-		if _, present := other[name]; present {
-			t.Fatalf("%s was published for an unmapped state: %#v", name, other)
+	for raw, want := range map[byte]bool{0x00: false, 0x20: true, 0xA0: true} {
+		decoded := values(raw)
+		if decoded["charging.active"] != want {
+			t.Fatalf("byte 1 %#x decoded %#v, want charging.active=%v", raw, decoded, want)
 		}
 	}
 }

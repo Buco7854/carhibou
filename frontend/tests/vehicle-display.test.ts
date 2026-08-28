@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Vehicle } from '../src/api/types'
-import { chargingState, defaultDashboardMetrics, energySummary, headlineReading, preferredHistoryMetric, secondaryReadings } from '../src/vehicleDisplay'
+import { CHARGING_POWER_FLOOR_KW, chargingState, defaultDashboardMetrics, energySummary, headlineReading, preferredHistoryMetric, secondaryReadings } from '../src/vehicleDisplay'
 import { vehicle } from './helpers'
 
 function withMetrics(metrics: Record<string, unknown>): Vehicle {
@@ -71,5 +71,31 @@ describe('telemetry-driven vehicle display', () => {
 
   it('reports unknown charging rather than guessing for a vehicle without battery data', () => {
     expect(chargingState(withMetrics({ 'engine.rpm': 1500 }))).toEqual({ active: null, power: null })
+  })
+
+  it('does not read a parked pack\u2019s own drain as charging', () => {
+    // A pack at rest leaves a couple of hundred watts on the meter and its sign
+    // wanders, which is what put an unplugged C-Zero at "charging, 0.2 kW". The
+    // floor is a magnitude, so it holds whichever way the noise falls.
+    for (const power of [0, -0.2, 0.2, -0.49, 0.49]) {
+      expect(chargingState(withMetrics({ 'battery.power': power })), `${power} kW`)
+        .toEqual({ active: false, power: null })
+    }
+    // And it opens exactly at the floor, well under the slowest real charge.
+    expect(chargingState(withMetrics({ 'battery.power': -CHARGING_POWER_FLOOR_KW })))
+      .toEqual({ active: true, power: CHARGING_POWER_FLOOR_KW })
+    expect(chargingState(withMetrics({ 'battery.power': -1.4 }))).toEqual({ active: true, power: 1.4 })
+    // A granny cable is the slowest thing that really charges, and it clears the
+    // floor with room to spare, so nothing real is being excluded.
+    expect(CHARGING_POWER_FLOOR_KW).toBeLessThan(1.3)
+  })
+
+  it('lets a reported charging flag overrule the power reading in both directions', () => {
+    // Below the floor but declared charging: the declaration wins.
+    expect(chargingState(withMetrics({ 'charging.active': true, 'battery.power': -0.2 })))
+      .toEqual({ active: true, power: 0.2 })
+    // Far past the floor but declared not charging: the declaration still wins.
+    expect(chargingState(withMetrics({ 'charging.active': false, 'battery.power': -11.2 })))
+      .toEqual({ active: false, power: null })
   })
 })

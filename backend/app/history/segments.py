@@ -16,6 +16,8 @@ JOIN_GAP = timedelta(seconds=180)
 MINIMUM_SEGMENT = timedelta(seconds=60)
 MAXIMUM_RANGE = timedelta(days=92)
 DRIVING_STATES = {"drive", "driving", "moving", "ready", "in_use"}
+# Below 0.5 kW, charger readings overlap with parked pack noise and auxiliary loads.
+CHARGING_POWER_FLOOR_KW = 0.5
 
 
 class SegmentPosition(BaseModel):
@@ -94,7 +96,7 @@ def _charge_evidence(row: Telemetry) -> bool:
     if row.metrics.get("charging.active") is True:
         return True
     power = finite_number(row.metrics.get("charging.power"))
-    return power is not None and power > 0
+    return power is not None and power >= CHARGING_POWER_FLOOR_KW
 
 
 def _groups(rows: list[Telemetry], evidence: list[bool]) -> list[list[Telemetry]]:

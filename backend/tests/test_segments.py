@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.history.segments import (
+    _charge_evidence,
     _charge_segment,
     _distance_km,
     _drive_segment,
@@ -301,6 +302,21 @@ def test_sparse_charge_power_uses_zero_order_hold() -> None:
     ]
 
     assert _power_integral(rows) == (5.5, 11)
+
+
+@pytest.mark.parametrize(
+    ("metrics", "expected"),
+    [
+        ({"charging.power": 0.2}, False),
+        ({"charging.power": 0.499999}, False),
+        ({"charging.power": 0.5}, True),
+        ({"charging.active": True, "charging.power": 0}, True),
+    ],
+)
+def test_charge_evidence_applies_the_half_kilowatt_floor(
+    metrics: dict[str, object], expected: bool
+) -> None:
+    assert _charge_evidence(_row(datetime.now(UTC), 0, metrics=metrics)) is expected
 
 
 def test_distance_falls_back_to_gps_with_only_one_odometer_sample() -> None:

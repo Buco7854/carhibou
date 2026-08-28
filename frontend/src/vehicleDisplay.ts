@@ -272,12 +272,29 @@ export interface ChargingState {
 }
 
 /**
+ * The smallest pack power that counts as charging when nothing declares it.
+ *
+ * A pack at rest is not at zero: contactors, the 12V converter and measurement
+ * noise leave a couple of hundred watts on the meter, and its sign wanders
+ * either side of zero. Treating any negative reading as charge therefore put a
+ * parked car "charging" at 0.2 kW. Nothing real sits in that band: the slowest
+ * genuine charge, a granny cable on a domestic socket, draws about 1.3 kW, so a
+ * floor of half a kilowatt clears the noise without reaching any real rate.
+ *
+ * The backend applies the same floor when it decides where a charge segment
+ * starts, so a card and the history behind it cannot disagree about it.
+ */
+export const CHARGING_POWER_FLOOR_KW = 0.5
+
+/**
  * Whether the pack is taking charge, and how fast.
  *
  * No OBD-II PID reports charging directly, so an explicit `charging.active` from a
- * vehicle profile wins when present. Otherwise it is derived from battery power under
- * the convention this application applies everywhere: `battery.power` is positive while
- * the pack delivers energy and negative while it absorbs it.
+ * vehicle profile wins when present, in both directions: a profile saying the car is
+ * not charging is evidence, not an absence of it. Otherwise it is derived from battery
+ * power under the convention this application applies everywhere: `battery.power` is
+ * positive while the pack delivers energy and negative while it absorbs it, and only
+ * a reading past CHARGING_POWER_FLOOR_KW counts.
  */
 export function chargingState(vehicle: Vehicle | null | undefined): ChargingState {
   const metrics = vehicle?.state?.metrics ?? {}
@@ -288,7 +305,8 @@ export function chargingState(vehicle: Vehicle | null | undefined): ChargingStat
     return { active: declared, power: declared ? rate ?? (power === null ? null : Math.abs(power)) : null }
   }
   if (power === null) return { active: null, power: rate }
-  return { active: power < 0, power: power < 0 ? rate ?? Math.abs(power) : null }
+  const charging = power <= -CHARGING_POWER_FLOOR_KW
+  return { active: charging, power: charging ? rate ?? Math.abs(power) : null }
 }
 
 export function preferredHistoryMetric(vehicle: Vehicle | null | undefined, available: string[], hasSpeed: boolean): string {

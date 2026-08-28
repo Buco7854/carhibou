@@ -199,6 +199,7 @@ a { color: inherit; }
 .main-nav a:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
 .main-nav a.active, .main-nav a.router-link-active { color: var(--text); background: var(--panel); font-weight: 500; box-shadow: var(--shadow-soft); }
 .main-nav .app-icon { flex: none; }
+.main-nav .nav-label-short, .nav-more { display: none; }
 
 .nav-divider { height: 1px; margin: 9px 8px; background: var(--line); }
 
@@ -400,23 +401,58 @@ a { color: inherit; }
 }
 
 @media (max-width: 780px) {
-  .app-shell { display: block; padding-bottom: 60px; background: var(--workspace); }
-  .workspace { min-height: calc(100vh - 60px); }
+  /* Five targets, always. The bar used to lay out six columns and take whatever
+     entries the account had, so an administrator's seventh wrapped onto a second
+     row that sat under the page. The four primary destinations and More are the
+     only things in it, whoever is signed in, and the bar clears the home
+     indicator on a phone that has one. */
+  :root { --nav-bar: 62px; }
+  .app-shell { display: block; padding-bottom: calc(var(--nav-bar) + env(safe-area-inset-bottom, 0px)); background: var(--workspace); }
+  .workspace { min-height: calc(100vh - var(--nav-bar)); }
   .sidebar {
-    position: fixed; top: auto; bottom: 0; z-index: 60; width: 100%; height: 60px; min-height: 0;
-    display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; padding: 5px 6px;
+    position: fixed; top: auto; bottom: 0; z-index: 60; width: 100%;
+    height: calc(var(--nav-bar) + env(safe-area-inset-bottom, 0px)); min-height: 0;
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px;
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
     border: 0; border-top: 1px solid var(--line);
   }
-  .brand, .sidebar-foot, .nav-divider { display: none; }
+  .brand, .sidebar-foot, .nav-divider, .main-nav .nav-secondary, .main-nav .nav-label { display: none; }
   .main-nav { display: contents; }
-  .main-nav a { min-width: 0; height: 100%; flex-direction: column; justify-content: center; gap: 3px; padding: 2px; font-size: 10px; text-align: center; }
-  .main-nav a.active, .main-nav a.router-link-active { background: var(--panel-2); box-shadow: none; }
-  .main-nav .nav-label { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
-  .main-nav .app-icon { width: 17px; height: 17px; }
+  .main-nav a, .nav-more {
+    min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; padding: 2px; color: var(--muted); background: transparent; border: 0;
+    border-radius: var(--radius); font-size: 10px; text-align: center; cursor: pointer;
+  }
+  .main-nav a.active, .main-nav a.router-link-active { color: var(--text); background: var(--panel-2); box-shadow: none; }
+  .nav-more[aria-expanded="true"] { color: var(--text); background: var(--panel-2); }
+  .main-nav .nav-label-short { display: block; overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
+  .main-nav .app-icon { width: 19px; height: 19px; }
   .main-content { padding-block: 22px 40px; }
   .page-header { align-items: flex-start; flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr; }
 }
+
+/* The sheet is the bar's overflow, so it is anchored to the bar and only ever
+   opens where the bar exists. */
+.nav-sheet-backdrop { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, .45); }
+.nav-sheet {
+  position: fixed; z-index: 80; right: 8px; bottom: calc(66px + env(safe-area-inset-bottom, 0px)); left: 8px;
+  display: grid; gap: 2px; padding: 8px; background: var(--panel);
+  border-radius: var(--radius-lg); box-shadow: 0 0 0 1px var(--line), var(--shadow);
+}
+.nav-sheet-link {
+  display: flex; align-items: center; gap: 11px; min-height: 44px; padding: 0 10px;
+  color: var(--text); border-radius: var(--radius); font-size: var(--font-body); text-decoration: none;
+}
+.nav-sheet-link.router-link-active { color: var(--accent); background: var(--accent-soft); }
+.nav-sheet-account { display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: 9px; margin-top: 6px; padding: 10px 10px 0; border-top: 1px solid var(--line); }
+.nav-sheet-account strong, .nav-sheet-account small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-sheet-account strong { font-size: var(--font-caption); font-weight: 500; }
+.nav-sheet-account small { color: var(--muted); font-size: var(--font-micro); }
+.nav-sheet-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 10px 2px; }
+.nav-sheet-tools .app-select { flex: none; }
+.nav-sheet-tools .button { flex: 1; min-width: 0; }
+@media (min-width: 781px) { .nav-sheet, .nav-sheet-backdrop { display: none; } }
 
 @media (max-width: 520px) {
   .page-header { flex-direction: column; }
