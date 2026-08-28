@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Buco7854/carhibou/agent/internal/model"
 )
 
 func TestCANAndStandardOBDParsing(t *testing.T) {
@@ -167,6 +169,56 @@ func TestPassFiltersAskForOnlyTheProfilesIdentifiers(t *testing.T) {
 	// silently truncated into a filter that would pass the wrong traffic.
 	if err := adapter.PassFilters([]int{0x1FFFFFFF}); err == nil {
 		t.Fatal("expected an extended identifier to be refused")
+	}
+}
+
+func TestMonitorCommandsKeepRuntimeFilteredAndDiagnosticsUnfiltered(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		prepare func(*OBDAdapter) error
+		monitor func(*OBDAdapter) error
+		want    string
+	}{
+		{
+			name: "profile runtime",
+			prepare: func(adapter *OBDAdapter) error {
+				return adapter.PassFilters([]int{0x101, 0x373})
+			},
+			monitor: func(adapter *OBDAdapter) error {
+				return adapter.Monitor(20*time.Millisecond, func(model.CANFrame) {})
+			},
+			want: "STFAP 101,FFF\rSTFAP 373,FFF\rSTM\r\r",
+		},
+		{
+			name: "unfiltered diagnostics",
+			monitor: func(adapter *OBDAdapter) error {
+				return adapter.MonitorAll(20*time.Millisecond, func(model.CANFrame) {})
+			},
+			want: "STMA\r\r",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			port := &recordingPort{scriptedPort: scriptedPort{replies: map[string]string{
+				"STFAP": "OK\r>",
+				"STM":   "374 8 96 00 00 00 00 00 00 00\r",
+				"\r":    "STOPPED\r>",
+			}}}
+			adapter := NewOBDAdapter("scripted")
+			adapter.port = port
+			adapter.CommandWindow = time.Second
+
+			if test.prepare != nil {
+				if err := test.prepare(adapter); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := test.monitor(adapter); err != nil {
+				t.Fatal(err)
+			}
+			if port.written != test.want {
+				t.Fatalf("wrote %q, want %q", port.written, test.want)
+			}
+		})
 	}
 }
 

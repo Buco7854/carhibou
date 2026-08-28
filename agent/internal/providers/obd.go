@@ -241,6 +241,13 @@ func (adapter *OBDAdapter) Monitor(duration time.Duration, onFrame func(model.CA
 	return adapter.MonitorUntil(stop, onFrame)
 }
 
+func (adapter *OBDAdapter) MonitorAll(duration time.Duration, onFrame func(model.CANFrame)) error {
+	stop := make(chan struct{})
+	timer := time.AfterFunc(duration, func() { close(stop) })
+	defer timer.Stop()
+	return adapter.monitorUntil(stop, "STMA", onFrame)
+}
+
 // MonitorUntil streams frames until stop is closed.
 //
 // Monitoring is continuous on the wire whether or not anyone is reading, so a
@@ -250,6 +257,10 @@ func (adapter *OBDAdapter) Monitor(duration time.Duration, onFrame func(model.CA
 // current in the background, which costs nothing per sample and misses nothing
 // between them.
 func (adapter *OBDAdapter) MonitorUntil(stop <-chan struct{}, onFrame func(model.CANFrame)) error {
+	return adapter.monitorUntil(stop, "STM", onFrame)
+}
+
+func (adapter *OBDAdapter) monitorUntil(stop <-chan struct{}, command string, onFrame func(model.CANFrame)) error {
 	if adapter.port == nil {
 		return fmt.Errorf("adapter is not connected")
 	}
@@ -257,7 +268,7 @@ func (adapter *OBDAdapter) MonitorUntil(stop <-chan struct{}, onFrame func(model
 		return err
 	}
 	adapter.pending = ""
-	if _, err := adapter.port.Write([]byte("STM\r")); err != nil {
+	if _, err := adapter.port.Write([]byte(command + "\r")); err != nil {
 		return err
 	}
 	for {

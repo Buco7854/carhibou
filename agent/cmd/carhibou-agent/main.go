@@ -452,7 +452,7 @@ func commandOBD(locations paths, arguments []string) error {
 	fmt.Fprintf(os.Stderr, "Listening for CAN frames for %s\n", canSurvey)
 	seen := map[int]int{}
 	frames := 0
-	if err := adapter.Monitor(canSurvey, func(frame model.CANFrame) {
+	if err := adapter.MonitorAll(canSurvey, func(frame model.CANFrame) {
 		frames++
 		seen[frame.CANID]++
 	}); err != nil {
