@@ -55,7 +55,7 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days], load, { imm
 <template>
   <article class="widget-card activity-feed-widget">
     <div class="widget-head">
-      <h2>{{ widget.title || t('insights.activityFeed') }}</h2>
+      <h2>{{ widget.title || t('dashboards.activityFeed') }}</h2>
       <div class="feed-filter" role="group" :aria-label="t('insights.filter')">
         <button v-for="option in (['all','drive','charge'] as const)" :key="option" type="button" :class="{ active: filter===option }" :aria-pressed="filter===option" @click="filter=option">{{ t(`insights.filterOption.${option}`) }}</button>
       </div>

@@ -11,7 +11,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 import { defaultDashboardMetrics, metricDefinition } from '../vehicleDisplay'
-import { widgetRegistry } from '../widgets/registry'
+import { normalizeWidget, widgetPresets, widgetRegistry } from '../widgets/registry'
 import { dashboardRuntimeKey } from '../widgets/dashboardContext'
 
 const { t } = useI18n()
@@ -30,7 +30,7 @@ const narrowCanvas = ref(false)
 const selectedVehicleId = ref('')
 const liveStatus = ref<LiveConnectionStatus>('connecting')
 const selectedSegment = ref<SelectedSegment | null>(null)
-const form = ref({ type:'metric-card', vehicle_id:'', metric:'vehicle.speed', metrics:'vehicle.speed', title:'', unit:'km/h', time_range_days:1, hide_when_empty:false })
+const form = ref({ type:'metric-card', vehicle_id:'', metric:'vehicle.speed', metrics:'vehicle.speed', x_metric:'battery.soc', y_metric:'charging.power', title:'', unit:'km/h', time_range_days:1, hide_when_empty:false })
 let grid: GridStack | undefined
 let resizeObserver: ResizeObserver | undefined
 let canvasColumns = 12
@@ -64,9 +64,15 @@ const visibleWidgets = computed<DashboardWidget[]>(() => {
     return !definition?.isEmpty?.(currentWidget, widgetVehicle(currentWidget))
   })
 })
-const supportsHiding = computed(() => Boolean(widgetRegistry[form.value.type]?.isEmpty))
+const supportsHiding = computed(() => Boolean(chosenDefinition.value?.isEmpty))
 const activeIsPremade = computed(() => active.value?.layout.preset?.startsWith('overview-') ?? false)
 const definitions = computed(() => Object.values(widgetRegistry))
+const pickerOptions = computed(() => [
+  ...definitions.value.map((definition) => ({ value: definition.type, label: t(definition.titleKey) })),
+  ...widgetPresets.map((preset) => ({ value: `preset:${preset.id}`, label: t(preset.titleKey) })),
+])
+const chosenPreset = computed(() => widgetPresets.find((preset) => `preset:${preset.id}` === form.value.type))
+const chosenDefinition = computed(() => widgetRegistry[chosenPreset.value?.type ?? form.value.type])
 const selectedVehicle = computed(() => vehicles.value.find((row) => row.id === selectedVehicleId.value))
 const metricSuggestion = computed(() => {
   const vehicle = vehicles.value.find((row) => row.id === form.value.vehicle_id) ?? selectedVehicle.value
@@ -193,6 +199,9 @@ async function fetchDashboards(): Promise<void> {
     })
     dashboards.value = dashboards.value.map((dashboard) => dashboard.id === updated.id ? updated : dashboard)
   }
+  for (const dashboard of dashboards.value) {
+    if (Array.isArray(dashboard?.layout?.widgets)) dashboard.layout.widgets = dashboard.layout.widgets.map(normalizeWidget)
+  }
   const initial = dashboards.value.find((row) => row.is_default) ?? dashboards.value[0]
   if (!initial) return
   activeId.value = initial.id
@@ -272,8 +281,9 @@ async function createDashboard(): Promise<void> {
 
 async function addWidget(): Promise<void> {
   if (!active.value) return
-  const definition = widgetRegistry[form.value.type]
+  const definition = chosenDefinition.value
   if (!definition) return
+  const preset = chosenPreset.value
   const newWidget: DashboardWidget = {
     id:clientId('widget'), type:definition.type, x:0, y:0,
     w:definition.defaultSize.w, h:definition.defaultSize.h,
@@ -281,7 +291,9 @@ async function addWidget(): Promise<void> {
     ...(form.value.vehicle_id ? { vehicle_id:form.value.vehicle_id } : {}),
     ...(definition.needsMetric ? { metric:form.value.metric, unit:form.value.unit } : {}),
     ...(definition.needsMetrics ? { metrics:[...new Set(form.value.metrics.split(',').map((value) => value.trim()).filter(Boolean))] } : {}),
-    ...(['time-series', 'multi-series'].includes(definition.type) ? { time_range_days:form.value.time_range_days } : {}),
+    ...(definition.configSchema.fields.includes('time_range_days') ? { time_range_days:form.value.time_range_days } : {}),
+    ...(preset ? preset.config : {}),
+    ...(definition.configSchema.fields.includes('x_metric') && !preset ? { x_metric:form.value.x_metric, y_metric:form.value.y_metric } : {}),
     ...(definition.isEmpty && form.value.hide_when_empty ? { settings:{ hide_when_empty:true } } : {}),
   }
   active.value.layout.widgets.push(newWidget)
@@ -403,11 +415,15 @@ onBeforeUnmount(destroyGrid)
 
     <AppModal :open="configuring" :title="t('dashboards.addWidget')" @close="configuring=false">
       <form class="dashboard-modal-form widget-modal-form" @submit.prevent="addWidget">
-        <label class="field"><span>{{ t('common.type') }}</span><AppSelect v-model="form.type"><option v-for="definition in definitions" :key="definition.type" :value="definition.type">{{ t(definition.titleKey) }}</option></AppSelect></label>
-        <label v-if="widgetRegistry[form.type]?.configSchema.fields.includes('vehicle_id')" class="field"><span>{{ t('common.vehicle') }}</span><AppSelect v-model="form.vehicle_id"><option value="">{{ t('dashboards.selectedVehicle') }}</option><option v-for="vehicle in vehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.name }}</option></AppSelect><small class="field-hint">{{ t('dashboards.selectedVehicleHint') }}</small></label>
-        <label v-if="widgetRegistry[form.type]?.needsMetric" class="field"><span>{{ t('history.metric') }}</span><input v-model="form.metric" class="input mono" list="metric-options" /><datalist id="metric-options"><option v-for="name in availableMetrics" :key="name">{{ name }}</option></datalist></label>
-        <label v-if="widgetRegistry[form.type]?.needsMetrics" class="field"><span>{{ t('dashboards.metrics') }}</span><input v-model="form.metrics" class="input mono" :placeholder="metricSuggestion" /></label>
-        <label v-if="['time-series','multi-series'].includes(form.type)" class="field"><span>{{ t('dashboards.timeRange') }}</span><AppSelect v-model="form.time_range_days"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></AppSelect></label>
+        <label class="field"><span>{{ t('common.type') }}</span><AppSelect v-model="form.type"><option v-for="option in pickerOptions" :key="option.value" :value="option.value">{{ option.label }}</option></AppSelect></label>
+        <label v-if="chosenDefinition?.configSchema.fields.includes('vehicle_id')" class="field"><span>{{ t('common.vehicle') }}</span><AppSelect v-model="form.vehicle_id"><option value="">{{ t('dashboards.selectedVehicle') }}</option><option v-for="vehicle in vehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.name }}</option></AppSelect><small class="field-hint">{{ t('dashboards.selectedVehicleHint') }}</small></label>
+        <label v-if="chosenDefinition?.needsMetric" class="field"><span>{{ t('history.metric') }}</span><input v-model="form.metric" class="input mono" list="metric-options" /><datalist id="metric-options"><option v-for="name in availableMetrics" :key="name">{{ name }}</option></datalist></label>
+        <label v-if="chosenDefinition?.needsMetrics" class="field"><span>{{ t('dashboards.metrics') }}</span><input v-model="form.metrics" class="input mono" :placeholder="metricSuggestion" /></label>
+        <label v-if="chosenDefinition?.configSchema.fields.includes('time_range_days')" class="field"><span>{{ t('dashboards.timeRange') }}</span><AppSelect v-model="form.time_range_days"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></AppSelect></label>
+        <template v-if="chosenDefinition?.configSchema.fields.includes('x_metric') && !chosenPreset">
+          <label class="field"><span>{{ t('dashboards.xMetric') }}</span><input v-model="form.x_metric" class="input mono" list="metric-options" /></label>
+          <label class="field"><span>{{ t('dashboards.yMetric') }}</span><input v-model="form.y_metric" class="input mono" list="metric-options" /></label>
+        </template>
         <label class="field"><span>{{ t('common.title') }}</span><input v-model="form.title" class="input" /></label>
         <label v-if="supportsHiding" class="widget-toggle"><input v-model="form.hide_when_empty" type="checkbox" /><span>{{ t('dashboards.hideWhenEmpty') }}</span></label>
         <div class="form-actions"><button class="button">{{ t('dashboards.addWidget') }}</button><button class="button ghost" type="button" @click="configuring=false">{{ t('common.cancel') }}</button></div>

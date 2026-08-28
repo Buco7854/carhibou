@@ -329,7 +329,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
 
     <p v-if="error" class="entries-note error" role="alert">{{ error }}</p>
 
-    <div v-else-if="data?.entries.length" class="table-wrap" :aria-busy="loading">
+    <div v-else-if="data?.entries?.length" class="table-wrap" :aria-busy="loading">
       <table class="table entries-table">
         <thead>
           <tr>

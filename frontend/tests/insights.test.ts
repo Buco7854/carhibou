@@ -75,7 +75,7 @@ describe('driving insight widgets', () => {
   })
 
   it('registers every insight widget with a configurable range', () => {
-    for (const type of ['route-map', 'activity-feed', 'segment-stats', 'charge-curve', 'period-stats']) {
+    for (const type of ['route-map', 'activity-feed', 'segment-stats', 'xy-chart', 'period-stats']) {
       const definition = widgetRegistry[type]
       expect(definition, type).toBeDefined()
       expect(definition!.configSchema.fields).toContain('time_range_days')
@@ -83,7 +83,7 @@ describe('driving insight widgets', () => {
     }
     // Only widgets that can answer from current state offer hiding.
     expect(widgetRegistry['route-map']!.isEmpty).toBeTypeOf('function')
-    expect(widgetRegistry['charge-curve']!.isEmpty).toBeTypeOf('function')
+    expect(widgetRegistry['xy-chart']!.isEmpty).toBeTypeOf('function')
   })
 
   it('shows the activity feed empty, then merged newest first with a type filter', async () => {
@@ -146,22 +146,27 @@ describe('driving insight widgets', () => {
     expect(labels).not.toContain('Top speed')
   })
 
-  it('plots the charge curve against state of charge', async () => {
+  it('plots the y metric against the x metric', async () => {
     api({ segments: { drives: [], charges: [charge()] } })
-    const { wrapper } = mountWidget('charge-curve')
+    const { wrapper } = mountWidget('xy-chart')
     await flushPromises()
     const chart = wrapper.get('.chart-stub')
     expect(chart.attributes('data-x-type')).toBe('value')
     expect(chart.attributes('data-points')).toBe('3')
-    expect(wrapper.get('.widget-head small').text()).toContain('Peak 11.2 kW')
+    // Derived from the plotted series, since a generic Y has no server figure.
+    expect(wrapper.get('.widget-head small').text()).toContain('Peak 11.0 kW')
   })
 
-  it('leaves the charge curve empty when the range holds no charge', async () => {
-    api({ segments: { drives: [drive()], charges: [] } })
-    const { wrapper } = mountWidget('charge-curve')
+  it('leaves the chart empty when one of the two metrics never reports', async () => {
+    const noPower = {
+      vehicle_id: vehicle.id, start: '', end: '', available_metrics: [], original_count: 1,
+      points: [{ id: 'a', recorded_at: '2026-08-27T08:00:00Z', latitude: null, longitude: null, speed: null, heading: null, metrics: { 'battery.soc': 40 } }],
+    }
+    api({ segments: { drives: [drive()], charges: [] }, history: noPower })
+    const { wrapper } = mountWidget('xy-chart')
     await flushPromises()
     expect(wrapper.find('.chart-stub').exists()).toBe(false)
-    expect(wrapper.get('.dashboard-widget-empty').text()).toContain('No charge to plot')
+    expect(wrapper.get('.dashboard-widget-empty').text()).toContain('No paired readings')
   })
 
   it('reads two picked points on the route trail as an A to B leg', async () => {
@@ -209,22 +214,27 @@ describe('driving insight widgets', () => {
     ['rows without an instant', { drives: [{ distance_km: 4 }], charges: [{}] }],
   ])('renders without throwing when segments come back as %s', async (_label, body) => {
     api({ segments: body, previous: body })
-    for (const type of ['activity-feed', 'segment-stats', 'charge-curve', 'period-stats']) {
+    for (const type of ['activity-feed', 'segment-stats', 'period-stats']) {
       const { wrapper } = mountWidget(type)
       await flushPromises()
       expect(wrapper.find('.widget-card').exists(), type).toBe(true)
       expect(wrapper.find('.dashboard-widget-empty').exists(), type).toBe(true)
       wrapper.unmount()
     }
-    // The route map has no segment to follow, so it falls back to the whole range.
+    // Route map and x-y chart have no segment to follow, so both plot the range.
     api({ segments: body, previous: body })
     const { wrapper } = mountWidget('route-map')
     await flushPromises()
     expect(wrapper.find('.route-map-widget .map-stage').exists()).toBe(true)
     expect(wrapper.findAll('.trail-point')).toHaveLength(3)
+
+    api({ segments: body, previous: body })
+    const chart = mountWidget('xy-chart')
+    await flushPromises()
+    expect(chart.wrapper.find('.chart-stub').exists()).toBe(true)
   })
 
-  it.each(['route-map', 'segment-stats', 'charge-curve'])(
+  it.each(['route-map', 'segment-stats', 'xy-chart'])(
     'says so in %s when the selection is outside its own range',
     async (type) => {
       // A selection the range cannot show is stated, not quietly swapped for another.
@@ -237,12 +247,12 @@ describe('driving insight widgets', () => {
   )
 
   it('shares the default range across the feed and its followers', () => {
-    for (const type of ['route-map', 'activity-feed', 'segment-stats', 'charge-curve']) {
+    for (const type of ['route-map', 'activity-feed', 'segment-stats', 'xy-chart']) {
       expect(widgetRegistry[type]!.configSchema.fields, type).toContain('time_range_days')
     }
   })
 
-  it('pairs a sparse charge curve by carrying each series forward', async () => {
+  it('pairs a sparse series by carrying each reading forward', async () => {
     // A connector reports one key per message, so no single point carries both.
     const sparse = {
       vehicle_id: vehicle.id, start: '', end: '', available_metrics: [], original_count: 4,
@@ -254,7 +264,7 @@ describe('driving insight widgets', () => {
       ],
     }
     api({ segments: { drives: [], charges: [charge()] }, history: sparse })
-    const { wrapper } = mountWidget('charge-curve')
+    const { wrapper } = mountWidget('xy-chart')
     await flushPromises()
     expect(wrapper.get('.chart-stub').attributes('data-points')).toBe('3')
   })
@@ -284,16 +294,42 @@ describe('driving insight widgets', () => {
 
   it('keeps ranged widgets visible for a vehicle with no live reading', () => {
     const parked = { ...vehicle, state: { ...vehicle.state, position: null, metrics: {} } } as unknown as Vehicle
-    for (const type of ['route-map', 'charge-curve']) {
+    for (const type of ['route-map', 'xy-chart']) {
       expect(widgetRegistry[type]!.isEmpty?.({ id: 'w', type, x: 0, y: 0, w: 4, h: 3 }, parked), type).toBe(false)
     }
+  })
+
+  it('carries an x metric and a y metric through to the chart', async () => {
+    const sparse = {
+      vehicle_id: vehicle.id, start: '', end: '', available_metrics: [], original_count: 4,
+      points: [
+        { id: 'a', recorded_at: '2026-08-27T08:00:00Z', latitude: null, longitude: null, speed: 10, heading: null, metrics: {} },
+        { id: 'b', recorded_at: '2026-08-27T08:05:00Z', latitude: null, longitude: null, speed: null, heading: null, metrics: { 'battery.power': -4 } },
+        { id: 'c', recorded_at: '2026-08-27T08:10:00Z', latitude: null, longitude: null, speed: 40, heading: null, metrics: {} },
+        { id: 'd', recorded_at: '2026-08-27T08:15:00Z', latitude: null, longitude: null, speed: null, heading: null, metrics: { 'battery.power': -18 } },
+      ],
+    }
+    api({ segments: { drives: [], charges: [] }, history: sparse })
+    const { wrapper } = mountWidget('xy-chart', { x_metric: 'vehicle.speed', y_metric: 'battery.power' })
+    await flushPromises()
+    // Forward fill pairs b, c and d; a has no y yet.
+    expect(wrapper.get('.chart-stub').attributes('data-points')).toBe('3')
+    expect(wrapper.get('.chart-stub').attributes('data-x-type')).toBe('value')
+  })
+
+  it('says so when the selected segment is outside an x-y chart range', async () => {
+    api({ segments: { drives: [drive()], charges: [charge()] } })
+    const { wrapper } = mountWidget('xy-chart', {}, { kind: 'drive', start: '2020-01-01T00:00:00Z', end: '2020-01-01T01:00:00Z' })
+    await flushPromises()
+    expect(wrapper.get('.dashboard-widget-empty').text()).toContain('outside this range')
+    expect(wrapper.find('.chart-stub').exists()).toBe(false)
   })
 
   it('degrades to the empty state when the segments request fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => url.includes('/segments')
       ? Promise.reject(new Error('offline'))
       : Promise.resolve(jsonResponse({ vehicle_id: vehicle.id, start: '', end: '', available_metrics: [], original_count: 0, points: [] }))))
-    for (const type of ['activity-feed', 'segment-stats', 'charge-curve', 'period-stats']) {
+    for (const type of ['activity-feed', 'segment-stats', 'xy-chart', 'period-stats']) {
       const { wrapper } = mountWidget(type)
       await flushPromises()
       expect(wrapper.find('.dashboard-widget-empty').exists(), type).toBe(true)

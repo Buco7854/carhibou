@@ -539,6 +539,51 @@ describe('vehicle and dashboard management', () => {
     expect(wrapper.get('.profile-editor').isVisible()).toBe(true)
   })
 
+  it('inserts the charging curve preset as a preconfigured x-y chart', async () => {
+    const dashboard = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v6', widgets:[] }, created_at:'', updated_at:'' }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
+      if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
+      return Promise.resolve(jsonResponse([]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(DashboardsView, { global:{plugins:[i18n],stubs:{Teleport:true,TimeSeriesChart:{template:'<div data-chart />'},VehicleMap:{template:'<div data-map />'}}} })
+    await flushPromises()
+
+    await wrapper.get('.dashboard-menu-button').trigger('click')
+    await wrapper.findAll('.dashboard-menu button')[0]!.trigger('click')
+    await wrapper.get('.dashboard-editor-bar .button.secondary').trigger('click')
+    const typeSelect = wrapper.findAllComponents(AppSelect).find((row) => row.props('modelValue') === 'metric-card')!
+    typeSelect.vm.$emit('update:modelValue', 'preset:charge-curve')
+    await flushPromises()
+    await wrapper.get('.widget-modal-form').trigger('submit')
+    await flushPromises()
+
+    const added = wrapper.vm.$el.querySelector('[data-widget-type="xy-chart"]')
+    expect(added).toBeTruthy()
+    const [widget] = (wrapper.vm as unknown as { active: { layout: { widgets: Array<Record<string, unknown>> } } }).active.layout.widgets
+    expect(widget).toMatchObject({ type:'xy-chart', x_metric:'battery.soc', y_metric:'charging.power' })
+  })
+
+  it('renders a saved charge-curve layout as the x-y chart that replaced it', async () => {
+    const legacy = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v6', widgets:[
+      { id:'legacy', type:'charge-curve', x:0, y:0, w:6, h:3 },
+    ] }, created_at:'', updated_at:'' }
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([legacy]))
+      if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
+      return Promise.resolve(jsonResponse([]))
+    }))
+    const wrapper = mount(DashboardsView, { global:{plugins:[i18n],stubs:{Teleport:true,TimeSeriesChart:{template:'<div data-chart />'},VehicleMap:{template:'<div data-map />'}}} })
+    await flushPromises()
+
+    // No crash, no blank card: the old type resolves to the generic widget.
+    expect(wrapper.find('[data-widget-type="charge-curve"]').exists()).toBe(false)
+    const card = wrapper.get('[data-widget-type="xy-chart"]')
+    expect(card.find('.widget-card').exists()).toBe(true)
+    expect(card.text()).toContain('Charge curve')
+  })
+
   it('hides opted-in widgets for a vehicle that cannot report them, and keeps the rest', async () => {
     // A standard OBD-II diesel: no traction battery, and no fuel-level PID support.
     const diesel = { ...vehicle, id:'vehicle-2', name:'Golf', photo_url:null, state:{ ...vehicle.state, metrics:{ 'engine.rpm':1800 } } }

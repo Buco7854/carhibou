@@ -192,6 +192,8 @@ export interface DashboardWidget {
   vehicle_id?: string
   metric?: string
   metrics?: string[]
+  x_metric?: string
+  y_metric?: string
   title?: string
   unit?: string
   time_range_days?: number

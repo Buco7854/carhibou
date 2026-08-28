@@ -1,5 +1,4 @@
 import BatteryGaugeWidget from './BatteryGaugeWidget.vue'
-import ChargeCurveWidget from './ChargeCurveWidget.vue'
 import ChargingWidget from './ChargingWidget.vue'
 import ActivityFeedWidget from './ActivityFeedWidget.vue'
 import AgentHealthWidget from './AgentHealthWidget.vue'
@@ -15,8 +14,9 @@ import TimeSeriesWidget from './TimeSeriesWidget.vue'
 import TelemetryListWidget from './TelemetryListWidget.vue'
 import VehicleMediaWidget from './VehicleMediaWidget.vue'
 import VehicleSelectorWidget from './VehicleSelectorWidget.vue'
+import XyChartWidget from './XyChartWidget.vue'
 import type { DashboardWidgetDefinition } from './types'
-import type { Vehicle } from '../api/types'
+import type { DashboardWidget, Vehicle } from '../api/types'
 import { chargingState, energySummary, metricReading, secondaryReadings } from '../vehicleDisplay'
 
 const reports = (vehicle: Vehicle | null | undefined, key: string): boolean =>
@@ -37,10 +37,42 @@ const definitions: DashboardWidgetDefinition[] = [
   { type:'route-map', titleKey:'dashboards.routeMap', component:RouteMapWidget, defaultSize:{w:8,h:6}, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => !vehicle?.state },
   { type:'activity-feed', titleKey:'dashboards.activityFeed', component:ActivityFeedWidget, defaultSize:{w:4,h:5}, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']} },
   { type:'segment-stats', titleKey:'dashboards.segmentStats', component:SegmentStatsWidget, defaultSize:{w:4,h:3}, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']} },
-  { type:'charge-curve', titleKey:'dashboards.chargeCurve', component:ChargeCurveWidget, defaultSize:{w:6,h:3}, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => !vehicle?.state },
+  { type:'xy-chart', titleKey:'dashboards.xyChart', component:XyChartWidget, defaultSize:{w:6,h:3}, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days','x_metric','y_metric']}, isEmpty:(_widget, vehicle) => !vehicle?.state },
   { type:'period-stats', titleKey:'dashboards.periodStats', component:PeriodStatsWidget, defaultSize:{w:6,h:3}, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']} },
   { type:'hook-activity', titleKey:'dashboards.hookActivity', component:HookActivityWidget, defaultSize:{w:4,h:3}, needsMetric:false, configSchema:{fields:['title']} },
 ]
 
 export const widgetRegistry: Record<string, DashboardWidgetDefinition> =
   Object.fromEntries(definitions.map((item) => [item.type, item]))
+
+export interface WidgetPreset {
+  id: string
+  titleKey: string
+  type: string
+  config: Partial<DashboardWidget>
+}
+
+/**
+ * A preset is a starting configuration for a generic widget, not a type of its
+ * own. `LEGACY_TYPES` maps types that were once first class onto the preset that
+ * replaced them, so saved layouts keep rendering.
+ */
+export const widgetPresets: WidgetPreset[] = [
+  { id: 'charge-curve', titleKey: 'dashboards.chargeCurve', type: 'xy-chart', config: { x_metric: 'battery.soc', y_metric: 'charging.power' } },
+]
+
+const LEGACY_TYPES: Record<string, WidgetPreset> = Object.fromEntries(
+  widgetPresets.map((preset) => [preset.id, preset]),
+)
+
+/** The preset a widget's configuration matches, so its head can carry that name. */
+export function presetFor(widget: DashboardWidget): WidgetPreset | undefined {
+  return widgetPresets.find((preset) => preset.type === widget.type
+    && Object.entries(preset.config).every(([key, value]) => widget[key as keyof DashboardWidget] === value))
+}
+
+export function normalizeWidget(widget: DashboardWidget): DashboardWidget {
+  const preset = LEGACY_TYPES[widget.type]
+  if (!preset || widgetRegistry[widget.type]) return widget
+  return { ...preset.config, ...widget, type: preset.type }
+}

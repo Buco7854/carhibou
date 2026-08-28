@@ -87,7 +87,14 @@ onMounted(load)
     <p v-if="error" class="error">{{ error }}</p>
 
     <div class="history-controls">
-      <label class="field inline-field"><span>{{ t('history.metric') }}</span><AppSelect v-model="metric"><option v-for="definition in metricOptions" :key="definition.key" :value="definition.key">{{ metricLabel(definition, t) }} · {{ definition.key }}</option></AppSelect></label>
+      <label class="field inline-field"><span>{{ t('history.metric') }}</span>
+        <!-- With nothing recorded there is no metric to pick, so the control says
+             so and stands down rather than offering an empty list. -->
+        <AppSelect v-model="metric" :disabled="!metricOptions.length" :aria-label="t('history.metric')">
+          <option v-if="!metricOptions.length" :value="metric" disabled>{{ t('history.noMetrics') }}</option>
+          <option v-for="definition in metricOptions" :key="definition.key" :value="definition.key">{{ metricLabel(definition, t) }} · {{ definition.key }}</option>
+        </AppSelect>
+      </label>
       <label class="field inline-field range-field"><span>{{ t('history.range') }}</span><AppSelect v-model="days"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></AppSelect></label>
       <dl class="history-summary">
         <div class="history-stat"><dt>{{ t('history.latest') }}</dt><dd>{{ latestDisplay }}<small v-if="latestValue !== undefined && selectedMetric.unit">{{ selectedMetric.unit }}</small></dd></div>

@@ -90,7 +90,7 @@ watch([() => vehicle.value?.id, () => drive.value && `${drive.value.start}-${dri
   <article class="widget-card route-map-widget">
     <div class="widget-head">
       <div>
-        <h2>{{ widget.title || t('insights.routeMap') }}</h2>
+        <h2>{{ widget.title || t('dashboards.routeMap') }}</h2>
         <span>{{ drive ? formatInstant(drive.start) : t('insights.wholeRange') }}</span>
       </div>
       <small>{{ t('insights.pickHint') }}</small>

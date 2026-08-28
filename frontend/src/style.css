@@ -301,6 +301,13 @@ a { color: inherit; }
 .widget-head h2 { margin: 0; overflow: hidden; color: var(--muted); font-size: var(--font-caption); font-weight: 500; letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap; }
 .widget-head small { flex: none; overflow: hidden; color: var(--muted-2); font-size: var(--font-caption); text-overflow: ellipsis; white-space: nowrap; }
 
+/* Edit mode floats a remove control over each card's top-right corner. The head
+   reserves that corner so a long title or a right-aligned note ellipsizes clear
+   of it instead of running underneath. */
+.dashboard-canvas.is-editing .grid-stack-item-content .widget-head { padding-right: 30px; }
+.dashboard-canvas.is-editing .grid-stack-item-content .widget-head small { min-width: 0; flex: 0 1 auto; }
+.dashboard-canvas.is-editing .grid-stack-item-content .vehicle-selector-widget { padding-right: 34px; }
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 1080px) and (min-width: 781px) {

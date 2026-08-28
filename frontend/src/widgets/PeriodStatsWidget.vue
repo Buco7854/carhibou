@@ -70,7 +70,7 @@ watch([() => vehicle.value?.id, days], load, { immediate: true })
 <template>
   <article class="widget-card period-stats-widget">
     <div class="widget-head">
-      <h2>{{ widget.title || t('insights.periodStats') }}</h2>
+      <h2>{{ widget.title || t('dashboards.periodStats') }}</h2>
       <small>{{ t('insights.lastDays', { days }) }}</small>
     </div>
     <dl v-if="hasData" class="stat-grid">

@@ -60,7 +60,7 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days], load, { imm
 <template>
   <article class="widget-card segment-stats-widget">
     <div class="widget-head">
-      <h2>{{ widget.title || t('insights.segmentStats') }}</h2>
+      <h2>{{ widget.title || t('dashboards.segmentStats') }}</h2>
       <small v-if="segment">{{ t(`insights.kind.${segment.kind}`) }} · {{ formatInstant(segment.start) }}</small>
     </div>
     <dl v-if="stats.length" class="stat-grid">
