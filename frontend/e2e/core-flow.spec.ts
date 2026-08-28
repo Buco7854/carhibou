@@ -198,17 +198,24 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByPlaceholder('Search vehicles…').fill('Touring')
   await expect(page.getByRole('option')).toHaveCount(1)
   await page.getByRole('option', { name:'Touring', exact:true }).click()
-  // Energy and charging opted into hiding, so a vehicle with no telemetry drops them
-  // instead of showing two permanently empty cards.
+  // The four electrical cards opted into hiding, so a vehicle with no telemetry
+  // drops them instead of showing permanently empty cards.
   await expect(page.locator('[data-widget-type="battery-gauge"]')).toHaveCount(0)
   await expect(page.locator('[data-widget-type="charging"]')).toHaveCount(0)
-  // A widget that did not opt in keeps its own empty state.
+  await expect(page.locator('[data-widget-type="xy-chart"]')).toHaveCount(0)
+  await expect(page.locator('[data-widget-type="vehicle-media"]')).toHaveCount(0)
+  // Widgets whose question every vehicle can answer stay and say so themselves.
   await expect(page.locator('[data-widget-type="telemetry-list"] .dashboard-widget-empty')).toContainText('No data yet')
+  for (const type of ['online-status', 'route-map', 'activity-feed', 'segment-stats', 'period-stats', 'time-series']) {
+    await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(1)
+  }
   await expect(page.locator('[data-widget-type="position-map"] .vehicle-map')).toHaveCount(0)
   await vehicleSelector.getByRole('combobox').click()
   await page.getByPlaceholder('Search vehicles…').fill('Éclair')
   await page.getByRole('option', { name:/Éclair/ }).click()
   await expect(page.locator('[data-widget-type="battery-gauge"] .energy-value')).toHaveText('77')
+  // The EV reports battery.soc, so the charge curve comes back with it.
+  await expect(page.locator('[data-widget-type="xy-chart"]')).toHaveCount(1)
 
   const liveSample = {
     id: randomUUID(),
@@ -277,6 +284,11 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await hookModal.getByLabel('Description').fill('Verifies persistent hook state through the browser flow')
   await hookModal.locator('.cm-content').fill('ctx.state["runs"] = ctx.state.get("runs", 0) + 1\nctx.log.info("browser e2e", runs=ctx.state["runs"], dry_run=ctx.dry_run)')
   await hookModal.getByRole('button', { name: 'Save', exact: true }).click()
+  // The view closes this modal and refreshes its list only after the POST it
+  // awaits resolves, so both are evidence the hook is committed. Reading the API
+  // straight off the click raced the insert and saw an empty collection.
+  await expect(hookModal).toBeHidden()
+  await expect(page.locator('.hook-list').getByRole('button', { name: /Browser state counter/ })).toBeVisible()
   const [hook] = await browserJson<HookRecord[]>(page, 'get', '/api/v1/hooks')
   expect(hook?.id).toBeTruthy()
 

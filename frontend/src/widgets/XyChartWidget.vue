@@ -7,7 +7,7 @@ import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import { metricDefinition, metricLabel } from '../vehicleDisplay'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
-import { presetFor } from './registry'
+import { XY_DEFAULTS, presetFor } from './registry'
 import { followSelection, mergeSegments, metricNumber } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
@@ -19,8 +19,8 @@ const segments = ref<Segments | null>(null)
 let segmentRequest = 0
 let request = 0
 
-const xMetric = computed(() => props.widget.x_metric || 'battery.soc')
-const yMetric = computed(() => props.widget.y_metric || 'charging.power')
+const xMetric = computed(() => props.widget.x_metric || XY_DEFAULTS.x)
+const yMetric = computed(() => props.widget.y_metric || XY_DEFAULTS.y)
 const xDefinition = computed(() => metricDefinition(xMetric.value))
 const yDefinition = computed(() => metricDefinition(yMetric.value))
 const days = computed(() => props.widget.time_range_days ?? 7)

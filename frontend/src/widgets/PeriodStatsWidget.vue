@@ -9,6 +9,7 @@ import { EMPTY_SEGMENTS, loadSegmentsBetween } from '../api/segments'
 interface PeriodTotals {
   distance: number
   drives: number
+  charges: number
   charged: number
   efficiency: number | null
 }
@@ -26,7 +27,7 @@ function totals(segments: Segments): PeriodTotals {
   const distance = segments.drives.reduce((sum, drive) => sum + (drive.distance_km ?? 0), 0)
   const charged = segments.charges.reduce((sum, charge) => sum + (charge.energy_kwh ?? 0), 0)
   const used = segments.drives.reduce((sum, drive) => sum + (drive.energy_kwh ?? 0), 0)
-  return { distance, drives: segments.drives.length, charged, efficiency: distance > 0 && used > 0 ? (used / distance) * 100 : null }
+  return { distance, drives: segments.drives.length, charges: segments.charges.length, charged, efficiency: distance > 0 && used > 0 ? (used / distance) * 100 : null }
 }
 
 const now = computed(() => totals(current.value ?? EMPTY_SEGMENTS))
@@ -44,7 +45,7 @@ function delta(value: number, baseline: number): string | null {
 const stats = computed(() => [
   { key: 'distance', label: t('insights.distance'), value: `${now.value.distance.toFixed(0)} km`, delta: delta(now.value.distance, before.value.distance) },
   { key: 'drives', label: t('insights.drives'), value: String(now.value.drives), delta: delta(now.value.drives, before.value.drives) },
-  { key: 'charged', label: t('insights.energyCharged'), value: `${now.value.charged.toFixed(1)} kWh`, delta: delta(now.value.charged, before.value.charged) },
+  { key: 'charged', label: t('insights.energyCharged'), value: now.value.charges === 0 ? '' : `${now.value.charged.toFixed(1)} kWh`, delta: delta(now.value.charged, before.value.charged) },
   { key: 'efficiency', label: t('insights.efficiency'), value: now.value.efficiency === null ? '' : `${now.value.efficiency.toFixed(1)} kWh/100km`, delta: now.value.efficiency === null || before.value.efficiency === null ? null : delta(now.value.efficiency, before.value.efficiency) },
 ].filter((stat) => stat.value !== ''))
 

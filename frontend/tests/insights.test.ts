@@ -205,6 +205,24 @@ describe('driving insight widgets', () => {
     expect(stats.Distance).toContain('+100%')
   })
 
+  it('omits the energy row for a vehicle that never charges, and keeps it once it has', async () => {
+    api({ segments: { drives: [drive()], charges: [] }, previous: { drives: [], charges: [] } })
+    const petrol = mountWidget('period-stats', { time_range_days: 7 })
+    await flushPromises()
+    const petrolStats = petrol.wrapper.findAll('.stat-grid > div').map((row) => row.get('dt').text())
+    expect(petrolStats).toContain('Distance')
+    expect(petrolStats).toContain('Drives')
+    // Nothing charged this vehicle, so it is not told it charged 0.0 kWh.
+    expect(petrolStats).not.toContain('Energy charged')
+
+    api({ segments: { drives: [drive()], charges: [charge({ energy_kwh: 0 })] }, previous: { drives: [], charges: [] } })
+    const electric = mountWidget('period-stats', { time_range_days: 7 })
+    await flushPromises()
+    // A charge that drew nothing measurable is still a charge, and says so.
+    const electricStats = Object.fromEntries(electric.wrapper.findAll('.stat-grid > div').map((row) => [row.get('dt').text(), row.get('dd').text()]))
+    expect(electricStats['Energy charged']).toContain('0.0 kWh')
+  })
+
   it.each([
     ['a body with neither list', {}],
     ['an array body', []],
@@ -294,9 +312,36 @@ describe('driving insight widgets', () => {
 
   it('keeps ranged widgets visible for a vehicle with no live reading', () => {
     const parked = { ...vehicle, state: { ...vehicle.state, position: null, metrics: {} } } as unknown as Vehicle
-    for (const type of ['route-map', 'xy-chart']) {
-      expect(widgetRegistry[type]!.isEmpty?.({ id: 'w', type, x: 0, y: 0, w: 4, h: 3 }, parked), type).toBe(false)
-    }
+    // The route map is about where the vehicle went, which a live snapshot cannot
+    // answer either way, so it stays and lets its own range decide.
+    expect(widgetRegistry['route-map']!.isEmpty?.({ id: 'w', type: 'route-map', x: 0, y: 0, w: 4, h: 3 }, parked)).toBe(false)
+  })
+
+  it('hides an x-y chart only when the vehicle reports neither of its axes', () => {
+    const chart = (extra: Partial<DashboardWidget>, metrics: Record<string, unknown>) =>
+      widgetRegistry['xy-chart']!.isEmpty?.(
+        { id: 'w', type: 'xy-chart', x: 0, y: 0, w: 4, h: 3, ...extra },
+        { ...vehicle, state: { ...vehicle.state, position: null, metrics } } as unknown as Vehicle,
+      )
+    // Hiding answers "can this vehicle ever plot these axes", which only live
+    // state can say cheaply. The range still decides what the visible chart
+    // draws, so one axis in state is enough to keep the card and let the
+    // widget's own empty state report an unpaired or out-of-range window.
+    expect(chart({}, { 'battery.soc': 61 })).toBe(false)
+    expect(chart({}, { 'charging.power': 7 })).toBe(false)
+    expect(chart({}, { 'engine.rpm': 900 })).toBe(true)
+    // Configured axes are judged, not the defaults.
+    expect(chart({ x_metric: 'vehicle.speed', y_metric: 'engine.rpm' }, { 'engine.rpm': 900 })).toBe(false)
+    expect(chart({ x_metric: 'vehicle.speed', y_metric: 'engine.rpm' }, { 'battery.soc': 61 })).toBe(true)
+  })
+
+  it('gives every data widget a hiding predicate, and says why two have none', () => {
+    // The editor only offers the hide toggle where isEmpty can answer, so a
+    // widget without one silently loses the feature.
+    const without = Object.values(widgetRegistry).filter((definition) => !definition.isEmpty).map((definition) => definition.type)
+    // vehicle-selector drives every other card; hook-activity is not scoped to a
+    // vehicle, and isEmpty is handed nothing else to judge from.
+    expect(without.sort()).toEqual(['hook-activity', 'vehicle-selector'])
   })
 
   it('carries an x metric and a y metric through to the chart', async () => {

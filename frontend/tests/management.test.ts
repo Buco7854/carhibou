@@ -429,27 +429,44 @@ describe('vehicle and dashboard management', () => {
     const body = JSON.parse(createCall?.[1]?.body as string)
     expect(body.name).toBe('Overview')
     expect(body.is_default).toBe(true)
-    expect(body.layout.preset).toBe('overview-v6')
-    // Ordered by the questions somebody opening this has: what is the car doing,
-    // how fast, how much is left, where is it. Status comes first because it
-    // carries both the vehicle's state and the agent's, separately.
+    expect(body.layout.preset).toBe('overview-v7')
+    // Ordered by the questions an owner asks: what is it doing, how fast, how
+    // much is left, where is it, what happened recently, what did it cost.
     expect(body.layout.widgets.map((row: {type:string}) => row.type)).toEqual([
-      'vehicle-selector', 'online-status', 'metric-card', 'battery-gauge',
-      'route-map', 'charging', 'telemetry-list', 'time-series', 'vehicle-media',
+      'vehicle-selector', 'online-status', 'metric-card', 'battery-gauge', 'charging',
+      'route-map', 'activity-feed', 'telemetry-list',
+      'segment-stats', 'period-stats', 'vehicle-media', 'time-series', 'xy-chart',
     ])
     // The route map replaces the plain position map, which stays available to add.
     expect(widgetRegistry['position-map']).toBeDefined()
     const speed = body.layout.widgets.find((row: {type:string}) => row.type === 'metric-card')
     expect(speed.metric).toBe('vehicle.speed')
-    // Energy, charging and the photo opt out for vehicles that cannot report them.
+    // Both charts lead with a metric every vehicle can produce, or with the pair
+    // that names the charge curve.
+    expect(body.layout.widgets.find((row: {type:string}) => row.type === 'time-series').metric).toBe('vehicle.speed')
+    const curve = body.layout.widgets.find((row: {type:string}) => row.type === 'xy-chart')
+    expect([curve.x_metric, curve.y_metric]).toEqual(['battery.soc', 'charging.power'])
+    // Only the cards that need electrical data a petrol car cannot produce opt
+    // out. Everything else stays and shows its own empty state.
     const conditional = body.layout.widgets.filter((row: {settings?:{hide_when_empty?:boolean}}) => row.settings?.hide_when_empty)
-    expect(conditional.map((row: {type:string}) => row.type)).toEqual(['battery-gauge', 'charging', 'vehicle-media'])
+    expect(conditional.map((row: {type:string}) => row.type)).toEqual(['battery-gauge', 'charging', 'vehicle-media', 'xy-chart'])
+    // No widget lands on top of another, and none overflows the 12 columns.
+    const cells = new Set<string>()
+    for (const row of body.layout.widgets as Array<{x:number;y:number;w:number;h:number;type:string}>) {
+      expect(row.x + row.w, row.type).toBeLessThanOrEqual(12)
+      for (let x = row.x; x < row.x + row.w; x += 1) {
+        for (let y = row.y; y < row.y + row.h; y += 1) {
+          expect(cells.has(`${x},${y}`), `${row.type} at ${x},${y}`).toBe(false)
+          cells.add(`${x},${y}`)
+        }
+      }
+    }
     expect(wrapper.get('.dashboard-tabs').text()).toContain('Overview')
   })
 
   it('updates dynamic widgets from the vehicle selector and persists card deletion', async () => {
     const secondVehicle = { ...vehicle, id:'vehicle-2', name:'Nimbus', state:{...vehicle.state,metrics:{'fuel.level':25}} }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v6',widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v7',widgets:[
       {id:'selector',type:'vehicle-selector',x:0,y:0,w:12,h:1},
       {id:'fuel',type:'metric-card',metric:'fuel.level',x:0,y:1,w:3,h:2},
     ]}, created_at:'', updated_at:'' }
@@ -540,7 +557,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('inserts the charging curve preset as a preconfigured x-y chart', async () => {
-    const dashboard = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v6', widgets:[] }, created_at:'', updated_at:'' }
+    const dashboard = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v7', widgets:[] }, created_at:'', updated_at:'' }
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
       if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
@@ -566,7 +583,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('renders a saved charge-curve layout as the x-y chart that replaced it', async () => {
-    const legacy = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v6', widgets:[
+    const legacy = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v7', widgets:[
       { id:'legacy', type:'charge-curve', x:0, y:0, w:6, h:3 },
     ] }, created_at:'', updated_at:'' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
@@ -587,7 +604,7 @@ describe('vehicle and dashboard management', () => {
   it('hides opted-in widgets for a vehicle that cannot report them, and keeps the rest', async () => {
     // A standard OBD-II diesel: no traction battery, and no fuel-level PID support.
     const diesel = { ...vehicle, id:'vehicle-2', name:'Golf', photo_url:null, state:{ ...vehicle.state, metrics:{ 'engine.rpm':1800 } } }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v6', widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v7', widgets:[
       { id:'selector', type:'vehicle-selector', x:0, y:0, w:12, h:1 },
       { id:'energy', type:'battery-gauge', x:0, y:1, w:4, h:2, settings:{ hide_when_empty:true } },
       { id:'charge', type:'charging', x:4, y:1, w:4, h:2, settings:{ hide_when_empty:true } },

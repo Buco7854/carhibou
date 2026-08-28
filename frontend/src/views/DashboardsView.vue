@@ -35,7 +35,7 @@ let grid: GridStack | undefined
 let resizeObserver: ResizeObserver | undefined
 let canvasColumns = 12
 let editSnapshot: Dashboard[] | null = null
-const OVERVIEW_PRESET = 'overview-v6'
+const OVERVIEW_PRESET = 'overview-v7'
 
 function cloneDashboards(value: Dashboard[]): Dashboard[] {
   return JSON.parse(JSON.stringify(value)) as Dashboard[]
@@ -93,13 +93,14 @@ function widget(id: string, type: string, vehicleId: string | undefined, x: numb
 const hideWhenEmpty = { settings:{ hide_when_empty:true } }
 
 /**
- * The premade Overview answers, in reading order: where is the vehicle, how much
- * energy is left, is it charging and how fast, what is it reporting right now, how
- * has it moved, and is the agent healthy.
+ * The premade Overview, laid out in the order an owner asks: what is it doing,
+ * how fast, how much is left, where is it, what happened recently, what did it
+ * cost.
  *
- * Energy, charging and the photo hide themselves when a vehicle cannot report them,
- * so the same preset suits an EV, a fuel vehicle and a car whose agent only sees
- * standard OBD-II.
+ * Two classes of card. Universal ones stay put and show their own empty state,
+ * because "no drives yet" is an answer. The four that depend on electrical data
+ * a petrol car or a profile-less agent simply cannot produce opt into hiding, so
+ * the same preset suits an EV, a fuel vehicle and a car seeing only OBD-II.
  */
 function premadeLayout(vehicleId?: string): Dashboard['layout'] {
   void vehicleId
@@ -108,15 +109,23 @@ function premadeLayout(vehicleId?: string): Dashboard['layout'] {
   // status card carries the vehicle's state and the agent's separately, which is
   // why it comes first and why nothing else needs to repeat either.
   return { preset:OVERVIEW_PRESET, widgets: [
+    // What is it doing, and how fast.
     widget(clientId('widget'), 'vehicle-selector', undefined, 0, 0, 12, 1),
-    widget(clientId('widget'), 'online-status', undefined, 0, 1, 4, 2),
-    widget(clientId('widget'), 'metric-card', undefined, 4, 1, 4, 2, { metric:'vehicle.speed' }),
-    widget(clientId('widget'), 'battery-gauge', undefined, 8, 1, 4, 2, hideWhenEmpty),
+    widget(clientId('widget'), 'online-status', undefined, 0, 1, 3, 2),
+    widget(clientId('widget'), 'metric-card', undefined, 3, 1, 3, 2, { metric:'vehicle.speed' }),
+    // How much is left.
+    widget(clientId('widget'), 'battery-gauge', undefined, 6, 1, 3, 2, hideWhenEmpty),
+    widget(clientId('widget'), 'charging', undefined, 9, 1, 3, 2, hideWhenEmpty),
+    // Where is it, and what has it been up to.
     widget(clientId('widget'), 'route-map', undefined, 0, 3, 8, 6, { time_range_days:1 }),
-    widget(clientId('widget'), 'charging', undefined, 8, 3, 4, 2, hideWhenEmpty),
-    widget(clientId('widget'), 'telemetry-list', undefined, 8, 5, 4, 4),
-    widget(clientId('widget'), 'time-series', undefined, 0, 9, 8, 4, { time_range_days:1 }),
-    widget(clientId('widget'), 'vehicle-media', undefined, 8, 9, 4, 4, hideWhenEmpty),
+    widget(clientId('widget'), 'activity-feed', undefined, 8, 3, 4, 3, { time_range_days:7 }),
+    widget(clientId('widget'), 'telemetry-list', undefined, 8, 6, 4, 3),
+    // What did it cost.
+    widget(clientId('widget'), 'segment-stats', undefined, 0, 9, 4, 3, { time_range_days:7 }),
+    widget(clientId('widget'), 'period-stats', undefined, 4, 9, 4, 3, { time_range_days:7 }),
+    widget(clientId('widget'), 'vehicle-media', undefined, 8, 9, 4, 3, hideWhenEmpty),
+    widget(clientId('widget'), 'time-series', undefined, 0, 12, 6, 4, { metric:'vehicle.speed', time_range_days:1 }),
+    widget(clientId('widget'), 'xy-chart', undefined, 6, 12, 6, 4, { x_metric:'battery.soc', y_metric:'charging.power', time_range_days:7, ...hideWhenEmpty }),
   ] }
 }
 
