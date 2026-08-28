@@ -148,7 +148,7 @@ describe('driving insight widgets', () => {
 
   it('plots the y metric against the x metric', async () => {
     api({ segments: { drives: [], charges: [charge()] } })
-    const { wrapper } = mountWidget('xy-chart')
+    const { wrapper } = mountWidget('xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' })
     await flushPromises()
     const chart = wrapper.get('.chart-stub')
     expect(chart.attributes('data-x-type')).toBe('value')
@@ -163,7 +163,7 @@ describe('driving insight widgets', () => {
       points: [{ id: 'a', recorded_at: '2026-08-27T08:00:00Z', latitude: null, longitude: null, speed: null, heading: null, metrics: { 'battery.soc': 40 } }],
     }
     api({ segments: { drives: [drive()], charges: [] }, history: noPower })
-    const { wrapper } = mountWidget('xy-chart')
+    const { wrapper } = mountWidget('xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' })
     await flushPromises()
     expect(wrapper.find('.chart-stub').exists()).toBe(false)
     expect(wrapper.get('.dashboard-widget-empty').text()).toContain('No paired readings')
@@ -247,17 +247,21 @@ describe('driving insight widgets', () => {
     expect(wrapper.findAll('.trail-point')).toHaveLength(3)
 
     api({ segments: body, previous: body })
-    const chart = mountWidget('xy-chart')
+    const chart = mountWidget('xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' })
     await flushPromises()
     expect(chart.wrapper.find('.chart-stub').exists()).toBe(true)
   })
 
-  it.each(['route-map', 'segment-stats', 'xy-chart'])(
+  it.each([
+    ['route-map', {}],
+    ['segment-stats', {}],
+    ['xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' }],
+  ] as const)(
     'says so in %s when the selection is outside its own range',
-    async (type) => {
+    async (type, config) => {
       // A selection the range cannot show is stated, not quietly swapped for another.
       api({ segments: { drives: [drive()], charges: [charge()] } })
-      const { wrapper } = mountWidget(type, {}, { kind: 'drive', start: '2020-01-01T00:00:00Z', end: '2020-01-01T01:00:00Z' })
+      const { wrapper } = mountWidget(type, config, { kind: 'drive', start: '2020-01-01T00:00:00Z', end: '2020-01-01T01:00:00Z' })
       await flushPromises()
       expect(wrapper.get('.dashboard-widget-empty').text()).toContain('outside this range')
       expect(wrapper.find('.route-map-widget .map-stage').exists()).toBe(false)
@@ -282,7 +286,7 @@ describe('driving insight widgets', () => {
       ],
     }
     api({ segments: { drives: [], charges: [charge()] }, history: sparse })
-    const { wrapper } = mountWidget('xy-chart')
+    const { wrapper } = mountWidget('xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' })
     await flushPromises()
     expect(wrapper.get('.chart-stub').attributes('data-points')).toBe('3')
   })
@@ -327,12 +331,16 @@ describe('driving insight widgets', () => {
     // state can say cheaply. The range still decides what the visible chart
     // draws, so one axis in state is enough to keep the card and let the
     // widget's own empty state report an unpaired or out-of-range window.
-    expect(chart({}, { 'battery.soc': 61 })).toBe(false)
-    expect(chart({}, { 'charging.power': 7 })).toBe(false)
-    expect(chart({}, { 'engine.rpm': 900 })).toBe(true)
-    // Configured axes are judged, not the defaults.
+    const curve = { x_metric: 'battery.soc', y_metric: 'charging.power' }
+    expect(chart(curve, { 'battery.soc': 61 })).toBe(false)
+    expect(chart(curve, { 'charging.power': 7 })).toBe(false)
+    expect(chart(curve, { 'engine.rpm': 900 })).toBe(true)
+    // Whatever axes are configured are the ones judged.
     expect(chart({ x_metric: 'vehicle.speed', y_metric: 'engine.rpm' }, { 'engine.rpm': 900 })).toBe(false)
     expect(chart({ x_metric: 'vehicle.speed', y_metric: 'engine.rpm' }, { 'battery.soc': 61 })).toBe(true)
+    // A chart with no axes chosen plots nothing at all, so it hides rather than
+    // falling back to metrics the vehicle was never asked about.
+    expect(chart({}, { 'battery.soc': 61, 'charging.power': 7 })).toBe(true)
   })
 
   it('gives every data widget a hiding predicate, and says why two have none', () => {
@@ -364,7 +372,7 @@ describe('driving insight widgets', () => {
 
   it('says so when the selected segment is outside an x-y chart range', async () => {
     api({ segments: { drives: [drive()], charges: [charge()] } })
-    const { wrapper } = mountWidget('xy-chart', {}, { kind: 'drive', start: '2020-01-01T00:00:00Z', end: '2020-01-01T01:00:00Z' })
+    const { wrapper } = mountWidget('xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' }, { kind: 'drive', start: '2020-01-01T00:00:00Z', end: '2020-01-01T01:00:00Z' })
     await flushPromises()
     expect(wrapper.get('.dashboard-widget-empty').text()).toContain('outside this range')
     expect(wrapper.find('.chart-stub').exists()).toBe(false)

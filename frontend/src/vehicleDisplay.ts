@@ -279,6 +279,28 @@ export function defaultDashboardMetrics(vehicle: Vehicle | null | undefined): st
   return [...new Set([primary, ...defaults])].filter((key) => options.has(key)).slice(0, 2)
 }
 
+/**
+ * Every numeric metric the vehicle actually reports, in the order the dashboard
+ * suggests them.
+ *
+ * Unlike defaultDashboardMetrics this neither caps the list nor falls back to a
+ * metric the vehicle has not sent, because a caller seeding a generic chart must
+ * not be handed an axis the car cannot plot. Booleans are dropped: charging on
+ * or off is not something to put on an axis.
+ */
+export function reportedChartMetrics(vehicle: Vehicle | null | undefined): string[] {
+  const available = Object.keys(vehicle?.state?.metrics ?? {})
+  const hasSpeed = metricNumber(vehicle, 'vehicle.speed') !== null
+  const options = new Set(available)
+  if (hasSpeed) options.add('vehicle.speed')
+  const preferred = preferredHistoryMetric(vehicle, available, hasSpeed)
+  const order = ['battery.soc', 'fuel.level', 'engine.rpm', 'battery.power', 'vehicle.speed']
+  const ranked = [...new Set([preferred, ...order, ...[...options].sort()])]
+  return ranked.filter((key) => options.has(key)
+    && metricDefinition(key).kind !== 'boolean'
+    && metricNumber(vehicle, key) !== null)
+}
+
 export function formatMetricNumber(value: number, definition: MetricDefinition): string {
   return definition.decimals === 0 ? String(Math.round(value)) : value.toFixed(definition.decimals)
 }

@@ -446,10 +446,24 @@ describe('vehicle and dashboard management', () => {
     expect(body.layout.widgets.find((row: {type:string}) => row.type === 'time-series').metric).toBe('vehicle.speed')
     const curve = body.layout.widgets.find((row: {type:string}) => row.type === 'xy-chart')
     expect([curve.x_metric, curve.y_metric]).toEqual(['battery.soc', 'charging.power'])
-    // Only the cards that need electrical data a petrol car cannot produce opt
-    // out. Everything else stays and shows its own empty state.
-    const conditional = body.layout.widgets.filter((row: {settings?:{hide_when_empty?:boolean}}) => row.settings?.hide_when_empty)
-    expect(conditional.map((row: {type:string}) => row.type)).toEqual(['battery-gauge', 'charging', 'vehicle-media', 'xy-chart'])
+    // The principle: a card stays only if it adapts to whatever the vehicle
+    // reports. Anything bound to a named metric hides, speed included, because a
+    // GPS-only agent never sends vehicle.speed.
+    const flagged = (want: boolean) => body.layout.widgets
+      .filter((row: {settings?:{hide_when_empty?:boolean}}) => Boolean(row.settings?.hide_when_empty) === want)
+      .map((row: {type:string}) => row.type)
+    expect(flagged(false)).toEqual([
+      'vehicle-selector', 'online-status', 'route-map', 'activity-feed',
+      'telemetry-list', 'segment-stats', 'period-stats',
+    ])
+    expect(flagged(true)).toEqual([
+      'metric-card', 'battery-gauge', 'charging', 'vehicle-media', 'time-series', 'xy-chart',
+    ])
+    // Both lists are derived, not restated: the layout reads the same `general`
+    // flag the picker and the hide default do, so the three cannot drift apart.
+    for (const row of body.layout.widgets as Array<{type:string;settings?:{hide_when_empty?:boolean}}>) {
+      expect(Boolean(row.settings?.hide_when_empty), row.type).toBe(!widgetRegistry[row.type]!.general)
+    }
     // No widget lands on top of another, and none overflows the 12 columns.
     const cells = new Set<string>()
     for (const row of body.layout.widgets as Array<{x:number;y:number;w:number;h:number;type:string}>) {

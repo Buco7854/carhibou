@@ -198,24 +198,26 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByPlaceholder('Search vehicles…').fill('Touring')
   await expect(page.getByRole('option')).toHaveCount(1)
   await page.getByRole('option', { name:'Touring', exact:true }).click()
-  // The four electrical cards opted into hiding, so a vehicle with no telemetry
-  // drops them instead of showing permanently empty cards.
-  await expect(page.locator('[data-widget-type="battery-gauge"]')).toHaveCount(0)
-  await expect(page.locator('[data-widget-type="charging"]')).toHaveCount(0)
-  await expect(page.locator('[data-widget-type="xy-chart"]')).toHaveCount(0)
-  await expect(page.locator('[data-widget-type="vehicle-media"]')).toHaveCount(0)
-  // Widgets whose question every vehicle can answer stay and say so themselves.
+  // Every card bound to a named metric hides, speed included: this vehicle has
+  // no agent reporting, so a road-speed card would sit permanently blank.
+  for (const type of ['metric-card', 'battery-gauge', 'charging', 'time-series', 'xy-chart', 'vehicle-media']) {
+    await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(0)
+  }
+  // What remains is exactly the general tier, each card answering for itself.
   await expect(page.locator('[data-widget-type="telemetry-list"] .dashboard-widget-empty')).toContainText('No data yet')
-  for (const type of ['online-status', 'route-map', 'activity-feed', 'segment-stats', 'period-stats', 'time-series']) {
+  for (const type of ['vehicle-selector', 'online-status', 'route-map', 'activity-feed', 'telemetry-list', 'segment-stats', 'period-stats']) {
     await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(1)
   }
+  await expect(page.locator('.grid-stack-item')).toHaveCount(7)
   await expect(page.locator('[data-widget-type="position-map"] .vehicle-map')).toHaveCount(0)
   await vehicleSelector.getByRole('combobox').click()
   await page.getByPlaceholder('Search vehicles…').fill('Éclair')
   await page.getByRole('option', { name:/Éclair/ }).click()
   await expect(page.locator('[data-widget-type="battery-gauge"] .energy-value')).toHaveText('77')
-  // The EV reports battery.soc, so the charge curve comes back with it.
-  await expect(page.locator('[data-widget-type="xy-chart"]')).toHaveCount(1)
+  // The EV reports battery.soc and road speed, so every metric-bound card returns.
+  for (const type of ['metric-card', 'charging', 'time-series', 'xy-chart']) {
+    await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(1)
+  }
 
   const liveSample = {
     id: randomUUID(),

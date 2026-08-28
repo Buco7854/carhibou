@@ -13,7 +13,7 @@ const props = defineProps<{
 }>()
 
 type SelectValue = string | number | null
-interface SelectOption { value: SelectValue; label: string; disabled: boolean }
+interface SelectOption { value: SelectValue; label: string; disabled: boolean; group: string }
 
 const model = defineModel<SelectValue>({ required: true })
 const attrs = useAttrs()
@@ -39,9 +39,9 @@ function nodeText(value: unknown): string {
 
 const options = computed<SelectOption[]>(() => {
   const result: SelectOption[] = []
-  function visit(node: VNodeChild): void {
+  function visit(node: VNodeChild, group: string): void {
     if (Array.isArray(node)) {
-      node.forEach(visit)
+      node.forEach((child) => visit(child, group))
       return
     }
     if (!node || typeof node !== 'object' || !('__v_isVNode' in node)) return
@@ -52,12 +52,14 @@ const options = computed<SelectOption[]>(() => {
         value: (hasValue ? vnode.props?.value : nodeText(vnode.children)) as SelectValue,
         label: nodeText(vnode.children).trim(),
         disabled: Boolean(vnode.props?.disabled),
+        group,
       })
       return
     }
-    if (Array.isArray(vnode.children)) vnode.children.forEach(visit)
+    const nested = vnode.type === 'optgroup' ? String(vnode.props?.label ?? '') : group
+    if (Array.isArray(vnode.children)) vnode.children.forEach((child) => visit(child, nested))
   }
-  slots.default?.().forEach(visit)
+  slots.default?.().forEach((node) => visit(node, ''))
   return result
 })
 
@@ -68,6 +70,20 @@ const visibleOptions = computed(() => options.value.flatMap((option, index) => {
   const label = option.label.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase()
   return label.includes(normalizedQuery.value) ? [{ option, index }] : []
 }))
+
+/**
+ * Visible options split into their groups, so a grouped list can be announced as
+ * such. An ungrouped list stays one nameless run and renders exactly as before.
+ */
+const visibleGroups = computed(() => {
+  const groups: Array<{ label: string; items: typeof visibleOptions.value }> = []
+  for (const entry of visibleOptions.value) {
+    const last = groups.at(-1)
+    if (last && last.label === entry.option.group) last.items.push(entry)
+    else groups.push({ label: entry.option.group, items: [entry] })
+  }
+  return groups
+})
 
 function positionMenu(): void {
   const bounds = root.value?.getBoundingClientRect()
@@ -210,21 +226,41 @@ onBeforeUnmount(() => {
           <input ref="searchInput" v-model="query" type="search" :placeholder="searchPlaceholder" :aria-label="searchPlaceholder" @input="filterOptions" @keydown="onSearchKeydown" />
         </label>
         <div :id="listboxId" class="app-select-options" role="listbox">
-          <button
-            v-for="{ option, index } in visibleOptions"
-            :id="`${listboxId}-${index}`"
-            :key="`${String(option.value)}-${index}`"
-            type="button"
-            role="option"
-            :aria-selected="Object.is(option.value, model)"
-            :class="{ active:index===activeIndex, selected:Object.is(option.value, model) }"
-            :disabled="option.disabled"
-            @pointerdown.prevent
-            @mouseenter="activeIndex=index"
-            @click="choose(index)"
-          >
-            <span>{{ option.label }}</span><AppIcon v-if="Object.is(option.value, model)" name="check" :size="15" />
-          </button>
+          <template v-for="group in visibleGroups" :key="group.label">
+            <div v-if="group.label" role="group" :aria-label="group.label">
+              <p class="app-select-group">{{ group.label }}</p>
+              <button
+                v-for="{ option, index } in group.items"
+                :id="`${listboxId}-${index}`"
+                :key="`${String(option.value)}-${index}`"
+                type="button"
+                role="option"
+                :aria-selected="Object.is(option.value, model)"
+                :class="{ active:index===activeIndex, selected:Object.is(option.value, model) }"
+                :disabled="option.disabled"
+                @pointerdown.prevent
+                @mouseenter="activeIndex=index"
+                @click="choose(index)"
+              >
+                <span>{{ option.label }}</span><AppIcon v-if="Object.is(option.value, model)" name="check" :size="15" />
+              </button>
+            </div>
+            <button
+              v-for="{ option, index } in (group.label ? [] : group.items)"
+              :id="`${listboxId}-${index}`"
+              :key="`${String(option.value)}-${index}`"
+              type="button"
+              role="option"
+              :aria-selected="Object.is(option.value, model)"
+              :class="{ active:index===activeIndex, selected:Object.is(option.value, model) }"
+              :disabled="option.disabled"
+              @pointerdown.prevent
+              @mouseenter="activeIndex=index"
+              @click="choose(index)"
+            >
+              <span>{{ option.label }}</span><AppIcon v-if="Object.is(option.value, model)" name="check" :size="15" />
+            </button>
+          </template>
           <p v-if="!visibleOptions.length" class="app-select-no-results">{{ noResultsText }}</p>
         </div>
       </div>
@@ -264,5 +300,6 @@ onBeforeUnmount(() => {
 .app-select-search:focus-within{border-color:var(--accent)}
 .app-select-search input{min-width:0;width:100%;padding:0;color:var(--text);background:transparent;border:0;outline:0;font:inherit;font-size:13px}
 .app-select-search input::placeholder{color:var(--muted-2)}
+.app-select-group{margin:6px 8px 3px;color:var(--muted);font-size:var(--font-caption);font-weight:500}
 .app-select-no-results{margin:0;padding:12px 8px;color:var(--muted);font-size:13px;text-align:center}
 </style>

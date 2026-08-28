@@ -7,7 +7,7 @@ import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import { metricDefinition, metricLabel } from '../vehicleDisplay'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
-import { XY_DEFAULTS, presetFor } from './registry'
+import { presetFor } from './registry'
 import { followSelection, mergeSegments, metricNumber } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
@@ -19,8 +19,11 @@ const segments = ref<Segments | null>(null)
 let segmentRequest = 0
 let request = 0
 
-const xMetric = computed(() => props.widget.x_metric || XY_DEFAULTS.x)
-const yMetric = computed(() => props.widget.y_metric || XY_DEFAULTS.y)
+// A generic chart never guesses its axes: unset means unset, and the card says
+// so rather than plotting metrics the vehicle may not have.
+const xMetric = computed(() => props.widget.x_metric ?? '')
+const yMetric = computed(() => props.widget.y_metric ?? '')
+const configured = computed(() => Boolean(xMetric.value && yMetric.value))
 const xDefinition = computed(() => metricDefinition(xMetric.value))
 const yDefinition = computed(() => metricDefinition(yMetric.value))
 const days = computed(() => props.widget.time_range_days ?? 7)
@@ -105,8 +108,8 @@ watch(
     <DashboardWidgetEmpty
       v-else
       :icon="yDefinition.icon"
-      :loading="Boolean(vehicle) && !outOfRange && history === null"
-      :message="outOfRange ? t('insights.notInRange') : t('insights.noPairs')"
+      :loading="configured && Boolean(vehicle) && !outOfRange && history === null"
+      :message="!configured ? t('dashboards.chooseAxes') : outOfRange ? t('insights.notInRange') : t('insights.noPairs')"
     />
   </article>
 </template>

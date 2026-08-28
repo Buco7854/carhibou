@@ -10,8 +10,8 @@ import type { Dashboard, DashboardWidget, SelectedSegment, Vehicle } from '../ap
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
-import { defaultDashboardMetrics, metricDefinition } from '../vehicleDisplay'
-import { normalizeWidget, widgetPresets, widgetRegistry } from '../widgets/registry'
+import { defaultDashboardMetrics, metricDefinition, reportedChartMetrics } from '../vehicleDisplay'
+import { isGeneralChoice, normalizeWidget, widgetPresets, widgetRegistry } from '../widgets/registry'
 import { dashboardRuntimeKey } from '../widgets/dashboardContext'
 
 const { t } = useI18n()
@@ -67,10 +67,21 @@ const visibleWidgets = computed<DashboardWidget[]>(() => {
 const supportsHiding = computed(() => Boolean(chosenDefinition.value?.isEmpty))
 const activeIsPremade = computed(() => active.value?.layout.preset?.startsWith('overview-') ?? false)
 const definitions = computed(() => Object.values(widgetRegistry))
-const pickerOptions = computed(() => [
-  ...definitions.value.map((definition) => ({ value: definition.type, label: t(definition.titleKey) })),
-  ...widgetPresets.map((preset) => ({ value: `preset:${preset.id}`, label: t(preset.titleKey) })),
-])
+/**
+ * The picker separates cards that suit any vehicle from cards bound to named
+ * data, so choosing one is an informed decision rather than a surprise later.
+ * Both groups read the same `general` flag the premade layout does.
+ */
+const pickerGroups = computed(() => {
+  const choices = [
+    ...definitions.value.map((definition) => ({ value: definition.type, label: t(definition.titleKey) })),
+    ...widgetPresets.map((preset) => ({ value: `preset:${preset.id}`, label: t(preset.titleKey) })),
+  ]
+  return [
+    { label: t('dashboards.groupGeneral'), options: choices.filter((choice) => isGeneralChoice(choice.value)) },
+    { label: t('dashboards.groupSpecific'), options: choices.filter((choice) => !isGeneralChoice(choice.value)) },
+  ]
+})
 const chosenPreset = computed(() => widgetPresets.find((preset) => `preset:${preset.id}` === form.value.type))
 const chosenDefinition = computed(() => widgetRegistry[chosenPreset.value?.type ?? form.value.type])
 const selectedVehicle = computed(() => vehicles.value.find((row) => row.id === selectedVehicleId.value))
@@ -97,10 +108,12 @@ const hideWhenEmpty = { settings:{ hide_when_empty:true } }
  * how fast, how much is left, where is it, what happened recently, what did it
  * cost.
  *
- * Two classes of card. Universal ones stay put and show their own empty state,
- * because "no drives yet" is an answer. The four that depend on electrical data
- * a petrol car or a profile-less agent simply cannot produce opt into hiding, so
- * the same preset suits an EV, a fuel vehicle and a car seeing only OBD-II.
+ * Two tiers. A card stays only if it adapts to whatever the vehicle reports, so
+ * its empty state is itself an answer: "no drives yet" tells the reader
+ * something. Every card bound to a named metric hides instead, because a
+ * permanently blank card claims the vehicle should have data it can never
+ * produce. That covers the electrical cards and both speed cards: road speed is
+ * a CAN or OBD-II reading, and a GPS-only agent never sends it.
  */
 function premadeLayout(vehicleId?: string): Dashboard['layout'] {
   void vehicleId
@@ -109,10 +122,10 @@ function premadeLayout(vehicleId?: string): Dashboard['layout'] {
   // status card carries the vehicle's state and the agent's separately, which is
   // why it comes first and why nothing else needs to repeat either.
   return { preset:OVERVIEW_PRESET, widgets: [
-    // What is it doing, and how fast.
+    // What is it doing, and how fast. Speed is a reported metric, not a given.
     widget(clientId('widget'), 'vehicle-selector', undefined, 0, 0, 12, 1),
     widget(clientId('widget'), 'online-status', undefined, 0, 1, 3, 2),
-    widget(clientId('widget'), 'metric-card', undefined, 3, 1, 3, 2, { metric:'vehicle.speed' }),
+    widget(clientId('widget'), 'metric-card', undefined, 3, 1, 3, 2, { metric:'vehicle.speed', ...hideWhenEmpty }),
     // How much is left.
     widget(clientId('widget'), 'battery-gauge', undefined, 6, 1, 3, 2, hideWhenEmpty),
     widget(clientId('widget'), 'charging', undefined, 9, 1, 3, 2, hideWhenEmpty),
@@ -124,7 +137,7 @@ function premadeLayout(vehicleId?: string): Dashboard['layout'] {
     widget(clientId('widget'), 'segment-stats', undefined, 0, 9, 4, 3, { time_range_days:7 }),
     widget(clientId('widget'), 'period-stats', undefined, 4, 9, 4, 3, { time_range_days:7 }),
     widget(clientId('widget'), 'vehicle-media', undefined, 8, 9, 4, 3, hideWhenEmpty),
-    widget(clientId('widget'), 'time-series', undefined, 0, 12, 6, 4, { metric:'vehicle.speed', time_range_days:1 }),
+    widget(clientId('widget'), 'time-series', undefined, 0, 12, 6, 4, { metric:'vehicle.speed', time_range_days:1, ...hideWhenEmpty }),
     widget(clientId('widget'), 'xy-chart', undefined, 6, 12, 6, 4, { x_metric:'battery.soc', y_metric:'charging.power', time_range_days:7, ...hideWhenEmpty }),
   ] }
 }
@@ -135,6 +148,18 @@ function applyVehicleDefaults(): void {
   form.value.metric = metrics[0] ?? 'vehicle.speed'
   form.value.metrics = metrics.join(', ')
   form.value.unit = metricDefinition(form.value.metric).unit
+  // A generic chart is offered two axes only when the vehicle really reports two
+  // distinct ones. Otherwise both stay empty and the card asks to be configured,
+  // which is honest where a guessed pair of EV metrics would not be.
+  const pair = reportedChartMetrics(vehicle)
+  const usable = pair.length >= 2
+  form.value.x_metric = usable ? pair[0]! : ''
+  form.value.y_metric = usable ? pair[1]! : ''
+}
+
+/** Hiding defaults to on for a card bound to named data, off for a general one. */
+function applyTierDefaults(): void {
+  form.value.hide_when_empty = !isGeneralChoice(form.value.type)
 }
 
 function applyResponsiveGrid(width: number): void {
@@ -216,6 +241,7 @@ async function fetchDashboards(): Promise<void> {
   activeId.value = initial.id
   selectedVehicleId.value = vehicles.value[0]?.id ?? ''
   applyVehicleDefaults()
+  applyTierDefaults()
   await nextTick()
   initializeGrid()
 }
@@ -373,6 +399,7 @@ watch(() => visibleWidgets.value.map((row) => row.id).join(','), async (next, pr
   initializeGrid()
 })
 watch([() => form.value.vehicle_id, selectedVehicleId], applyVehicleDefaults)
+watch(() => form.value.type, applyTierDefaults)
 watch(() => form.value.metric, (metric) => { form.value.unit = metricDefinition(metric).unit })
 onMounted(async () => { await load(); connectLiveEvents() })
 onBeforeUnmount(destroyGrid)
@@ -424,7 +451,7 @@ onBeforeUnmount(destroyGrid)
 
     <AppModal :open="configuring" :title="t('dashboards.addWidget')" @close="configuring=false">
       <form class="dashboard-modal-form widget-modal-form" @submit.prevent="addWidget">
-        <label class="field"><span>{{ t('common.type') }}</span><AppSelect v-model="form.type"><option v-for="option in pickerOptions" :key="option.value" :value="option.value">{{ option.label }}</option></AppSelect></label>
+        <label class="field"><span>{{ t('common.type') }}</span><AppSelect v-model="form.type"><optgroup v-for="group in pickerGroups" :key="group.label" :label="group.label"><option v-for="option in group.options" :key="option.value" :value="option.value">{{ option.label }}</option></optgroup></AppSelect></label>
         <label v-if="chosenDefinition?.configSchema.fields.includes('vehicle_id')" class="field"><span>{{ t('common.vehicle') }}</span><AppSelect v-model="form.vehicle_id"><option value="">{{ t('dashboards.selectedVehicle') }}</option><option v-for="vehicle in vehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.name }}</option></AppSelect><small class="field-hint">{{ t('dashboards.selectedVehicleHint') }}</small></label>
         <label v-if="chosenDefinition?.needsMetric" class="field"><span>{{ t('history.metric') }}</span><input v-model="form.metric" class="input mono" list="metric-options" /><datalist id="metric-options"><option v-for="name in availableMetrics" :key="name">{{ name }}</option></datalist></label>
         <label v-if="chosenDefinition?.needsMetrics" class="field"><span>{{ t('dashboards.metrics') }}</span><input v-model="form.metrics" class="input mono" :placeholder="metricSuggestion" /></label>
