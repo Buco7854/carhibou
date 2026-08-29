@@ -275,7 +275,7 @@ func TestHighSpeedNegotiationFallsBackAndRestoresDefaultOnClose(t *testing.T) {
 	}
 	adapter.Close()
 
-	wantWrites := "STBRT 500\rSTBR 2000000\rSTBR 1000000\r\rSTBR 115200\r\r"
+	wantWrites := "STBRT 500\rSTBR 2000000\rSTI\rSTBRT 500\rSTBR 1000000\r\rSTI\rSTI\rSTI\rSTBRT 500\rSTBR 115200\r\r"
 	if port.written != wantWrites {
 		t.Fatalf("wrote %q, want %q", port.written, wantWrites)
 	}
@@ -316,8 +316,29 @@ func TestHighSpeedNegotiationVerifiesANewRateWhenTheFinalOKIsLost(t *testing.T) 
 	if adapter.BaudRate() != 2000000 {
 		t.Fatalf("baud=%d, want verified 2000000", adapter.BaudRate())
 	}
-	if port.written != "STBRT 500\rSTBR 2000000\r\rSTI\r" {
+	if port.written != "STBRT 500\rSTBR 2000000\r\rSTI\rSTI\rSTI\rSTI\r" {
 		t.Fatalf("wrote %q", port.written)
+	}
+}
+
+func TestHighSpeedNegotiationReturnsToDefaultWhenTrafficIsNotSustained(t *testing.T) {
+	port := &baudPort{
+		current: defaultOBDBaudRate,
+		supported: map[int]bool{
+			2000000: true, defaultOBDBaudRate: true,
+		},
+		failSTIAfter: 1,
+	}
+	adapter := NewOBDAdapter("scripted")
+	adapter.port = port
+	adapter.BaudSwitchWindow = 5 * time.Millisecond
+
+	adapter.negotiateHighSpeed()
+	if adapter.BaudRate() != defaultOBDBaudRate {
+		t.Fatalf("baud=%d, want the verified default after high-speed traffic failed", adapter.BaudRate())
+	}
+	if len(port.modes) < 2 || port.modes[0] != 2000000 || port.modes[len(port.modes)-1] != defaultOBDBaudRate {
+		t.Fatalf("baud modes=%v, want high-speed trial followed by default", port.modes)
 	}
 }
 
@@ -362,12 +383,14 @@ func TestWatchCANIDSetsOneHardwareReceiveFilter(t *testing.T) {
 
 type baudPort struct {
 	scriptedPort
-	written     string
-	current     int
-	requested   int
-	supported   map[int]bool
-	modes       []int
-	dropFinalOK bool
+	written      string
+	current      int
+	requested    int
+	supported    map[int]bool
+	modes        []int
+	dropFinalOK  bool
+	stiCount     int
+	failSTIAfter int
 }
 
 func (port *baudPort) Write(payload []byte) (int, error) {
@@ -388,7 +411,12 @@ func (port *baudPort) Write(payload []byte) (int, error) {
 		}
 		port.requested = 0
 	case command == "STI\r" && port.supported[port.current]:
-		port.pending = "STN1130 v4.0.1\r>"
+		port.stiCount++
+		if port.failSTIAfter == 0 || port.stiCount <= port.failSTIAfter {
+			port.pending = "STN1130 v4.0.1\r>"
+		} else {
+			port.pending = ""
+		}
 	}
 	return len(payload), nil
 }

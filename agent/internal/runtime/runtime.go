@@ -45,6 +45,10 @@ type VehicleStatus interface {
 	Status() string
 }
 
+type VehicleState interface {
+	State() string
+}
+
 type VehicleLiveness interface {
 	Live() bool
 }
@@ -143,6 +147,11 @@ func (agent *Agent) Collect() (model.Sample, error) {
 	if reporter, ok := agent.Vehicle.(VehicleStatus); ok {
 		if status := reporter.Status(); status != "" {
 			health["vehicle_source_error"] = status
+		}
+	}
+	if reporter, ok := agent.Vehicle.(VehicleState); ok {
+		if state := reporter.State(); state != "" {
+			health["vehicle_source_state"] = state
 		}
 	}
 	var positionObservation *model.PositionObservation

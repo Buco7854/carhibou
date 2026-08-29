@@ -13,6 +13,7 @@ type managedFakeVehicle struct {
 	observations model.MetricObservations
 	live         bool
 	status       string
+	state        string
 	started      bool
 	closed       int
 	onStart      func(*managedFakeVehicle)
@@ -30,6 +31,7 @@ func (vehicle *managedFakeVehicle) ReadObservations() (model.MetricObservations,
 func (vehicle *managedFakeVehicle) Close()         { vehicle.closed++ }
 func (vehicle *managedFakeVehicle) Live() bool     { return vehicle.live }
 func (vehicle *managedFakeVehicle) Status() string { return vehicle.status }
+func (vehicle *managedFakeVehicle) State() string  { return vehicle.state }
 
 func fastVehicleRetries(source *RetryingVehicleProvider) {
 	source.mutex.Lock()
@@ -217,5 +219,28 @@ func TestVehicleProviderStartsBeforeTheFirstRead(t *testing.T) {
 	}
 	if len(first.Observations) != 1 || first.Observations[0].Key != "battery.soc" {
 		t.Fatalf("first collected observations=%#v", first.Observations)
+	}
+}
+
+func TestVehicleSourceStateIsPublishedWithoutBecomingAnError(t *testing.T) {
+	vehicle := &managedFakeVehicle{
+		live:  true,
+		state: "unfiltered monitor; hardware filters ineffective",
+	}
+	source := NewRetryingVehicleProvider(func() (VehicleProvider, error) { return vehicle, nil })
+	defer source.Close()
+	source.Start()
+	agent := newAgent(t, EmptyPosition{})
+	agent.Vehicle = source
+
+	sample, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sample.Agent["vehicle_source_state"]; got != vehicle.state {
+		t.Fatalf("vehicle_source_state=%v", got)
+	}
+	if _, present := sample.Agent["vehicle_source_error"]; present {
+		t.Fatalf("degraded state was promoted to an error: %#v", sample.Agent)
 	}
 }

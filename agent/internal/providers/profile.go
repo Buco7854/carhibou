@@ -3,6 +3,7 @@ package providers
 import (
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,11 +41,16 @@ type ProfileProvider struct {
 	adapter *OBDAdapter
 	decoder *profile.DecoderEngine
 	trial   time.Duration
+	allowed map[int]struct{}
 
-	mutex        sync.Mutex
-	observations model.MetricObservations
-	lastFrame    time.Time
-	failure      string
+	mutex         sync.Mutex
+	observations  model.MetricObservations
+	lastFrame     time.Time
+	lastDecoded   time.Time
+	failure       string
+	unfiltered    bool
+	baseReport    MonitorReport
+	monitorReport MonitorReport
 
 	stop    chan struct{}
 	stopped sync.WaitGroup
@@ -52,9 +58,13 @@ type ProfileProvider struct {
 }
 
 func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *ProfileProvider {
+	allowed := make(map[int]struct{})
+	for _, canID := range decoder.CANIDs() {
+		allowed[canID] = struct{}{}
+	}
 	return &ProfileProvider{
 		adapter: adapter, decoder: decoder, trial: protocolTrial,
-		observations: model.MetricObservations{},
+		allowed: allowed, observations: model.MetricObservations{},
 	}
 }
 
@@ -68,6 +78,34 @@ func (provider *ProfileProvider) Status() string {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
 	return provider.failure
+}
+
+// State names a working-but-degraded monitor without turning that condition
+// into a connection failure that the retrying owner would tear down.
+func (provider *ProfileProvider) State() string {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	parts := []string{}
+	silent := provider.stop != nil && (provider.lastDecoded.IsZero() || time.Since(provider.lastDecoded) > provider.trial)
+	if provider.unfiltered {
+		parts = append(parts, "unfiltered monitor; hardware filters ineffective")
+	}
+	if silent {
+		parts = append(parts, fmt.Sprintf("monitoring, 0 profile frames decoded in last %s", provider.trial))
+	}
+	if (provider.unfiltered || silent) && provider.monitorReport.MalformedFrames > 0 {
+		parts = append(parts, fmt.Sprintf("%d malformed monitor lines", provider.monitorReport.MalformedFrames))
+	}
+	if (provider.unfiltered || silent) && provider.monitorReport.DataErrors > 0 {
+		parts = append(parts, fmt.Sprintf("%d data-error-marked frames retained", provider.monitorReport.DataErrors))
+	}
+	if (provider.unfiltered || silent) && provider.monitorReport.AdapterErrors > 0 {
+		parts = append(parts, fmt.Sprintf("%d adapter error lines", provider.monitorReport.AdapterErrors))
+	}
+	if (provider.unfiltered || silent) && provider.monitorReport.BufferFull {
+		parts = append(parts, "adapter buffer overflowed")
+	}
+	return strings.Join(parts, "; ")
 }
 
 // Live reports whether a frame arrived recently.
@@ -111,12 +149,9 @@ func (provider *ProfileProvider) Start() {
 		provider.fail(fmt.Sprintf("device %s failed to open: %v", provider.adapter.device, err))
 		return
 	}
-	if err := provider.adapter.PassFilters(provider.decoder.CANIDs()); err != nil {
-		provider.adapter.Close()
-		provider.fail("adapter rejected the CAN filters: " + err.Error())
-		return
-	}
-	protocol, err := provider.selectListeningProtocol()
+	preparation, err := PrepareProfileMonitor(
+		provider.adapter, provider.decoder.CANIDs(), provider.trial, 0, false, provider.record,
+	)
 	if err != nil {
 		provider.adapter.Close()
 		provider.fail(err.Error())
@@ -127,59 +162,40 @@ func (provider *ProfileProvider) Start() {
 	provider.mutex.Lock()
 	provider.stop = stop
 	provider.failure = ""
+	provider.unfiltered = preparation.UseUnfiltered
+	provider.baseReport = preparationMonitorReport(preparation)
+	provider.monitorReport = provider.baseReport
 	provider.mutex.Unlock()
 
 	provider.stopped.Add(1)
 	go func() {
 		defer provider.stopped.Done()
-		err := provider.adapter.MonitorUntil(stop, provider.record)
+		err := provider.adapter.MonitorUntilWithReport(
+			stop, preparation.UseUnfiltered, provider.record, provider.updateMonitorReport,
+		)
 		provider.mutex.Lock()
 		provider.stop = nil
 		if err != nil {
-			provider.failure = "CAN monitoring stopped on " + protocol + ": " + err.Error()
+			provider.failure = "CAN monitoring stopped on " + preparation.Protocol + ": " + err.Error()
 		}
 		provider.mutex.Unlock()
 		provider.adapter.Close()
 	}()
 }
-
-// selectListeningProtocol finds one that actually carries traffic.
-//
-// A wrong protocol is silent rather than wrong, and silence is indistinguishable
-// from a sleeping vehicle, so each is tried until frames appear. The last is kept
-// when none do: a vehicle that is merely asleep should not have its protocol
-// changed underneath it when it wakes.
-func (provider *ProfileProvider) selectListeningProtocol() (string, error) {
-	for _, protocol := range canProtocols {
-		if err := provider.adapter.SelectProtocol(protocol.code); err != nil {
-			continue
-		}
-		seen := false
-		if err := provider.adapter.Monitor(provider.trial, func(frame model.CANFrame) {
-			seen = true
-			provider.record(frame)
-		}); err != nil {
-			return "", fmt.Errorf("adapter stopped while listening: %w", err)
-		}
-		if seen {
-			return protocol.description, nil
-		}
-	}
-	// Nothing spoke. The first is the one almost every vehicle uses, so it is what
-	// the monitor waits on rather than whichever happened to be tried last.
-	if err := provider.adapter.SelectProtocol(canProtocols[0].code); err != nil {
-		return "", fmt.Errorf("adapter rejected every CAN protocol: %w", err)
-	}
-	return canProtocols[0].description, nil
-}
-
 func (provider *ProfileProvider) record(frame model.CANFrame) {
+	if _, ok := provider.allowed[frame.CANID]; !ok {
+		return
+	}
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
 	observedAt := frameTime(frame)
 	provider.lastFrame = observedAt
 	next := copyObservations(provider.observations)
-	for _, decoded := range provider.decoder.Decode(frame, observationValues(provider.observations)) {
+	decodedValues := provider.decoder.Decode(frame, observationValues(provider.observations))
+	if len(decodedValues) > 0 {
+		provider.lastDecoded = observedAt
+	}
+	for _, decoded := range decodedValues {
 		metricObservedAt := observedAt
 		if decoded.Method == model.MethodDerived {
 			for _, input := range decoded.Inputs {
@@ -199,6 +215,12 @@ func (provider *ProfileProvider) record(frame model.CANFrame) {
 		}
 	}
 	provider.observations = next
+}
+
+func (provider *ProfileProvider) updateMonitorReport(report MonitorReport) {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	provider.monitorReport = mergeMonitorReports(provider.baseReport, report)
 }
 
 func (provider *ProfileProvider) fail(reason string) {

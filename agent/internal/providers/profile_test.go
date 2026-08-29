@@ -96,6 +96,97 @@ func TestProfileStartsMonitoringAndRetainsFramesBeforeTheFirstRead(t *testing.T)
 	}
 }
 
+func TestProfileFallsBackWhenFilteredSTMIsSilentButSTMAWorks(t *testing.T) {
+	port := &profilePipelinePort{protocolFrame: true, unfilteredFrame: true}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 20 * time.Millisecond
+	defer provider.Close()
+	provider.Start()
+
+	if !provider.unfiltered {
+		t.Fatal("filtered silence with working STMA did not enable the unfiltered fallback")
+	}
+	if state := provider.State(); !strings.Contains(state, "hardware filters ineffective") {
+		t.Fatalf("state=%q, want the degraded monitor named", state)
+	}
+	observations, err := provider.ReadObservations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := observations["battery.soc"].Value; got != float64(67) {
+		t.Fatalf("battery.soc=%v, want the STMA frame decoded", got)
+	}
+
+	protocolIndex := commandIndex(port.commands, "ATSP6", 0)
+	filterIndex := commandIndex(port.commands, "STFAP 374,FFF", 0)
+	firstSTM := commandIndex(port.commands, "STM", 0)
+	filteredSTM := commandIndex(port.commands, "STM", firstSTM+1)
+	stma := commandIndex(port.commands, "STMA", 0)
+	if protocolIndex < 0 || filterIndex < 0 || firstSTM < protocolIndex || filterIndex < firstSTM || filteredSTM < filterIndex || stma < filteredSTM {
+		t.Fatalf("command order=%v, want protocol trial before filters, then filtered STM, then STMA", port.commands)
+	}
+}
+
+func TestProfileMonitorPreparationReportsTheServicePipeline(t *testing.T) {
+	port := &profilePipelinePort{protocolFrame: true, unfilteredFrame: true}
+	adapter := NewOBDAdapter("scripted")
+	adapter.port = port
+	adapter.CommandWindow = time.Second
+
+	preparation, err := PrepareProfileMonitor(
+		adapter, []int{0x374}, 15*time.Millisecond, 10, true, func(model.CANFrame) {},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preparation.ProtocolTrials) != 1 || preparation.ProtocolTrials[0].Trace.Report.ParsedFrames != 1 {
+		t.Fatalf("protocol trials=%+v", preparation.ProtocolTrials)
+	}
+	if len(preparation.FilterCommands) != 1 || preparation.FilterCommands[0].Command != "STFAP 374,FFF" ||
+		len(preparation.FilterCommands[0].Response) != 1 || preparation.FilterCommands[0].Response[0] != "OK" {
+		t.Fatalf("filter commands=%+v", preparation.FilterCommands)
+	}
+	if preparation.Filtered.Report.ParsedFrames != 0 || len(preparation.Filtered.RawLines) != 1 {
+		t.Fatalf("filtered trace=%+v", preparation.Filtered)
+	}
+	if preparation.Unfiltered == nil || preparation.Unfiltered.Report.ParsedFrames != 1 || len(preparation.Unfiltered.RawLines) != 2 {
+		t.Fatalf("unfiltered trace=%+v", preparation.Unfiltered)
+	}
+}
+
+func TestNegotiatedBaudRequiresSustainedCleanCAN(t *testing.T) {
+	if sustainedCleanTraffic([]ProtocolTrialResult{{Trace: MonitorTrace{Report: MonitorReport{ParsedFrames: 2}}}}) {
+		t.Fatal("two frames were accepted as sustained traffic")
+	}
+	if !sustainedCleanTraffic([]ProtocolTrialResult{{Trace: MonitorTrace{Report: MonitorReport{ParsedFrames: 3}}}}) {
+		t.Fatal("three clean frames were rejected")
+	}
+	if sustainedCleanTraffic([]ProtocolTrialResult{{Trace: MonitorTrace{Report: MonitorReport{
+		ParsedFrames: 3, MalformedFrames: 1, DroppedData: true,
+	}}}}) {
+		t.Fatal("malformed traffic was accepted as a clean baud verification")
+	}
+}
+
+func TestProfileNamesAQuietMonitorInEveryStateReading(t *testing.T) {
+	port := &profilePipelinePort{}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 10 * time.Millisecond
+	defer provider.Close()
+	provider.Start()
+	if state := provider.State(); !strings.Contains(state, "0 profile frames decoded") {
+		t.Fatalf("quiet monitor state=%q", state)
+	}
+}
+
 // Sampling must not wait for the bus. Frames arrive continuously whether or not
 // anyone is reading, and a window opened per sample both blocked for its whole
 // duration — making a one-second cadence impossible — and saw only the fraction
@@ -147,4 +238,49 @@ func TestClosingIsSafeWithoutAMonitor(t *testing.T) {
 	provider := NewProfileProvider(NewOBDAdapter("/dev/carhibou-absent"), testDecoder(t))
 	provider.Close()
 	provider.Close()
+}
+
+type profilePipelinePort struct {
+	scriptedPort
+	commands        []string
+	stmCount        int
+	protocolFrame   bool
+	filteredFrame   bool
+	unfilteredFrame bool
+}
+
+func (port *profilePipelinePort) Write(payload []byte) (int, error) {
+	command := strings.TrimSuffix(string(payload), "\r")
+	port.commands = append(port.commands, command)
+	switch {
+	case command == "STBRT 500":
+		port.pending = "?\r>"
+	case command == "STM":
+		port.stmCount++
+		if (port.stmCount == 1 && port.protocolFrame) || (port.stmCount > 1 && port.filteredFrame) {
+			port.pending = "374 8 00 90 00 00 00 00 00 00\r"
+		} else {
+			port.pending = ""
+		}
+	case command == "STMA":
+		if port.unfilteredFrame {
+			port.pending = "374 8 00 90 00 00 00 00 00 00\r"
+		} else {
+			port.pending = ""
+		}
+	case command == "":
+		port.pending = "STOPPED\r>"
+	default:
+		port.pending = "OK\r>"
+	}
+	return len(payload), nil
+}
+
+func commandIndex(commands []string, target string, start int) int {
+	for index := start; index < len(commands); index++ {
+		if commands[index] == target {
+			return index
+		}
+	}
+	return -1
 }

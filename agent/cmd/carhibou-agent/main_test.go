@@ -81,6 +81,7 @@ func TestCommandsRejectNonPositiveDurations(t *testing.T) {
 	tests := [][]string{
 		{"gps-info", "--seconds", "0"},
 		{"obd-info", "--seconds", "0"},
+		{"obd-selftest", "--seconds", "0"},
 		{"can-record", "--seconds", "-1", "capture.jsonl"},
 		{"run", "--config-sync-seconds", "0"},
 	}

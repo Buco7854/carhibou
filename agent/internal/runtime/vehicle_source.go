@@ -95,6 +95,19 @@ func (provider *RetryingVehicleProvider) Status() string {
 	return vehicleProviderStatus(provider.current)
 }
 
+func (provider *RetryingVehicleProvider) State() string {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	if provider.current == nil || provider.failure != "" {
+		return ""
+	}
+	reporter, ok := provider.current.(VehicleState)
+	if !ok {
+		return ""
+	}
+	return reporter.State()
+}
+
 func (provider *RetryingVehicleProvider) Live() bool {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()

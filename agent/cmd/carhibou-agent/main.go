@@ -79,6 +79,8 @@ func execute(arguments []string) error {
 		return commandGPS(locations, arguments)
 	case "obd-info":
 		return commandOBD(locations, arguments)
+	case "obd-selftest":
+		return commandOBDSelfTest(locations, arguments)
 	case "monitor":
 		return commandMonitor(locations, arguments)
 	case "can-record":
@@ -133,6 +135,7 @@ Commands:
   devices       Show device choices; use "devices set" to change them
   gps-info      Enable the receiver and print position fixes
   obd-info      Read adapter, request, and CAN traffic diagnostics
+  obd-selftest  Exercise and report the exact profile monitoring pipeline
   monitor       Print live position and vehicle metrics together
   can-record    Record CAN frames to a portable JSONL capture
   replay-can    Replay a capture, optionally through a profile
@@ -503,6 +506,89 @@ func commandOBD(locations paths, arguments []string) error {
 	printJSON(result)
 	explainOBD(result, answered, frames, monitorReport)
 	return nil
+}
+
+func commandOBDSelfTest(locations paths, arguments []string) error {
+	if err := requireExclusiveHardware(); err != nil {
+		return err
+	}
+	flags := flag.NewFlagSet("obd-selftest", flag.ContinueOnError)
+	device := flags.String("device", "", "serial device")
+	seconds := flags.Int("seconds", defaultCANSurveySeconds, "duration of each CAN verification in seconds")
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	if *seconds <= 0 {
+		return fmt.Errorf("--seconds must be greater than zero")
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("obd-selftest accepts flags only")
+	}
+	if *device == "" {
+		hardware, err := loadHardware(locations)
+		if err != nil {
+			return err
+		}
+		*device = resolveDevices(hardware, locations, true).obd
+	}
+	if *device == "" {
+		return fmt.Errorf("no OBD adapter found; run 'carhibou-agent doctor --probe'")
+	}
+	configuration, err := (store.ConfigurationStore{Path: filepath.Join(locations.config, "config.json")}).Load()
+	if err != nil {
+		return err
+	}
+	decoder, err := vehicleProfileDecoder(configuration)
+	if err != nil {
+		return err
+	}
+	if decoder == nil {
+		return fmt.Errorf("obd-selftest requires an assigned CAN vehicle profile")
+	}
+
+	adapter := providers.NewOBDAdapter(*device)
+	if err := adapter.Connect(); err != nil {
+		return err
+	}
+	defer adapter.Close()
+	window := time.Duration(*seconds) * time.Second
+	preparation, prepareErr := providers.PrepareProfileMonitor(
+		adapter, decoder.CANIDs(), window, 10, true, func(model.CANFrame) {},
+	)
+	result := map[string]any{
+		"device":         *device,
+		"uart_baud_rate": adapter.BaudRate(),
+		"window_seconds": *seconds,
+		"pipeline":       preparation,
+	}
+	if identity, identityErr := adapter.Identity(); identityErr == nil {
+		result["adapter"] = identity["adapter"]
+		result["firmware"] = identity["firmware"]
+	}
+	if prepareErr != nil {
+		result["error"] = prepareErr.Error()
+	} else {
+		result["conclusion"] = profileSelfTestConclusion(preparation)
+	}
+	printJSON(result)
+	if prepareErr != nil {
+		return prepareErr
+	}
+	fmt.Fprintln(os.Stderr, profileSelfTestConclusion(preparation))
+	return nil
+}
+
+func profileSelfTestConclusion(preparation providers.ProfileMonitorPreparation) string {
+	switch {
+	case preparation.UseUnfiltered:
+		return "Filtered STM parsed no frames while STMA did; the service will use unfiltered monitoring with software profile filtering."
+	case preparation.HardwareFilterGood:
+		return "Filtered STM parsed frames; the service will keep hardware-filtered monitoring."
+	case preparation.Unfiltered != nil:
+		return "Neither filtered STM nor STMA parsed a frame; verify the ignition state and inspect the raw and malformed-line counts above."
+	default:
+		return "The profile monitoring pipeline did not complete."
+	}
 }
 
 const defaultCANSurveySeconds = 10
