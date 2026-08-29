@@ -5,9 +5,77 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Buco7854/carhibou/agent/internal/model"
 	"github.com/Buco7854/carhibou/agent/internal/providers"
+	agentruntime "github.com/Buco7854/carhibou/agent/internal/runtime"
+	"github.com/Buco7854/carhibou/agent/internal/store"
 )
+
+type cadencePosition struct{ fix *model.PositionFix }
+
+func (position *cadencePosition) Read() (*model.PositionFix, error) { return position.fix, nil }
+
+func TestCollectAtCadenceClampsUploadWhenTheVehicleStartsMoving(t *testing.T) {
+	configuration := store.Configuration{
+		Sampling: store.Interval{DefaultSeconds: 5, ParkedSeconds: 60},
+		Upload:   store.Interval{DefaultSeconds: 30, ParkedSeconds: 300},
+	}
+	if got := reportingInterval(configuration, false); got != 300 {
+		t.Fatalf("parked reporting interval=%d, want 300", got)
+	}
+	if got := reportingInterval(configuration, true); got != 30 {
+		t.Fatalf("driving reporting interval=%d, want 30", got)
+	}
+
+	queue, err := store.OpenQueue(filepath.Join(t.TempDir(), "queue.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer queue.Close()
+	position := &cadencePosition{}
+	agent := &agentruntime.Agent{
+		Queue: queue, Position: position, Vehicle: agentruntime.EmptyVehicle{}, BootID: model.NewUUID(),
+	}
+	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
+	parkedUpload := now.Add(5 * time.Minute)
+	_, nextUpload, err := collectAtCadence(agent, configuration, now, parkedUpload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !nextUpload.Equal(parkedUpload) {
+		t.Fatalf("stable parked state changed upload deadline to %s", nextUpload)
+	}
+
+	speed := 25.0
+	position.fix = &model.PositionFix{Latitude: 48.8, Longitude: 2.3, Speed: &speed}
+	transitionAt := now.Add(5 * time.Second)
+	nextSample, nextUpload, err := collectAtCadence(agent, configuration, transitionAt, parkedUpload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := transitionAt.Add(5 * time.Second); !nextSample.Equal(want) {
+		t.Fatalf("next sample=%s, want %s", nextSample, want)
+	}
+	if want := transitionAt.Add(30 * time.Second); !nextUpload.Equal(want) {
+		t.Fatalf("next upload=%s, want %s", nextUpload, want)
+	}
+
+	pending, err := queue.Pending(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 2 {
+		t.Fatalf("queued samples=%d, want 2", len(pending))
+	}
+	if pending[0].ReportingInterval == nil || *pending[0].ReportingInterval != 300 {
+		t.Fatalf("parked promise=%v, want 300", pending[0].ReportingInterval)
+	}
+	if pending[1].ReportingInterval == nil || *pending[1].ReportingInterval != 30 {
+		t.Fatalf("driving promise=%v, want 30", pending[1].ReportingInterval)
+	}
+}
 
 func TestCommandsRejectNonPositiveDurations(t *testing.T) {
 	tests := [][]string{

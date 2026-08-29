@@ -20,6 +20,10 @@ type freshPosition struct{ fix *model.PositionFix }
 
 func (position freshPosition) Read() (*model.PositionFix, error) { return position.fix, nil }
 
+type changingPosition struct{ fix *model.PositionFix }
+
+func (position *changingPosition) Read() (*model.PositionFix, error) { return position.fix, nil }
+
 func newAgent(t *testing.T, position PositionProvider) *Agent {
 	t.Helper()
 	queue, err := store.OpenQueue(t.TempDir() + "/queue.sqlite3")
@@ -125,10 +129,11 @@ func TestCollectReportsWhyTheVehicleSourcePublishedNothing(t *testing.T) {
 }
 
 func TestCollectDeclaresTheCadenceChosenForTheCurrentState(t *testing.T) {
-	parked := newAgent(t, EmptyPosition{})
-	parked.DrivingReportingInterval = 30
-	parked.ParkedReportingInterval = 600
-	parkedSample, err := parked.Collect()
+	position := &changingPosition{}
+	agent := newAgent(t, position)
+	agent.DrivingReportingInterval = 30
+	agent.ParkedReportingInterval = 600
+	parkedSample, err := agent.Collect()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,10 +142,8 @@ func TestCollectDeclaresTheCadenceChosenForTheCurrentState(t *testing.T) {
 	}
 
 	speed := 25.0
-	driving := newAgent(t, freshPosition{fix: &model.PositionFix{Latitude: 48.8, Longitude: 2.3, Speed: &speed}})
-	driving.DrivingReportingInterval = 30
-	driving.ParkedReportingInterval = 600
-	drivingSample, err := driving.Collect()
+	position.fix = &model.PositionFix{Latitude: 48.8, Longitude: 2.3, Speed: &speed}
+	drivingSample, err := agent.Collect()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +152,7 @@ func TestCollectDeclaresTheCadenceChosenForTheCurrentState(t *testing.T) {
 	}
 }
 
-func TestCollectRetractsRememberedChannelKeysWhenTheProviderDies(t *testing.T) {
+func TestCollectRetractsCachedChannelValuesOnceAndResumesAfterRevival(t *testing.T) {
 	now := time.Now().UTC()
 	vehicle := &switchingVehicle{
 		live: true,
@@ -166,11 +169,14 @@ func TestCollectRetractsRememberedChannelKeysWhenTheProviderDies(t *testing.T) {
 	}
 	agent := newAgent(t, EmptyPosition{})
 	agent.Vehicle = vehicle
-	if _, err := agent.Collect(); err != nil {
+	live, err := agent.Collect()
+	if err != nil {
 		t.Fatal(err)
 	}
+	if len(live.Observations) != 1 || live.Observations[0].Value != 42.0 {
+		t.Fatalf("live observations=%#v, want the cached value", live.Observations)
+	}
 	vehicle.live = false
-	vehicle.observations = model.MetricObservations{}
 	retracted, err := agent.Collect()
 	if err != nil {
 		t.Fatal(err)
@@ -180,5 +186,21 @@ func TestCollectRetractsRememberedChannelKeysWhenTheProviderDies(t *testing.T) {
 	}
 	if retracted.Observations[0].Key != "vehicle.speed" || retracted.Observations[0].Channel != model.ChannelCAN {
 		t.Fatalf("wrong retraction provenance: %#v", retracted.Observations[0])
+	}
+	dead, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dead.Observations) != 0 {
+		t.Fatalf("dead provider republished its cache: %#v", dead.Observations)
+	}
+
+	vehicle.live = true
+	revived, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revived.Observations) != 1 || revived.Observations[0].Value != 42.0 {
+		t.Fatalf("revived observations=%#v, want the cached value again", revived.Observations)
 	}
 }

@@ -83,6 +83,11 @@ func (agent *Agent) Collect() (model.Sample, error) {
 		channelDead = true
 	}
 	if channelDead {
+		// A provider may retain its last decoded values for diagnostics and for a
+		// quick recovery. Once it reports dead, those cached values are no longer
+		// observations: publish the remembered retractions once, then stay silent
+		// until the provider reports live again.
+		observations = model.MetricObservations{}
 		now := time.Now().UTC()
 		for channel, keys := range agent.vehicleKeys {
 			for key, method := range keys {

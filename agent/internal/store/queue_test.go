@@ -15,7 +15,9 @@ func TestQueueSurvivesRestartAndAcknowledgesIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first := model.NewSample(1, nil, []model.Observation{{Key: "battery.soc", Value: 70, ObservedAt: time.Now().UTC(), Channel: model.ChannelCAN, Method: model.MethodDirect}}, nil)
+	reportingInterval := 37
+	first := model.NewSample(1, nil, []model.Observation{{Key: "vehicle.speed", Value: nil, ObservedAt: time.Now().UTC(), Channel: model.ChannelCAN, Method: model.MethodDirect}}, nil)
+	first.ReportingInterval = &reportingInterval
 	second := model.NewSample(2, nil, []model.Observation{{Key: "battery.soc", Value: 69, ObservedAt: time.Now().UTC(), Channel: model.ChannelCAN, Method: model.MethodDirect}}, nil)
 	if err := queue.Enqueue(first); err != nil {
 		t.Fatal(err)
@@ -36,6 +38,12 @@ func TestQueueSurvivesRestartAndAcknowledgesIDs(t *testing.T) {
 	}
 	if len(pending) != 2 || pending[0].ID != first.ID || pending[1].ID != second.ID {
 		t.Fatalf("unexpected pending rows: %#v", pending)
+	}
+	if pending[0].ReportingInterval == nil || *pending[0].ReportingInterval != reportingInterval {
+		t.Fatalf("reporting interval=%v, want %d", pending[0].ReportingInterval, reportingInterval)
+	}
+	if len(pending[0].Observations) != 1 || pending[0].Observations[0].Value != nil {
+		t.Fatalf("null retraction did not survive the queue: %#v", pending[0].Observations)
 	}
 	deleted, err := queue.Acknowledge([]string{first.ID})
 	if err != nil || deleted != 1 {

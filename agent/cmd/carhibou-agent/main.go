@@ -1116,18 +1116,11 @@ func commandRun(locations paths, arguments []string) error {
 			nextSync = now.Add(time.Duration(*syncSeconds) * time.Second)
 		}
 		if !now.Before(nextSample) {
-			agent.DrivingReportingInterval = max(
-				configuration.Sampling.Seconds(true),
-				configuration.Upload.Seconds(true),
-			)
-			agent.ParkedReportingInterval = max(
-				configuration.Sampling.Seconds(false),
-				configuration.Upload.Seconds(false),
-			)
-			if _, err := agent.Collect(); err != nil {
-				fmt.Fprintln(os.Stderr, "Collection failed:", err)
+			var collectErr error
+			nextSample, nextUpload, collectErr = collectAtCadence(agent, configuration, now, nextUpload)
+			if collectErr != nil {
+				fmt.Fprintln(os.Stderr, "Collection failed:", collectErr)
 			}
-			nextSample = now.Add(time.Duration(configuration.Sampling.Seconds(agent.InUse)) * time.Second)
 		}
 		if !now.Before(nextUpload) {
 			if _, err := agent.Upload(500); err != nil {
@@ -1137,6 +1130,30 @@ func commandRun(locations paths, arguments []string) error {
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+}
+
+func reportingInterval(configuration store.Configuration, inUse bool) int {
+	return max(configuration.Sampling.Seconds(inUse), configuration.Upload.Seconds(inUse))
+}
+
+func collectAtCadence(
+	agent *agentruntime.Agent,
+	configuration store.Configuration,
+	now time.Time,
+	nextUpload time.Time,
+) (time.Time, time.Time, error) {
+	agent.DrivingReportingInterval = reportingInterval(configuration, true)
+	agent.ParkedReportingInterval = reportingInterval(configuration, false)
+	wasInUse := agent.InUse
+	_, err := agent.Collect()
+	nextSample := now.Add(time.Duration(configuration.Sampling.Seconds(agent.InUse)) * time.Second)
+	if wasInUse != agent.InUse {
+		newDeadline := now.Add(time.Duration(configuration.Upload.Seconds(agent.InUse)) * time.Second)
+		if newDeadline.Before(nextUpload) {
+			nextUpload = newDeadline
+		}
+	}
+	return nextSample, nextUpload, err
 }
 
 func vehicleProvider(device string, configuration store.Configuration) (agentruntime.VehicleProvider, error) {
