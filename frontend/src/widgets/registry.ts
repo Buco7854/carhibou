@@ -23,9 +23,10 @@ const reports = (vehicle: Vehicle | null | undefined, key: string): boolean =>
   metricReading(vehicle, key).value !== null
 
 /**
- * Whether a segment-derived card can be hidden.
+ * Whether a range-derived card can be hidden.
  *
- * Drives and charges come from an endpoint isEmpty cannot await, so the only
+ * Drives, charges and chart series come from endpoints isEmpty cannot await,
+ * so the only
  * signal available at layout time is whether the vehicle has ever reported at
  * all. A vehicle with state but no drives yet keeps its card and says so; only
  * one that has never reported is hidden.
@@ -42,18 +43,18 @@ const definitions: DashboardWidgetDefinition[] = [
   { type:'vehicle-selector', titleKey:'dashboards.vehicleSelector', component:VehicleSelectorWidget, defaultSize:{w:12,h:1}, general:true, needsMetric:false, configSchema:{fields:['title']} },
   { type:'vehicle-media', titleKey:'dashboards.vehicleMedia', component:VehicleMediaWidget, defaultSize:{w:4,h:2}, general:false, needsMetric:false, configSchema:{fields:['vehicle_id','title']}, isEmpty:(_widget, vehicle) => !vehicle?.photo_url },
   { type:'telemetry-list', titleKey:'dashboards.telemetryList', component:TelemetryListWidget, defaultSize:{w:4,h:3}, general:false, needsMetric:false, needsMetrics:true, configSchema:{fields:['vehicle_id','metrics','title']}, isEmpty:(widget, vehicle) => (widget.metrics ?? []).length ? (widget.metrics ?? []).every((key) => !reports(vehicle, key)) : secondaryReadings(vehicle).length === 0 && !reports(vehicle, 'vehicle.speed') },
-  { type:'metric-card', titleKey:'dashboards.metricCard', component:MetricCardWidget, defaultSize:{w:3,h:2}, general:false, needsMetric:true, configSchema:{fields:['vehicle_id','metric','title','unit']}, isEmpty:(widget, vehicle) => !reports(vehicle, widget.metric ?? '') },
+  { type:'metric-card', titleKey:'dashboards.metricCard', component:MetricCardWidget, defaultSize:{w:3,h:2}, general:false, needsMetric:true, configSchema:{fields:['vehicle_id','metric','title','unit']}, isEmpty:(_widget, vehicle) => neverReported(vehicle) },
   { type:'battery-gauge', titleKey:'dashboards.batteryGauge', component:BatteryGaugeWidget, defaultSize:{w:4,h:2}, general:false, needsMetric:false, configSchema:{fields:['vehicle_id','title']}, isEmpty:(_widget, vehicle) => energySummary(vehicle).value === null },
   { type:'charging', titleKey:'dashboards.charging', component:ChargingWidget, defaultSize:{w:4,h:2}, general:false, needsMetric:false, configSchema:{fields:['vehicle_id','title']}, isEmpty:(_widget, vehicle) => chargingState(vehicle).active === null },
   { type:'position-map', titleKey:'dashboards.positionMap', component:PositionMapWidget, defaultSize:{w:6,h:4}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => !vehicle?.state?.position },
   { type:'time-series', titleKey:'dashboards.timeSeries', component:TimeSeriesWidget, defaultSize:{w:6,h:3}, general:false, needsMetric:true, configSchema:{fields:['vehicle_id','metric','title','unit','time_range_days']}, isEmpty:(widget, vehicle) => !reports(vehicle, widget.metric ?? '') },
-  { type:'multi-series', titleKey:'dashboards.multiSeries', component:MultiSeriesWidget, defaultSize:{w:6,h:3}, general:false, needsMetric:false, needsMetrics:true, configSchema:{fields:['vehicle_id','metrics','title','time_range_days']}, isEmpty:(widget, vehicle) => (widget.metrics ?? []).every((key) => !reports(vehicle, key)) },
+  { type:'multi-series', titleKey:'dashboards.multiSeries', component:MultiSeriesWidget, defaultSize:{w:6,h:3}, general:false, needsMetric:false, needsMetrics:true, configSchema:{fields:['vehicle_id','metrics','title','time_range_days']}, isEmpty:(widget, vehicle) => neverReported(vehicle) || !(widget.metrics ?? []).length },
   { type:'online-status', titleKey:'dashboards.onlineStatus', component:OnlineStatusWidget, defaultSize:{w:3,h:2}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title']}, isEmpty:(_widget, vehicle) => !vehicle?.state },
   { type:'agent-health', titleKey:'dashboards.agentHealth', component:AgentHealthWidget, defaultSize:{w:3,h:4}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title']}, isEmpty:(_widget, vehicle) => Object.keys(vehicle?.state?.agent ?? {}).length === 0 },
   { type:'route-map', titleKey:'dashboards.routeMap', component:RouteMapWidget, defaultSize:{w:8,h:6}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => !vehicle?.state },
   { type:'activity-feed', titleKey:'dashboards.activityFeed', component:ActivityFeedWidget, defaultSize:{w:4,h:5}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => neverReported(vehicle) },
   { type:'segment-stats', titleKey:'dashboards.segmentStats', component:SegmentStatsWidget, defaultSize:{w:4,h:3}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => neverReported(vehicle) },
-  { type:'xy-chart', titleKey:'dashboards.xyChart', component:XyChartWidget, defaultSize:{w:6,h:3}, general:false, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days','x_metric','y_metric']}, isEmpty:(widget, vehicle) => !reports(vehicle, widget.x_metric ?? '') && !reports(vehicle, widget.y_metric ?? '') },
+  { type:'xy-chart', titleKey:'dashboards.xyChart', component:XyChartWidget, defaultSize:{w:6,h:3}, general:false, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days','x_metric','y_metric']}, isEmpty:(widget, vehicle) => neverReported(vehicle) || !(widget.x_metric && widget.y_metric) },
   { type:'period-stats', titleKey:'dashboards.periodStats', component:PeriodStatsWidget, defaultSize:{w:6,h:3}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => neverReported(vehicle) },
   { type:'hook-activity', titleKey:'dashboards.hookActivity', component:HookActivityWidget, defaultSize:{w:4,h:3}, general:true, needsMetric:false, configSchema:{fields:['title']} },
 ]

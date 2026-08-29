@@ -9,7 +9,7 @@ import AppModal from '../components/AppModal.vue'
 import RowMenu from '../components/RowMenu.vue'
 import VehicleMedia from '../components/VehicleMedia.vue'
 import { canOperate, isAdmin } from '../access'
-import { agentStatus, chargingState, energySummary, energyTone, formatAge, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber, vehicleActivity } from '../vehicleDisplay'
+import { agentStatus, chargingState, energySummary, energyTone, formatAge, formatMetricNumber, headlineReading, isPercentage, isStale, metricLabel, metricNumber, observedAt, vehicleActivity } from '../vehicleDisplay'
 
 type VehicleFilter = 'all' | 'online' | 'parked'
 
@@ -224,11 +224,14 @@ onMounted(load)
 
           <section class="charge-reading">
             <template v-if="headline(vehicle)">
-              <div class="reading-row">
+              <div class="reading-row" :class="{ 'is-stale': isStale(headline(vehicle)) }">
                 <span>{{ metricLabel(headline(vehicle)!, t) }}</span>
                 <strong>{{ headlineValue(vehicle) }}<em v-if="headline(vehicle)!.unit">{{ headline(vehicle)!.unit }}</em></strong>
               </div>
-              <i v-if="headlineProgress(vehicle) !== null" class="level-bar"><b :class="levelFill(vehicle)" :style="{ width: `${headlineProgress(vehicle)}%` }" /></i>
+              <i v-if="headlineProgress(vehicle) !== null" class="level-bar" :class="{ 'is-stale': isStale(headline(vehicle)) }"><b :class="levelFill(vehicle)" :style="{ width: `${headlineProgress(vehicle)}%` }" /></i>
+              <!-- A sleeping car keeps its last charge level; saying when it was
+                   measured is what stops it reading as a live number. -->
+              <small v-if="isStale(headline(vehicle))" class="stale-age">{{ formatAge(observedAt(headline(vehicle)), locale) }}</small>
             </template>
             <p v-else class="awaiting">{{ t('vehicles.awaitingTelemetry') }}</p>
           </section>
@@ -304,6 +307,11 @@ onMounted(load)
 .reading-row strong{font-size:var(--font-value-sm);font-weight:500;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
 .reading-row em{margin-left:2px;color:var(--muted);font-size:var(--font-caption);font-style:normal;font-weight:400}
 .charge-reading .level-bar{margin-top:8px}
+/* Real but old: dimmed and dated, keeping its place rather than being replaced
+   by whatever happens to be freshest. */
+.reading-row.is-stale strong,.reading-row.is-stale span{color:var(--muted)}
+.level-bar.is-stale{opacity:.55}
+.stale-age{display:block;margin-top:5px;color:var(--muted-2);font-size:var(--font-micro)}
 .charge-reading .level-bar b.is-charging{background:var(--success-fill)}
 .awaiting{margin:0;color:var(--muted-2);font-size:var(--font-body)}
 

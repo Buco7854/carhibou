@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, type CSSProperties, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errorMessage } from '../api/client'
 import { loadSampleProvenance } from '../api/segments'
+import { useColumnPreference } from '../columnPreference'
 import { useLiveRefresh } from '../api/live'
 import type { HistoryEntries, HistoryEntry, HistoryObservationSample } from '../api/types'
 import { formatInstant, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
-import { layerHost } from '../layerHost'
 import AppHelp from './AppHelp.vue'
+import ColumnPicker from './ColumnPicker.vue'
 import AppIcon from './AppIcon.vue'
 import AppSelect from './AppSelect.vue'
 
@@ -21,11 +22,6 @@ interface TableColumn {
   numeric: boolean
   unit: string
   decimals: number
-}
-
-interface ColumnPreference {
-  order: string[]
-  hidden: string[]
 }
 
 const props = defineProps<{ vehicleId: string; days: number }>()
@@ -59,52 +55,33 @@ interface EntryFilter {
 }
 
 const filters = ref<EntryFilter[]>([])
-const columnsOpen = ref(false)
-const host = computed(layerHost)
-const columnsTools = ref<HTMLElement>()
-const columnsMenu = ref<HTMLElement>()
-const columnsStyle = ref<CSSProperties>({})
-
-/**
- * The picker is anchored to its button but drawn against the viewport.
- *
- * The entries panel clips its own overflow so the table's corners stay rounded,
- * which cut the menu off at the panel edge. Teleporting it out and positioning
- * it here is what the row menus and help bubbles already do.
- */
-function placeColumns(): void {
-  const bounds = columnsTools.value?.getBoundingClientRect()
-  if (!bounds) return
-  const edge = 8
-  const width = 260
-  const height = columnsMenu.value?.offsetHeight ?? 0
-  const below = bounds.bottom + 6
-  const flip = height > 0 && below + height > window.innerHeight - edge && bounds.top - height - 6 > edge
-  columnsStyle.value = {
-    top: `${flip ? bounds.top - height - 6 : below}px`,
-    left: `${Math.min(Math.max(edge, bounds.right - width), window.innerWidth - width - edge)}px`,
-  }
-}
-
-async function toggleColumns(): Promise<void> {
-  if (columnsOpen.value) {
-    columnsOpen.value = false
-    window.removeEventListener('resize', placeColumns)
-    window.removeEventListener('scroll', placeColumns, true)
-    return
-  }
-  columnsOpen.value = true
-  await nextTick()
-  placeColumns()
-  placeColumns()
-  window.addEventListener('resize', placeColumns)
-  window.addEventListener('scroll', placeColumns, true)
-}
 let nextFilterId = 1
-const preference = ref<ColumnPreference>({ order: [], hidden: [] })
+const storageKey = computed(() => `carhibou.history-columns.${props.vehicleId}`)
+const choices = computed(() => allColumns.value.map((column) => ({ key: column.key, label: column.label, hint: columnHint(column) })))
+const { preference, ordered, visible, hiddenCount, load: loadPreference, toggle: toggleColumn, move: moveColumn, reset: resetColumns } =
+  useColumnPreference(storageKey, choices)
+const filterable = computed(() => orderedColumns.value.filter((column) => column.numeric))
+const total = computed(() => data.value?.total ?? 0)
+const rangeStart = computed(() => (total.value ? offset.value + 1 : 0))
+const rangeEnd = computed(() => Math.min(offset.value + limit.value, total.value))
 let request = 0
 
-const storageKey = computed(() => `carhibou.history-columns.${props.vehicleId}`)
+/** A filter with a column but no bound yet narrows nothing, so it is not sent. */
+function filterQuery(filter: EntryFilter): string | null {
+  if (!filter.column) return null
+  if (!filter.present && filter.minimum === '' && filter.maximum === '') return null
+  return `${filter.column}|${filter.minimum}|${filter.maximum}|${filter.present ? '1' : ''}`
+}
+
+const byKey = computed(() => new Map(allColumns.value.map((column) => [column.key, column])))
+const orderedColumns = computed(() => ordered.value.flatMap((choice) => {
+  const column = byKey.value.get(choice.key)
+  return column ? [column] : []
+}))
+const visibleColumns = computed(() => visible.value.flatMap((choice) => {
+  const column = byKey.value.get(choice.key)
+  return column ? [column] : []
+}))
 
 function humanize(key: string): string {
   const text = key.replaceAll('_', ' ').trim()
@@ -138,31 +115,6 @@ const allColumns = computed<TableColumn[]>(() => {
   return columns
 })
 
-/** Saved order first; columns discovered later append rather than disappear. */
-const orderedColumns = computed<TableColumn[]>(() => {
-  const byKey = new Map(allColumns.value.map((column) => [column.key, column]))
-  const ordered = preference.value.order.flatMap((key) => {
-    const column = byKey.get(key)
-    return column ? [column] : []
-  })
-  const seen = new Set(ordered.map((column) => column.key))
-  return [...ordered, ...allColumns.value.filter((column) => !seen.has(column.key))]
-})
-
-const visibleColumns = computed(() =>
-  orderedColumns.value.filter((column) => !preference.value.hidden.includes(column.key)),
-)
-const hiddenCount = computed(() => orderedColumns.value.length - visibleColumns.value.length)
-const filterable = computed(() => orderedColumns.value.filter((column) => column.numeric))
-const total = computed(() => data.value?.total ?? 0)
-const rangeStart = computed(() => (total.value ? offset.value + 1 : 0))
-const rangeEnd = computed(() => Math.min(offset.value + limit.value, total.value))
-/** A filter with a column but no bound yet narrows nothing, so it is not sent. */
-function filterQuery(filter: EntryFilter): string | null {
-  if (!filter.column) return null
-  if (!filter.present && filter.minimum === '' && filter.maximum === '') return null
-  return `${filter.column}|${filter.minimum}|${filter.maximum}|${filter.present ? '1' : ''}`
-}
 
 const activeFilters = computed(() => filters.value.flatMap((filter) => {
   const query = filterQuery(filter)
@@ -174,47 +126,10 @@ function systemColumns(): string[] {
   return (data.value?.agent_keys ?? []).map((name) => `agent:${name}`)
 }
 
-function loadPreference(): void {
-  // An agent's own load average and queue depth are not readings from the car,
-  // and there are enough of them to bury the ones that are. They stay available,
-  // in the column menu, rather than shown by default.
-  preference.value = { order: [], hidden: systemColumns() }
-  try {
-    const stored = JSON.parse(localStorage.getItem(storageKey.value) ?? 'null') as ColumnPreference | null
-    if (stored && Array.isArray(stored.order) && Array.isArray(stored.hidden)) preference.value = stored
-    else hideSystemOnceKnown = true
-  } catch {
-    // A malformed preference falls back to showing every column.
-  }
-}
 
-function savePreference(): void {
-  preference.value.order = orderedColumns.value.map((column) => column.key)
-  localStorage.setItem(storageKey.value, JSON.stringify(preference.value))
-}
 
-function toggleColumn(key: string): void {
-  const hidden = preference.value.hidden
-  preference.value.hidden = hidden.includes(key)
-    ? hidden.filter((value) => value !== key)
-    : [...hidden, key]
-  savePreference()
-}
 
-function moveColumn(key: string, offsetBy: -1 | 1): void {
-  const order = orderedColumns.value.map((column) => column.key)
-  const index = order.indexOf(key)
-  const target = index + offsetBy
-  if (index < 0 || target < 0 || target >= order.length) return
-  order.splice(target, 0, ...order.splice(index, 1))
-  preference.value.order = order
-  localStorage.setItem(storageKey.value, JSON.stringify(preference.value))
-}
 
-function resetColumns(): void {
-  preference.value = { order: [], hidden: [] }
-  localStorage.removeItem(storageKey.value)
-}
 
 /** What a label stands for: the canonical name, and a note where one exists.
  *
@@ -398,13 +313,6 @@ function showNewRows(): void {
   void load()
 }
 
-function closeColumns(event: PointerEvent): void {
-  const target = event.target as Node
-  if (!columnsTools.value?.contains(target) && !columnsMenu.value?.contains(target)) columnsOpen.value = false
-}
-
-document.addEventListener('pointerdown', closeColumns, true)
-onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, true))
 </script>
 
 <template>
@@ -414,29 +322,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
         <h2>{{ t('history.entries') }}</h2>
         <p>{{ total ? t('history.entryRange', { from: rangeStart, to: rangeEnd, total }) : t('history.noEntries') }}</p>
       </div>
-      <div ref="columnsTools" class="entries-tools" @keydown.esc="columnsOpen = false">
-        <button class="button secondary" type="button" aria-haspopup="true" :aria-expanded="columnsOpen" @click="toggleColumns">
-          <AppIcon name="columns" :size="15" />
-          {{ t('history.columnsButton') }}<span v-if="hiddenCount"> · {{ hiddenCount }}</span>
-        </button>
-        <Teleport :to="host">
-        <div v-if="columnsOpen" ref="columnsMenu" class="columns-menu panel" :style="columnsStyle">
-          <div class="columns-menu-head">
-            <strong>{{ t('history.columnsTitle') }}</strong>
-            <button class="link-button" type="button" @click="resetColumns">{{ t('history.reset') }}</button>
-          </div>
-          <ul>
-            <li v-for="(column, index) in orderedColumns" :key="column.key">
-              <label :title="columnHint(column)">
-                <input type="checkbox" :checked="!preference.hidden.includes(column.key)" @change="toggleColumn(column.key)" />
-                <span>{{ column.label }}</span>
-              </label>
-              <button class="icon-button" type="button" :disabled="index === 0" :aria-label="t('history.moveUp', { name: column.label })" @click="moveColumn(column.key, -1)"><AppIcon name="chevron-up" :size="14" /></button>
-              <button class="icon-button" type="button" :disabled="index === orderedColumns.length - 1" :aria-label="t('history.moveDown', { name: column.label })" @click="moveColumn(column.key, 1)"><AppIcon name="chevron-down" :size="14" /></button>
-            </li>
-          </ul>
-        </div>
-        </Teleport>
+      <div class="entries-tools">
+        <ColumnPicker :columns="ordered" :preference="preference" :hidden-count="hiddenCount" @toggle="toggleColumn" @move="moveColumn" @reset="resetColumns" />
       </div>
     </header>
 
@@ -598,15 +485,6 @@ tr.is-open>td{border-bottom-color:transparent}
 .entries-head h2{margin:0;font-size:13px;font-weight:600}
 .entries-head p{margin:3px 0 0;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
 .entries-tools{position:relative}
-.columns-menu{position:fixed;z-index:1400;width:260px;max-height:340px;display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow)}
-.columns-menu-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line)}
-.columns-menu-head strong{font-size:12px;font-weight:600}
-.columns-menu ul{list-style:none;margin:0;padding:4px;min-height:0;overflow-y:auto}
-.columns-menu li{display:grid;grid-template-columns:minmax(0,1fr) 24px 24px;align-items:center;gap:2px;padding:1px 4px}
-.columns-menu label{min-width:0;display:flex;align-items:center;gap:8px;padding:5px 4px;font-size:12px;cursor:pointer}
-.columns-menu label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.columns-menu input{width:13px;height:13px;flex:none;accent-color:var(--accent)}
-.columns-menu .icon-button{width:24px;height:24px}
 
 .entries-filter{display:grid;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
 .filter-row{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px 14px}
@@ -642,8 +520,7 @@ tr.is-open>td{border-bottom-color:transparent}
 
 @media(max-width:700px){
   .entries-head{align-items:stretch;flex-direction:column}
-  .columns-menu{right:auto;left:0}
-  .entries-foot{align-items:stretch;flex-direction:column}
+    .entries-foot{align-items:stretch;flex-direction:column}
   .pager .button{flex:1}
 }
 </style>

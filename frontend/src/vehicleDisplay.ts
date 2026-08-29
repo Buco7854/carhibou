@@ -294,6 +294,24 @@ export function headlineReading(vehicle: Vehicle | null | undefined): EnergySumm
   return reportedReadings(vehicle, ['vehicle.speed'])[0] ?? null
 }
 
+/**
+ * Whether a reading is real but no longer current.
+ *
+ * A sleeping car keeps reporting nothing while the server retains what it last
+ * said: the charge level is still the charge level, it is simply hours old. Such
+ * a reading keeps its place and its ranking and is shown aged, because replacing
+ * it with whatever happens to be freshest would tell the reader their car is a
+ * 12 V battery. A reading that is absent stays absent.
+ */
+export function isStale(reading: MetricReading | null | undefined): boolean {
+  return Boolean(reading && reading.value !== null && reading.provenance && !reading.provenance.fresh)
+}
+
+/** When a stale reading was actually measured, for the age beside it. */
+export function observedAt(reading: MetricReading | null | undefined): string {
+  return reading?.provenance?.observed_at ?? ''
+}
+
 export function isPercentage(reading: MetricReading): boolean {
   return reading.unit === '%' && typeof reading.value === 'number'
 }

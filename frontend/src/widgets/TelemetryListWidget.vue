@@ -3,11 +3,11 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
-import { formatMetricNumber, metricLabel, metricNumber, metricReading, secondaryReadings, type MetricReading } from '../vehicleDisplay'
+import { formatAge, formatMetricNumber, isStale, metricLabel, metricNumber, metricReading, observedAt, secondaryReadings, type MetricReading } from '../vehicleDisplay'
 import { useDashboardVehicle } from './dashboardContext'
 
 const props = defineProps<{ widget: DashboardWidget }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const vehicle = useDashboardVehicle(props.widget)
 /**
  * The chosen metrics, or the ones worth showing when nobody has chosen yet.
@@ -43,7 +43,7 @@ function value(reading: MetricReading): string {
     <div class="widget-head"><h2>{{ widget.title || t('dashboard.telemetry') }}</h2><small>{{ vehicle?.name }}</small></div>
     <dl v-if="hasTelemetry">
       <div v-if="speed!==null"><dt>{{ t('metrics.vehicleSpeed') }}</dt><dd>{{ Math.round(speed) }}<small>km/h</small></dd></div>
-      <div v-for="reading in readings" :key="reading.key"><dt>{{ metricLabel(reading,t) }}</dt><dd>{{ value(reading) }}<small v-if="reading.value!==null&&reading.kind==='number'&&reading.unit">{{ reading.unit }}</small></dd></div>
+      <div v-for="reading in readings" :key="reading.key"><dt>{{ metricLabel(reading,t) }}<small v-if="isStale(reading)" class="stale-age">{{ formatAge(observedAt(reading), locale) }}</small></dt><dd :class="{ 'is-stale': isStale(reading) }">{{ value(reading) }}<small v-if="reading.value!==null&&reading.kind==='number'&&reading.unit">{{ reading.unit }}</small></dd></div>
       <div v-if="signal!==null"><dt>{{ t('dashboard.signal') }}</dt><dd>{{ signal }}<small>dBm</small></dd></div>
     </dl>
     <DashboardWidgetEmpty v-else icon="signal" />
@@ -60,4 +60,6 @@ function value(reading: MetricReading): string {
 .telemetry-widget dt{overflow:hidden;color:var(--muted);font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}
 .telemetry-widget dd{display:flex;align-items:baseline;gap:3px;margin:0;font-size:var(--font-value-xs);font-weight:500;font-variant-numeric:tabular-nums}
 .telemetry-widget dd small{color:var(--muted);font-size:var(--font-caption);font-weight:400}
+.telemetry-widget dd.is-stale{color:var(--muted)}
+.telemetry-widget .stale-age{display:block;margin-top:1px;color:var(--muted-2);font-size:var(--font-micro)}
 </style>

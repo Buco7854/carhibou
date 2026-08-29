@@ -41,12 +41,21 @@ const dataVersion = ref(0)
 const selectedSegment = ref<SelectedSegment | null>(null)
 const form = ref({ type:'metric-card', vehicle_id:'', metric:'vehicle.speed', metricList:[] as string[], x_metric:'battery.soc', y_metric:'charging.power', title:'', unit:'km/h', time_range_days:1, hide_when_empty:false })
 
+const unusedMetrics = computed(() => metricChoices.value.filter((key) => !form.value.metricList.includes(key)))
+
 function addMetricRow(): void {
-  const next = metricChoices.value.find((key) => !form.value.metricList.includes(key))
-  form.value.metricList = [...form.value.metricList, next ?? metricChoices.value[0] ?? 'vehicle.speed']
+  const next = unusedMetrics.value[0]
+  if (!next) return
+  form.value.metricList = [...form.value.metricList, next]
 }
 function setMetricRow(index: number, key: string): void {
-  form.value.metricList = form.value.metricList.map((existing, at) => at === index ? key : existing)
+  const previous = form.value.metricList[index]
+  form.value.metricList = form.value.metricList.map((existing, at) => {
+    if (at === index) return key
+    // Picking a key another row already shows swaps them, so the list never
+    // holds one metric twice and the chart never draws it twice.
+    return existing === key && previous ? previous : existing
+  })
 }
 function removeMetricRow(index: number): void {
   form.value.metricList = form.value.metricList.filter((_, at) => at !== index)
@@ -173,6 +182,9 @@ function premadeLayout(vehicleId?: string): Dashboard['layout'] {
 }
 
 function applyVehicleDefaults(): void {
+  // Seeding is for a card being created. Re-running it while the editor is open
+  // on an existing card would overwrite the very configuration it came to show.
+  if (editingWidget.value) return
   const vehicle = vehicles.value.find((row) => row.id === form.value.vehicle_id) ?? selectedVehicle.value
   const metrics = defaultDashboardMetrics(vehicle)
   form.value.metric = metrics[0] ?? 'vehicle.speed'
@@ -580,7 +592,7 @@ onBeforeUnmount(destroyGrid)
             </AppSelect>
             <button class="icon-button" type="button" :aria-label="t('dashboards.removeMetric', { name })" @click="removeMetricRow(index)"><AppIcon name="close" :size="14" /></button>
           </div>
-          <button class="button secondary metric-add" type="button" @click="addMetricRow"><AppIcon name="plus" :size="14" />{{ t('dashboards.addMetric') }}</button>
+          <button class="button secondary metric-add" type="button" :disabled="!unusedMetrics.length" @click="addMetricRow"><AppIcon name="plus" :size="14" />{{ t('dashboards.addMetric') }}</button>
           <small class="field-hint">{{ t('dashboards.metricsHint') }}</small>
         </div>
         <label v-if="chosenDefinition?.configSchema.fields.includes('time_range_days')" class="field"><span>{{ t('dashboards.timeRange') }}</span><AppSelect v-model="form.time_range_days"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></AppSelect></label>

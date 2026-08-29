@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Vehicle } from '../src/api/types'
-import { formatAge, formatSpan, chargingState, defaultDashboardMetrics, energySummary, headlineReading, isFresh, metricReading, preferredHistoryMetric, reportedKeys, secondaryReadings, vehicleActivity } from '../src/vehicleDisplay'
+import { chargingState, defaultDashboardMetrics, energySummary, formatAge, formatSpan, headlineReading, isFresh, isStale, metricReading, observedAt, preferredHistoryMetric, reportedKeys, secondaryReadings, vehicleActivity } from '../src/vehicleDisplay'
 import { readings, vehicle } from './helpers'
 
 function withMetrics(values: Record<string, unknown>): Vehicle {
@@ -160,5 +160,41 @@ describe('telemetry-driven vehicle display', () => {
     expect(formatSpan(gap, 'en')).toBe('4 minutes')
     // A future instant does not become "in 3 minutes"; clocks disagree.
     expect(formatAge('2026-08-29T18:23:00Z', 'en', now)).toBe('now')
+  })
+
+  it('keeps a retained reading in its place while a car sleeps', () => {
+    // The server holds battery.soc through sleep with fresh:false and drops the
+    // transient metrics entirely. The card must still lead with the charge level,
+    // aged, rather than promoting whatever happens to be freshest.
+    const asleep = {
+      ...vehicle,
+      state: {
+        ...vehicle.state!,
+        position: null,
+        readings: {
+          ...readings({ 'battery.soc': 86 }, { fresh: false, observed_at: '2026-08-29T15:00:00Z' }),
+          ...readings({ 'battery.aux_voltage': 13.1 }),
+        },
+      },
+    } as Vehicle
+
+    const headline = headlineReading(asleep)
+    expect(headline?.key).toBe('battery.soc')
+    expect(headline?.value).toBe(86)
+    expect(isStale(headline)).toBe(true)
+    expect(observedAt(headline)).toBe('2026-08-29T15:00:00Z')
+    // The fresher reading is still there, just not promoted over the retained one.
+    expect(metricReading(asleep, 'battery.aux_voltage').value).toBe(13.1)
+    expect(isStale(metricReading(asleep, 'battery.aux_voltage'))).toBe(false)
+    // Charging is safety-sensitive and the server dropped it, so it stays unknown.
+    expect(chargingState(asleep)).toEqual({ active: null, power: null })
+  })
+
+  it('tells a stale reading apart from an absent one', () => {
+    const absent = withMetrics({})
+    expect(isStale(metricReading(absent, 'battery.soc'))).toBe(false)
+    expect(metricReading(absent, 'battery.soc').value).toBeNull()
+    // Present and current is not stale either; only present-and-expired is.
+    expect(isStale(metricReading(withMetrics({ 'battery.soc': 61 }), 'battery.soc'))).toBe(false)
   })
 })

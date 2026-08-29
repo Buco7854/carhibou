@@ -140,7 +140,7 @@ describe('driving insight widgets', () => {
     api({ segments: { drives: [drive({ distance_km: undefined, energy_kwh: undefined, max_speed: undefined })], charges: [] } })
     const { wrapper } = mountWidget('segment-stats')
     await flushPromises()
-    const labels = wrapper.findAll('.stat-grid dt').map((row) => row.text())
+    const labels = wrapper.findAll('.segment-facts dt').map((row) => row.text())
     expect(labels).toContain('Duration')
     expect(labels).not.toContain('Distance')
     expect(labels).not.toContain('Top speed')
@@ -327,17 +327,17 @@ describe('driving insight widgets', () => {
         { id: 'w', type: 'xy-chart', x: 0, y: 0, w: 4, h: 3, ...extra },
         { ...vehicle, state: { ...vehicle.state, position: null, readings: readings(metrics) } } as unknown as Vehicle,
       )
-    // Hiding answers "can this vehicle ever plot these axes", which only live
-    // state can say cheaply. The range still decides what the visible chart
-    // draws, so one axis in state is enough to keep the card and let the
-    // widget's own empty state report an unpaired or out-of-range window.
+    // A chart plots a range, so a live value that has gone is not an empty
+    // chart. charging.power leaves live state the moment a charge ends, and the
+    // finished charge's own graph must still be there to look at.
     const curve = { x_metric: 'battery.soc', y_metric: 'charging.power' }
     expect(chart(curve, { 'battery.soc': 61 })).toBe(false)
     expect(chart(curve, { 'charging.power': 7 })).toBe(false)
-    expect(chart(curve, { 'engine.rpm': 900 })).toBe(true)
-    // Whatever axes are configured are the ones judged.
-    expect(chart({ x_metric: 'vehicle.speed', y_metric: 'engine.rpm' }, { 'engine.rpm': 900 })).toBe(false)
-    expect(chart({ x_metric: 'vehicle.speed', y_metric: 'engine.rpm' }, { 'battery.soc': 61 })).toBe(true)
+    expect(chart(curve, { 'engine.rpm': 900 })).toBe(false)
+    expect(chart(curve, {})).toBe(false)
+    // Axes the vehicle has never carried are still worth a card: the range
+    // decides, and the widget says for itself when the window holds nothing.
+    expect(chart({ x_metric: 'vehicle.speed', y_metric: 'engine.rpm' }, { 'battery.soc': 61 })).toBe(false)
     // A chart with no axes chosen plots nothing at all, so it hides rather than
     // falling back to metrics the vehicle was never asked about.
     expect(chart({}, { 'battery.soc': 61, 'charging.power': 7 })).toBe(true)

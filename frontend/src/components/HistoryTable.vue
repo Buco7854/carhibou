@@ -4,8 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { errorMessage } from '../api/client'
 import { TABLE_STEP_SECONDS, loadHistoryTable } from '../api/segments'
 import type { HistoryTable, HistoryTableRow, Reading } from '../api/types'
+import { useColumnPreference } from '../columnPreference'
 import { formatMetricNumber, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
 import AppHelp from './AppHelp.vue'
+import ColumnPicker from './ColumnPicker.vue'
 import AppSelect from './AppSelect.vue'
 
 const props = defineProps<{ vehicleId: string; days: number }>()
@@ -40,13 +42,27 @@ const rangeEnd = computed(() => Math.min(offset.value + limit.value, total.value
  * Every metric any visible row knows about, ordered so the table does not
  * reshuffle its columns as the reader pages through it.
  */
-const columns = computed(() => {
+const discovered = computed(() => {
   const keys = new Set<string>()
   for (const row of rows.value) for (const key of Object.keys(row.readings)) keys.add(key)
   return [...keys]
     .map((key) => metricDefinition(key))
     .sort((left, right) => metricLabel(left, t).localeCompare(metricLabel(right, t), locale.value))
 })
+const storageKey = computed(() => `carhibou.timeline-columns.${props.vehicleId}`)
+const choices = computed(() => discovered.value.map((definition) => ({
+  key: definition.key,
+  label: metricLabel(definition, t),
+  hint: definition.key,
+})))
+const { preference, ordered, visible, hiddenCount, load: loadColumns, toggle: toggleColumn, move: moveColumn, reset: resetColumns } =
+  useColumnPreference(storageKey, choices)
+const byKey = computed(() => new Map(discovered.value.map((definition) => [definition.key, definition])))
+const columns = computed(() => visible.value.flatMap((choice) => {
+  const definition = byKey.value.get(choice.key)
+  return definition ? [definition] : []
+}))
+watch(() => props.vehicleId, () => { loadColumns() }, { immediate: true })
 
 const stepOptions = computed(() => TABLE_STEP_SECONDS.map((seconds) => ({
   value: seconds,
@@ -132,6 +148,9 @@ void load()
         <h2>{{ t('history.tableTitle') }}<AppHelp :label="t('history.agedHelpLabel')"><span>{{ t('history.agedHelp') }}</span></AppHelp></h2>
         <p>{{ t('history.tableHint') }}</p>
       </div>
+      <div class="table-tools">
+        <ColumnPicker :columns="ordered" :preference="preference" :hidden-count="hiddenCount" @toggle="toggleColumn" @move="moveColumn" @reset="resetColumns" />
+      </div>
       <label class="field inline-field"><span>{{ t('history.rowEvery') }}</span>
         <AppSelect v-model="stepSeconds" :aria-label="t('history.rowEvery')">
           <option v-for="option in stepOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
@@ -142,7 +161,7 @@ void load()
     <p v-if="error" class="error table-message" role="alert">{{ error }}</p>
     <p v-else-if="!rows.length" class="empty-note">{{ loading ? t('common.loading') : t('history.noData') }}</p>
 
-    <div v-else class="table-wrap">
+    <div v-else class="table-wrap timeline-scroll">
       <table class="table snapshot">
         <thead>
           <tr>
@@ -189,6 +208,11 @@ void load()
 <style scoped>
 .history-table{overflow:hidden}
 .table-head{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:14px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.table-tools{display:flex;align-items:center;gap:8px;margin-left:auto}
+/* The same window the raw table gives its rows, so switching modes does not
+   change how much of the page the table claims. */
+.timeline-scroll{max-height:520px;overflow:auto}
+.snapshot thead th{position:sticky;top:0;z-index:1;background:var(--panel)}
 .table-head h2{margin:0;font-size:var(--font-section);font-weight:600;letter-spacing:-.01em}
 .table-head p{max-width:64ch;margin:4px 0 0;color:var(--muted);font-size:var(--font-caption);line-height:1.45}
 .inline-field{width:170px}
