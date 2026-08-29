@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Vehicle } from '../src/api/types'
-import { chargingState, defaultDashboardMetrics, energySummary, headlineReading, isFresh, metricReading, preferredHistoryMetric, reportedKeys, secondaryReadings, vehicleActivity } from '../src/vehicleDisplay'
+import { formatAge, formatSpan, chargingState, defaultDashboardMetrics, energySummary, headlineReading, isFresh, metricReading, preferredHistoryMetric, reportedKeys, secondaryReadings, vehicleActivity } from '../src/vehicleDisplay'
 import { readings, vehicle } from './helpers'
 
 function withMetrics(values: Record<string, unknown>): Vehicle {
@@ -141,5 +141,24 @@ describe('telemetry-driven vehicle display', () => {
     expect(vehicleActivity(online({ 'battery.power': -11.2 }))).toBe('unknown')
     // An agent that has stopped reporting says nothing about the vehicle at all.
     expect(vehicleActivity({ ...vehicle, state: { ...vehicle.state!, online: false } } as Vehicle)).toBe('unknown')
+  })
+
+  it('anchors an age to now and refuses to be handed a duration', () => {
+    // The bug this pins: a fix taken 14 seconds before the upload that carried it
+    // read "14 seconds ago" while sitting five minutes in the past. The gap
+    // between two stored instants is a span; only distance from now is an age.
+    const now = Date.parse('2026-08-29T18:20:00Z')
+    const observed = '2026-08-29T18:15:27Z'
+    const received = '2026-08-29T18:19:46Z'
+    // The instant a reader sees is the instant the age describes.
+    expect(formatAge(observed, 'en', now)).toBe('5 minutes ago')
+    // Feeding it the upload instead is the whole defect, and it says so loudly.
+    expect(formatAge(received, 'en', now)).not.toBe(formatAge(observed, 'en', now))
+    // The intra-sample gap is fourteen seconds and is never an age.
+    const gap = Math.round((Date.parse(received) - Date.parse(observed)) / 1000)
+    expect(gap).toBe(259)
+    expect(formatSpan(gap, 'en')).toBe('4 minutes')
+    // A future instant does not become "in 3 minutes"; clocks disagree.
+    expect(formatAge('2026-08-29T18:23:00Z', 'en', now)).toBe('now')
   })
 })

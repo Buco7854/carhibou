@@ -9,7 +9,7 @@ import AppModal from '../components/AppModal.vue'
 import RowMenu from '../components/RowMenu.vue'
 import VehicleMedia from '../components/VehicleMedia.vue'
 import { canOperate, isAdmin } from '../access'
-import { chargingState, energySummary, energyTone, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber, agentStatus, vehicleActivity } from '../vehicleDisplay'
+import { agentStatus, chargingState, energySummary, energyTone, formatAge, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber, vehicleActivity } from '../vehicleDisplay'
 
 type VehicleFilter = 'all' | 'online' | 'parked'
 
@@ -68,15 +68,7 @@ function levelFill(vehicle: Vehicle): string {
 function vehicleSpeed(vehicle: Vehicle): number | null { return metricNumber(vehicle, 'vehicle.speed') }
 /** Relative time reads faster than a timestamp when the only question is "recently?". */
 function lastContact(vehicle: Vehicle): string {
-  if (!vehicle.state) return t('common.never')
-  const elapsed = (Date.now() - new Date(vehicle.state.updated_at).getTime()) / 1000
-  const format = new Intl.RelativeTimeFormat(locale.value, { numeric: 'auto' })
-  const [amount, unit]: [number, Intl.RelativeTimeFormatUnit] =
-    elapsed < 60 ? [elapsed, 'second']
-    : elapsed < 3600 ? [elapsed / 60, 'minute']
-    : elapsed < 86_400 ? [elapsed / 3600, 'hour']
-    : [elapsed / 86_400, 'day']
-  return format.format(-Math.round(amount), unit)
+  return vehicle.state ? formatAge(vehicle.state.updated_at, locale.value) : t('common.never')
 }
 
 /**

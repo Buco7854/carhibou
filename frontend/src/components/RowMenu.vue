@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, type CSSProperties } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, type CSSProperties } from 'vue'
+import { layerHost } from '../layerHost'
 import AppIcon from './AppIcon.vue'
 
 defineProps<{ label: string }>()
 const root = ref<HTMLElement>()
 const menu = ref<HTMLElement>()
 const open = ref(false)
+const host = computed(layerHost)
 const menuStyle = ref<CSSProperties>({})
 
 /**
@@ -74,7 +76,7 @@ onBeforeUnmount(() => {
     >
       <AppIcon name="more" :size="16" />
     </button>
-    <Teleport to="body">
+    <Teleport :to="host">
       <!-- Clicking any item runs its own handler and then closes the menu, so no
            item has to remember to. -->
       <div v-if="open" ref="menu" class="row-menu-list" :style="menuStyle" role="menu" @click="close"><slot /></div>

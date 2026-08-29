@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { isAdmin } from './access'
@@ -9,6 +9,7 @@ import AppIcon from './components/AppIcon.vue'
 import AppSelect from './components/AppSelect.vue'
 import BrandMark from './components/BrandMark.vue'
 import { persistLocale } from './i18n'
+import { nameLayerHost } from './layerHost'
 import { resolvedTheme, setTheme } from './theme'
 
 const router = useRouter()
@@ -53,6 +54,10 @@ const secondaryNav = computed<NavEntry[]>(() => [
   { to: '/settings', icon: 'settings', label: t('nav.settings') },
   ...(isAdmin.value ? [{ to: '/admin', icon: 'shield', label: t('admin.title') }] : []),
 ])
+
+// Menus and help bubbles teleport into one host; it is a landmark, so it needs
+// a name, and the name follows the language.
+watchEffect(() => nameLayerHost(t('common.overlays')))
 
 const moreOpen = ref(false)
 function closeMore(): void { moreOpen.value = false }

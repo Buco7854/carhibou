@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, useAttrs, useId, useSlots, type CSSProperties, type VNode, type VNodeChild } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, type CSSProperties, type VNode, type VNodeChild, useAttrs, useId, useSlots } from 'vue'
+import { layerHost } from '../layerHost'
 import AppIcon from './AppIcon.vue'
 
 defineOptions({ inheritAttrs: false })
@@ -22,6 +23,7 @@ const root = ref<HTMLElement>()
 const menu = ref<HTMLElement>()
 const searchInput = ref<HTMLInputElement>()
 const open = ref(false)
+const host = computed(layerHost)
 const activeIndex = ref(0)
 const query = ref('')
 const menuStyle = ref<CSSProperties>({})
@@ -219,7 +221,7 @@ onBeforeUnmount(() => {
       <span>{{ selected?.label }}</span>
       <AppIcon class="app-select-arrow" name="chevron-down" :size="15" />
     </button>
-    <Teleport to="body">
+    <Teleport :to="host">
       <div v-if="open" ref="menu" class="app-select-menu" :style="menuStyle">
         <label v-if="searchable" class="app-select-search">
           <AppIcon name="search" :size="15" />

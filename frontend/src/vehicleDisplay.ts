@@ -378,8 +378,18 @@ export function formatSpan(seconds: number, locale: string): string {
     .format(Math.round(seconds / divisor))
 }
 
-/** The same span, said as an age: "20 minutes ago", "il y a 20 minutes". */
-export function formatAge(seconds: number, locale: string): string {
+/**
+ * How long ago an instant was: "20 minutes ago", "il y a 20 minutes".
+ *
+ * Takes the instant rather than a duration, because "ago" is a claim about the
+ * distance from now and nothing else. Handed a duration it would happily render
+ * the gap between two past instants as an age, which is how a five-minute-old
+ * fix came to read "14 seconds ago": the fourteen seconds were the gap between
+ * the fix and the upload that carried it, not the distance from now. An interval
+ * between two stored instants is a span; use formatSpan and name both ends.
+ */
+export function formatAge(instant: string, locale: string, now: number = Date.now()): string {
+  const seconds = Math.max(0, (now - new Date(instant).getTime()) / 1000)
   const unit = seconds >= 86_400 ? 'day' : seconds >= 3_600 ? 'hour' : seconds >= 60 ? 'minute' : 'second'
   const divisor = unit === 'day' ? 86_400 : unit === 'hour' ? 3_600 : unit === 'minute' ? 60 : 1
   return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })

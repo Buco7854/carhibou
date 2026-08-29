@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, type CSSProperties, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errorMessage } from '../api/client'
 import { loadSampleProvenance } from '../api/segments'
 import { useLiveRefresh } from '../api/live'
 import type { HistoryEntries, HistoryEntry, HistoryObservationSample } from '../api/types'
-import { formatAge, formatInstant, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
+import { formatInstant, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
+import { layerHost } from '../layerHost'
 import AppHelp from './AppHelp.vue'
 import AppIcon from './AppIcon.vue'
 import AppSelect from './AppSelect.vue'
@@ -59,7 +60,46 @@ interface EntryFilter {
 
 const filters = ref<EntryFilter[]>([])
 const columnsOpen = ref(false)
+const host = computed(layerHost)
 const columnsTools = ref<HTMLElement>()
+const columnsMenu = ref<HTMLElement>()
+const columnsStyle = ref<CSSProperties>({})
+
+/**
+ * The picker is anchored to its button but drawn against the viewport.
+ *
+ * The entries panel clips its own overflow so the table's corners stay rounded,
+ * which cut the menu off at the panel edge. Teleporting it out and positioning
+ * it here is what the row menus and help bubbles already do.
+ */
+function placeColumns(): void {
+  const bounds = columnsTools.value?.getBoundingClientRect()
+  if (!bounds) return
+  const edge = 8
+  const width = 260
+  const height = columnsMenu.value?.offsetHeight ?? 0
+  const below = bounds.bottom + 6
+  const flip = height > 0 && below + height > window.innerHeight - edge && bounds.top - height - 6 > edge
+  columnsStyle.value = {
+    top: `${flip ? bounds.top - height - 6 : below}px`,
+    left: `${Math.min(Math.max(edge, bounds.right - width), window.innerWidth - width - edge)}px`,
+  }
+}
+
+async function toggleColumns(): Promise<void> {
+  if (columnsOpen.value) {
+    columnsOpen.value = false
+    window.removeEventListener('resize', placeColumns)
+    window.removeEventListener('scroll', placeColumns, true)
+    return
+  }
+  columnsOpen.value = true
+  await nextTick()
+  placeColumns()
+  placeColumns()
+  window.addEventListener('resize', placeColumns)
+  window.addEventListener('scroll', placeColumns, true)
+}
 let nextFilterId = 1
 const preference = ref<ColumnPreference>({ order: [], hidden: [] })
 let request = 0
@@ -260,6 +300,20 @@ const uploadLag = computed(() => {
   return seconds > 0 ? formatSpan(seconds, locale.value) : ''
 })
 
+/**
+ * How long before its own report an observation was taken.
+ *
+ * The gap between two instants this panel already shows, named as such. Said as
+ * an age it would claim a distance from now, which for a batch upload is the
+ * one thing it is not: an agent on the parked cadence can carry a fix that is
+ * seconds older than its report and minutes older than this moment.
+ */
+function beforeReport(observedAt: string): string {
+  if (!provenance.value) return ''
+  const seconds = Math.round((new Date(provenance.value.recorded_at).getTime() - new Date(observedAt).getTime()) / 1000)
+  return seconds > 0 ? t('history.beforeReport', { span: formatSpan(seconds, locale.value) }) : ''
+}
+
 function observationValue(value: unknown): string {
   if (typeof value === 'boolean') return t(value ? 'metrics.active' : 'metrics.inactive')
   if (typeof value === 'number') return String(value)
@@ -345,7 +399,8 @@ function showNewRows(): void {
 }
 
 function closeColumns(event: PointerEvent): void {
-  if (!columnsTools.value?.contains(event.target as Node)) columnsOpen.value = false
+  const target = event.target as Node
+  if (!columnsTools.value?.contains(target) && !columnsMenu.value?.contains(target)) columnsOpen.value = false
 }
 
 document.addEventListener('pointerdown', closeColumns, true)
@@ -360,11 +415,12 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
         <p>{{ total ? t('history.entryRange', { from: rangeStart, to: rangeEnd, total }) : t('history.noEntries') }}</p>
       </div>
       <div ref="columnsTools" class="entries-tools" @keydown.esc="columnsOpen = false">
-        <button class="button secondary" type="button" aria-haspopup="true" :aria-expanded="columnsOpen" @click="columnsOpen = !columnsOpen">
+        <button class="button secondary" type="button" aria-haspopup="true" :aria-expanded="columnsOpen" @click="toggleColumns">
           <AppIcon name="columns" :size="15" />
           {{ t('history.columnsButton') }}<span v-if="hiddenCount"> · {{ hiddenCount }}</span>
         </button>
-        <div v-if="columnsOpen" class="columns-menu panel">
+        <Teleport :to="host">
+        <div v-if="columnsOpen" ref="columnsMenu" class="columns-menu panel" :style="columnsStyle">
           <div class="columns-menu-head">
             <strong>{{ t('history.columnsTitle') }}</strong>
             <button class="link-button" type="button" @click="resetColumns">{{ t('history.reset') }}</button>
@@ -380,6 +436,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
             </li>
           </ul>
         </div>
+        </Teleport>
       </div>
     </header>
 
@@ -480,7 +537,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
                         <td class="mono">{{ provenance.position.value.latitude.toFixed(5) }}, {{ provenance.position.value.longitude.toFixed(5) }}</td>
                         <td>{{ t(`history.channels.${provenance.position.channel}`) }}</td>
                         <td>{{ t(`history.methods.${provenance.position.method}`) }}</td>
-                        <td>{{ formatInstant(provenance.position.observed_at) }}<small class="observed-age">{{ formatAge(Math.max(0, Math.round((new Date(provenance.recorded_at).getTime() - new Date(provenance.position.observed_at).getTime()) / 1000)), locale) }}</small></td>
+                        <td>{{ formatInstant(provenance.position.observed_at) }}<small v-if="beforeReport(provenance.position.observed_at)" class="observed-age">{{ beforeReport(provenance.position.observed_at) }}</small></td>
                       </tr>
                       <tr v-for="observation in provenance.observations" :key="`${observation.key}-${observation.channel}`">
                         <td>{{ metricLabel(metricDefinition(observation.key), t) }}<small class="mono">{{ observation.key }}</small></td>
@@ -518,7 +575,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
 <style scoped>
 /* The disclosure column is chrome, not data, so it takes only what it needs and
    never enters the sort or the column preference. */
-.expand-cell{width:34px;padding-right:0}
+.expand-cell{width:44px}
 .expand-cell .icon-button{width:26px;height:26px}
 tr.is-open>td{border-bottom-color:transparent}
 .provenance-row>td{padding:0 14px 14px;background:var(--panel-2)}
@@ -541,7 +598,7 @@ tr.is-open>td{border-bottom-color:transparent}
 .entries-head h2{margin:0;font-size:13px;font-weight:600}
 .entries-head p{margin:3px 0 0;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
 .entries-tools{position:relative}
-.columns-menu{position:absolute;z-index:1400;top:38px;right:0;width:260px;max-height:340px;display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow)}
+.columns-menu{position:fixed;z-index:1400;width:260px;max-height:340px;display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow)}
 .columns-menu-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line)}
 .columns-menu-head strong{font-size:12px;font-weight:600}
 .columns-menu ul{list-style:none;margin:0;padding:4px;min-height:0;overflow-y:auto}
@@ -573,9 +630,10 @@ tr.is-open>td{border-bottom-color:transparent}
 .entries-table th[aria-sort]:not([aria-sort="none"]) button{color:var(--text)}
 .entries-table th em{color:var(--muted-2);font-style:normal}
 .entries-table td{padding:7px 14px;white-space:nowrap}
+.entries-table th.expand-cell{padding:8px 0 8px 18px}
+.entries-table td.expand-cell{padding-left:18px;padding-right:0}
 .entries-table td.numeric{text-align:right}
 .entries-table th:not(:first-child) button{justify-content:flex-end;flex-direction:row-reverse}
-.entries-table tbody tr:hover td{background:var(--panel-2)}
 
 .entries-note{margin:0;padding:28px 16px;color:var(--muted);font-size:13px;text-align:center}
 .entries-note.error{color:var(--danger)}

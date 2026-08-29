@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, useId, type CSSProperties } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, type CSSProperties, useId } from 'vue'
+import { layerHost } from '../layerHost'
 import AppIcon from './AppIcon.vue'
 
 const props = defineProps<{ label: string }>()
@@ -15,17 +16,10 @@ const props = defineProps<{ label: string }>()
 const root = ref<HTMLElement>()
 const bubble = ref<HTMLElement>()
 const open = ref(false)
+const host = computed(layerHost)
 const style = ref<CSSProperties>({})
 const helpId = `help-${useId()}`
 
-/**
- * Teleported into the main landmark rather than to the body.
- *
- * It has to escape the table cells and panels that clip their overflow, and it
- * is positioned against the viewport anyway, but content parked directly on the
- * body belongs to no landmark and so is content a screen reader cannot place.
- */
-const target = computed(() => (typeof document !== 'undefined' && document.querySelector('main')) ? 'main' : 'body')
 
 function place(): void {
   const bounds = root.value?.getBoundingClientRect()
@@ -83,8 +77,8 @@ onBeforeUnmount(() => {
     >
       <AppIcon name="info" :size="14" />
     </button>
-    <Teleport :to="target">
-      <span v-if="open" :id="helpId" ref="bubble" class="app-help-bubble" role="note" :style="style"><slot /></span>
+    <Teleport :to="host">
+      <span v-if="open" :id="helpId" ref="bubble" class="app-help-bubble" role="tooltip" :style="style"><slot /></span>
     </Teleport>
   </span>
 </template>

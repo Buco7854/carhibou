@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { errorMessage } from '../api/client'
 import { TABLE_STEP_SECONDS, loadHistoryTable } from '../api/segments'
 import type { HistoryTable, HistoryTableRow, Reading } from '../api/types'
-import { formatAge, formatMetricNumber, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
+import { formatMetricNumber, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
 import AppHelp from './AppHelp.vue'
 import AppSelect from './AppSelect.vue'
 
@@ -68,11 +68,18 @@ function carried(row: HistoryTableRow, reading: Reading): boolean {
   return new Date(reading.observed_at).getTime() < new Date(row.bucket_start).getTime()
 }
 
-function age(row: HistoryTableRow, reading: Reading): string {
+/**
+ * How much older than its row a carried value is.
+ *
+ * An interval between two stored instants, not an age: the row is itself in the
+ * past, so "21 minutes ago" would be a claim about now that nothing supports.
+ * The anchor is the row's own time, in the first column of the same row.
+ */
+function carriedEarlier(row: HistoryTableRow, reading: Reading): string {
   const seconds = Math.max(0, Math.round(
     (new Date(row.bucket_end).getTime() - new Date(reading.observed_at).getTime()) / 1000,
   ))
-  return formatAge(seconds, locale.value)
+  return t('history.carriedEarlier', { span: formatSpan(seconds, locale.value) })
 }
 
 function display(key: string, reading: Reading): string {
@@ -157,10 +164,10 @@ void load()
             <td class="mono">{{ position(row) }}</td>
             <td v-for="definition in columns" :key="definition.key">
               <template v-if="row.readings[definition.key]">
-                <span :class="{ 'is-carried': carried(row, row.readings[definition.key]!) }" :title="carried(row, row.readings[definition.key]!) ? age(row, row.readings[definition.key]!) : instant(row.readings[definition.key]!.observed_at)">
+                <span :class="{ 'is-carried': carried(row, row.readings[definition.key]!) }" :title="instant(row.readings[definition.key]!.observed_at)">
                   {{ display(definition.key, row.readings[definition.key]!) }}
                 </span>
-                <small v-if="carried(row, row.readings[definition.key]!)" class="carried-age">{{ age(row, row.readings[definition.key]!) }}</small>
+                <small v-if="carried(row, row.readings[definition.key]!)" class="carried-age">{{ carriedEarlier(row, row.readings[definition.key]!) }}</small>
               </template>
               <span v-else class="absent">—</span>
             </td>

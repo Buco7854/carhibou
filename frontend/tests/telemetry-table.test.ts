@@ -259,4 +259,50 @@ describe('telemetry table', () => {
     await flushPromises()
     expect(wrapper.find('.provenance-row').exists()).toBe(false)
   })
+
+  it('draws the column picker outside the panel that would clip it', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() =>
+      Promise.resolve(jsonResponse({ vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0, metric_keys: [], agent_keys: [], entries }))))
+    const wrapper = mountTable()
+    await flushPromises()
+
+    await wrapper.get('.entries-tools button').trigger('click')
+    const menu = wrapper.get('.columns-menu')
+    // Fixed rather than absolute: the entries panel hides its own overflow to
+    // keep the table's corners, which cut an absolutely positioned menu off.
+    expect(menu.attributes('style')).toContain('top')
+    expect(getComputedStyle(menu.element).position).not.toBe('absolute')
+  })
+
+  it('never dates a carried value from anything but the instant it shows', async () => {
+    // The bug: a fix taken seconds before the upload that carried it was labelled
+    // with that gap as though it were an age, while sitting minutes in the past.
+    const observed = '2026-01-01T10:00:46Z'
+    const sample = {
+      id: 'e2', sequence: 2, recorded_at: '2026-01-01T10:01:00Z', received_at: '2026-01-01T10:05:00Z',
+      source_id: 'agent-1', source_kind: 'agent', reporting_interval: 5, event_driven: false,
+      position: {
+        value: { latitude: 48.1, longitude: 2.1, altitude: 90, speed: 41, heading: 12, accuracy: 4 },
+        observed_at: observed, source_id: 'agent-1', source_kind: 'agent', channel: 'gnss', method: 'direct',
+      },
+      observations: [],
+      agent: {},
+    }
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) =>
+      Promise.resolve(jsonResponse(String(url).includes('/observations')
+        ? { vehicle_id: 'vehicle-1', start: '', end: '', total: 1, limit: 500, offset: 0, samples: [sample] }
+        : { vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0, metric_keys: [], agent_keys: [], entries }))))
+    const wrapper = mountTable()
+    await flushPromises()
+    await wrapper.findAll('tbody .expand-cell button')[0]!.trigger('click')
+    await flushPromises()
+
+    const positionRow = wrapper.get('.provenance-table tbody tr')
+    // The gap between the fix and its report is fourteen seconds, and it is named
+    // as a gap rather than dressed up as a distance from now.
+    expect(positionRow.text()).toContain('14 seconds before the report')
+    expect(positionRow.text()).not.toContain('ago')
+    // Observed and received are four minutes apart and both said plainly.
+    expect(wrapper.get('.provenance-facts').text()).toContain('4 minutes in flight')
+  })
 })
