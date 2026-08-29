@@ -11,6 +11,9 @@ import httpx
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
+from backend.app.common import model_registry  # noqa: F401
+from backend.app.common.time import as_utc
+
 
 class ReadOnlyObject:
     __slots__ = ("_values",)
@@ -322,7 +325,7 @@ class HookTelemetry:
                     "telemetry_id": row.telemetry_id,
                     "key": row.metric_key,
                     "value": row.value,
-                    "observed_at": row.observed_at,
+                    "observed_at": as_utc(row.observed_at),
                     "source_id": row.source_id,
                     "source_kind": "connector" if row.source_id in connector_ids else "agent",
                     "channel": row.channel,
@@ -335,7 +338,7 @@ class HookTelemetry:
                     "telemetry_id": row.telemetry_id,
                     "key": "position",
                     "value": row.value,
-                    "observed_at": row.observed_at,
+                    "observed_at": as_utc(row.observed_at),
                     "source_id": row.source_id,
                     "source_kind": "connector" if row.source_id in connector_ids else "agent",
                     "channel": row.channel,

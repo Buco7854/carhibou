@@ -135,11 +135,12 @@ one. Candidate freshness follows the source cadence recorded with the observatio
 safety-sensitive values expire to unknown while persistent values remain visibly stale.
 PostgreSQL is the time-series store at the intended scale.
 
-The bounded history endpoint downsamples route and chart points. The entries endpoint
-returns paginated raw rows; numeric sorting and filtering of JSON metrics leaves
-non-numeric values as NULL instead of failing.
+The bounded history endpoint downsamples route and chart points. Snapshot table mode
+reconstructs the complete known state at each requested bucket boundary, forward-fills
+each reading with its true observation time and collapses unchanged quiet spans. Raw
+observations remain available as a separate paginated provenance view.
 
-The segments endpoint derives drives and charges on read from those raw rows, so it does
+The segments endpoint derives drives and charges on read from recorded observations, so it does
 not depend on history downsampling and stores no session records. It joins evidence gaps
 under 180 seconds, discards drives shorter than 60 seconds and caps queries at 92 days.
 Drive evidence follows explicit in-use state, driving state, speed and position movement.

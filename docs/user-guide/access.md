@@ -19,10 +19,11 @@ message that admits it is there.
 
 ## Profiles
 
-Profiles are shared across the instance, so everyone can see them. Assigning one needs
-*operate* on the vehicle. Creating profiles is a separate allowance an administrator
-grants per account. A creator may edit or delete their own profiles; administrators may
-manage all of them. Deleting an assigned profile silently unassigns it from vehicles.
+Profiles are shared across the instance, so everyone can see them. Assigning one to an
+agent or connector needs *operate* on its vehicle. Creating profiles is a separate
+allowance an administrator grants per account. A creator may edit or delete their own
+profiles; administrators may manage all of them. Deleting an assigned profile silently
+unassigns it from those data sources.
 
 ## Hooks, secrets and dashboards
 

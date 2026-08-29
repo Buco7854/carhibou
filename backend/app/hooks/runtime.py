@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from backend.app.agents.models import Agent
 from backend.app.branding import HOOK_SDK_VERSION
 from backend.app.common.settings import get_settings
+from backend.app.common.time import as_utc
 from backend.app.connectors.models import Connector
 from backend.app.hooks.child import RESULT_MARKER
 from backend.app.hooks.models import Hook, HookExecution, HookState, Trigger
@@ -59,7 +60,7 @@ def _triggering(db: Session, rows: list[Telemetry]) -> list[dict[str, Any]]:
                     "telemetry_id": sample.id,
                     "key": observation.metric_key,
                     "value": observation.value,
-                    "observed_at": observation.observed_at.isoformat(),
+                    "observed_at": as_utc(observation.observed_at).isoformat(),
                     "source_id": sample.agent_id,
                     "source_kind": source_kind,
                     "channel": observation.channel,
@@ -73,7 +74,7 @@ def _triggering(db: Session, rows: list[Telemetry]) -> list[dict[str, Any]]:
                     "telemetry_id": sample.id,
                     "key": "position",
                     "value": position.value,
-                    "observed_at": position.observed_at.isoformat(),
+                    "observed_at": as_utc(position.observed_at).isoformat(),
                     "source_id": sample.agent_id,
                     "source_kind": source_kind,
                     "channel": position.channel,
@@ -101,7 +102,7 @@ def build_runtime_input(
     secrets = {row.name: decrypt_secret(row.encrypted_value) for row in secret_rows}
     readings, position = resolve_vehicle(db, vehicle.id)
     vehicle_state = vehicle.state
-    updated_at = vehicle_state.updated_at.isoformat() if vehicle_state else None
+    updated_at = as_utc(vehicle_state.updated_at).isoformat() if vehicle_state else None
     online = vehicle_source_online(
         db,
         vehicle.id,
@@ -117,7 +118,7 @@ def build_runtime_input(
             "id": trigger.id,
             "type": trigger.type,
             "version": trigger.version,
-            "occurred_at": trigger.occurred_at.isoformat(),
+            "occurred_at": as_utc(trigger.occurred_at).isoformat(),
             "vehicle_id": trigger.vehicle_id,
             "agent_id": trigger.agent_id,
             "payload": trigger.payload,

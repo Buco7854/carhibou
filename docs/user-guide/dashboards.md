@@ -33,9 +33,11 @@ hidden widgets.
 ## Metrics
 
 Dashboards consume canonical names, never raw CAN identifiers. Suggested metrics come
-from the selected vehicle. Energy prefers `battery.soc`, then `fuel.level`. Charging
-prefers `charging.active` and otherwise treats negative `battery.power` as charging.
-Explicitly configured cards keep the metric selected by the owner.
+from the selected vehicle. Energy displays `battery.soc` or `fuel.level` when reported.
+Charging widgets use the resolved charging state and rate; Carhibou may derive these from
+fresh power evidence when no explicit state is available. Widgets display the result and
+do not repeat that inference themselves. Explicitly configured cards keep the metric
+selected by the owner.
 
 A pattern can be exact (`battery.soc`) or a prefix (`tyre.*`). Prefixes automatically
 include later matching signals; pattern order controls display order. A gauge or reading
