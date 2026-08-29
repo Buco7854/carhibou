@@ -55,6 +55,38 @@ func TestQueueSurvivesRestartAndAcknowledgesIDs(t *testing.T) {
 	}
 }
 
+func TestQueueRoundTripsAnEmptyHeartbeat(t *testing.T) {
+	queue, err := OpenQueue(filepath.Join(t.TempDir(), "queue.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer queue.Close()
+	reportingInterval := 300
+	heartbeat := model.NewSample(1, nil, nil, map[string]any{"queue_depth": 0})
+	heartbeat.ReportingInterval = &reportingInterval
+	if err := queue.Enqueue(heartbeat); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, err := queue.Pending(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending heartbeats=%d, want 1", len(pending))
+	}
+	got := pending[0]
+	if got.Position != nil || len(got.Observations) != 0 {
+		t.Fatalf("heartbeat gained telemetry: %#v", got)
+	}
+	if got.ReportingInterval == nil || *got.ReportingInterval != reportingInterval {
+		t.Fatalf("heartbeat reporting interval=%v, want %d", got.ReportingInterval, reportingInterval)
+	}
+	if got.Agent["queue_depth"] != float64(0) {
+		t.Fatalf("heartbeat health=%#v", got.Agent)
+	}
+}
+
 func TestQueueDropsIncompatibleTelemetryPayloads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.sqlite3")
 	database, err := sql.Open("sqlite", path)

@@ -53,6 +53,11 @@ func (EmptyVehicle) ReadObservations() (model.MetricObservations, error) {
 }
 func (EmptyVehicle) Close() {}
 
+type rememberedVehicleKey struct {
+	method     string
+	observedAt time.Time
+}
+
 type Agent struct {
 	Queue    *store.Queue
 	Client   *client.Client
@@ -66,14 +71,15 @@ type Agent struct {
 	InUse                    bool
 	DrivingReportingInterval int
 	ParkedReportingInterval  int
-	vehicleKeys              map[string]map[string]string
+	vehicleKeys              map[string]map[string]rememberedVehicleKey
+	positionObservedAt       *time.Time
 }
 
 func (agent *Agent) Collect() (model.Sample, error) {
 	position, _ := agent.Position.Read()
 	observations, _ := agent.Vehicle.ReadObservations()
 	if agent.vehicleKeys == nil {
-		agent.vehicleKeys = map[string]map[string]string{}
+		agent.vehicleKeys = map[string]map[string]rememberedVehicleKey{}
 	}
 	channelDead := false
 	if live, ok := agent.Vehicle.(VehicleLiveness); ok && !live.Live() {
@@ -90,24 +96,32 @@ func (agent *Agent) Collect() (model.Sample, error) {
 		observations = model.MetricObservations{}
 		now := time.Now().UTC()
 		for channel, keys := range agent.vehicleKeys {
-			for key, method := range keys {
+			for key, remembered := range keys {
 				observations[key] = model.MetricObservation{
 					Value: nil,
 					Metadata: model.ObservationMetadata{
-						ObservedAt: now, Channel: channel, Method: method,
+						ObservedAt: now, Channel: channel, Method: remembered.method,
 					},
 				}
 			}
 		}
-		agent.vehicleKeys = map[string]map[string]string{}
+		agent.vehicleKeys = map[string]map[string]rememberedVehicleKey{}
 	} else {
+		advanced := model.MetricObservations{}
 		for key, observation := range observations {
 			channel := observation.Metadata.Channel
 			if agent.vehicleKeys[channel] == nil {
-				agent.vehicleKeys[channel] = map[string]string{}
+				agent.vehicleKeys[channel] = map[string]rememberedVehicleKey{}
 			}
-			agent.vehicleKeys[channel][key] = observation.Metadata.Method
+			remembered, reported := agent.vehicleKeys[channel][key]
+			remembered.method = observation.Metadata.Method
+			if !reported || observation.Metadata.ObservedAt.After(remembered.observedAt) {
+				advanced[key] = observation
+				remembered.observedAt = observation.Metadata.ObservedAt
+			}
+			agent.vehicleKeys[channel][key] = remembered
 		}
+		observations = advanced
 	}
 	depth, _ := agent.Queue.Depth()
 	health := SystemHealth(depth)
@@ -132,11 +146,14 @@ func (agent *Agent) Collect() (model.Sample, error) {
 		} else if aged, ok := agent.Position.(AgedPosition); ok {
 			observedAt = observedAt.Add(-aged.Age())
 		}
-		positionObservation = &model.PositionObservation{
-			Value:      *position,
-			ObservedAt: observedAt,
-			Channel:    model.ChannelGNSS,
-			Method:     model.MethodDirect,
+		if agent.positionObservedAt == nil || observedAt.After(*agent.positionObservedAt) {
+			positionObservation = &model.PositionObservation{
+				Value:      *position,
+				ObservedAt: observedAt,
+				Channel:    model.ChannelGNSS,
+				Method:     model.MethodDirect,
+			}
+			agent.positionObservedAt = &observedAt
 		}
 	}
 	sample := model.NewSample(agent.Sequence+1, positionObservation, observations.List(), health)

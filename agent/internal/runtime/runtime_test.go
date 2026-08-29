@@ -152,6 +152,112 @@ func TestCollectDeclaresTheCadenceChosenForTheCurrentState(t *testing.T) {
 	}
 }
 
+func observation(value any, observedAt time.Time) model.MetricObservation {
+	return model.MetricObservation{
+		Value: value,
+		Metadata: model.ObservationMetadata{
+			ObservedAt: observedAt,
+			Channel:    model.ChannelCAN,
+			Method:     model.MethodDirect,
+		},
+	}
+}
+
+func TestCollectOnlyEmitsMetricObservationsWhoseTimestampAdvanced(t *testing.T) {
+	firstObservedAt := time.Now().UTC()
+	vehicle := &switchingVehicle{
+		live: true,
+		observations: model.MetricObservations{
+			"battery.soc": observation(67.0, firstObservedAt),
+		},
+	}
+	agent := newAgent(t, EmptyPosition{})
+	agent.Vehicle = vehicle
+
+	first, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Observations) != 1 {
+		t.Fatalf("first observations=%#v, want the current snapshot", first.Observations)
+	}
+	vehicle.observations["battery.soc"] = observation(68.0, firstObservedAt)
+	frozen, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frozen.Observations) != 0 {
+		t.Fatalf("frozen cache was republished: %#v", frozen.Observations)
+	}
+
+	secondObservedAt := firstObservedAt.Add(time.Second)
+	vehicle.observations["battery.soc"] = observation(67.0, secondObservedAt)
+	confirmed, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(confirmed.Observations) != 1 || !confirmed.Observations[0].ObservedAt.Equal(secondObservedAt) {
+		t.Fatalf("fresh confirmation was suppressed: %#v", confirmed.Observations)
+	}
+}
+
+func TestCollectOnlyEmitsPositionWhenItsTimestampAdvanced(t *testing.T) {
+	firstObservedAt := time.Now().UTC()
+	position := &changingPosition{fix: &model.PositionFix{
+		Latitude: 48.8, Longitude: 2.3, RecordedAt: &firstObservedAt,
+	}}
+	agent := newAgent(t, position)
+
+	first, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Position == nil {
+		t.Fatal("first position snapshot was suppressed")
+	}
+	frozen, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frozen.Position != nil {
+		t.Fatalf("frozen position was republished: %#v", frozen.Position)
+	}
+
+	secondObservedAt := firstObservedAt.Add(time.Second)
+	position.fix.RecordedAt = &secondObservedAt
+	confirmed, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.Position == nil || !confirmed.Position.ObservedAt.Equal(secondObservedAt) {
+		t.Fatalf("fresh position confirmation was suppressed: %#v", confirmed.Position)
+	}
+}
+
+func TestFreshAgentResendsAProvidersCurrentSnapshot(t *testing.T) {
+	vehicle := &switchingVehicle{
+		live: true,
+		observations: model.MetricObservations{
+			"battery.soc": observation(67.0, time.Now().UTC()),
+		},
+	}
+	firstAgent := newAgent(t, EmptyPosition{})
+	firstAgent.Vehicle = vehicle
+	if first, err := firstAgent.Collect(); err != nil || len(first.Observations) != 1 {
+		t.Fatalf("first agent snapshot=%#v, err=%v", first.Observations, err)
+	}
+
+	restartedAgent := newAgent(t, EmptyPosition{})
+	restartedAgent.Vehicle = vehicle
+	restarted, err := restartedAgent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restarted.Observations) != 1 {
+		t.Fatalf("fresh agent suppressed current snapshot: %#v", restarted.Observations)
+	}
+}
+
 func TestCollectRetractsCachedChannelValuesOnceAndResumesAfterRevival(t *testing.T) {
 	now := time.Now().UTC()
 	vehicle := &switchingVehicle{
@@ -175,6 +281,13 @@ func TestCollectRetractsCachedChannelValuesOnceAndResumesAfterRevival(t *testing
 	}
 	if len(live.Observations) != 1 || live.Observations[0].Value != 42.0 {
 		t.Fatalf("live observations=%#v, want the cached value", live.Observations)
+	}
+	suppressed, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(suppressed.Observations) != 0 {
+		t.Fatalf("cached observation was republished: %#v", suppressed.Observations)
 	}
 	vehicle.live = false
 	retracted, err := agent.Collect()
