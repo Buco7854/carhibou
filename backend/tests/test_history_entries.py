@@ -19,26 +19,60 @@ def _seed(client: TestClient, csrf: str) -> str:
         json={
             "token": token,
             "implementation_id": "custom",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "agent_version": "test",
             "hostname": "sim",
         },
     ).json()["credential"]
     base = datetime.now(UTC) - timedelta(minutes=10)
-    samples: list[dict[str, Any]] = [
-        {
-            "id": str(uuid4()),
-            "sequence": index,
-            "recorded_at": (base + timedelta(minutes=index)).isoformat(),
-            "position": {"latitude": 48.0 + index, "longitude": 2.0, "speed": 10.0 * index},
-            "metrics": {"battery.soc": soc, "charging.active": index == 0},
-            "agent": {"mobile_signal": -70 - index},
-        }
-        for index, soc in enumerate([90, 30, 60])
-    ]
+    samples: list[dict[str, Any]] = []
+    for index, soc in enumerate([90, 30, 60]):
+        observed_at = (base + timedelta(minutes=index)).isoformat()
+        samples.append(
+            {
+                "id": str(uuid4()),
+                "sequence": index,
+                "recorded_at": observed_at,
+                "position": {
+                    "value": {
+                        "latitude": 48.0 + index,
+                        "longitude": 2.0,
+                        "speed": 10.0 * index,
+                    },
+                    "observed_at": observed_at,
+                    "channel": "gnss",
+                    "method": "direct",
+                },
+                "observations": [
+                    {
+                        "key": "battery.soc",
+                        "value": soc,
+                        "observed_at": observed_at,
+                        "channel": "can",
+                        "method": "direct",
+                    },
+                    {
+                        "key": "charging.active",
+                        "value": index == 0,
+                        "observed_at": observed_at,
+                        "channel": "can",
+                        "method": "direct",
+                    },
+                ],
+                "agent": {"mobile_signal": -70 - index},
+            }
+        )
     # A profile-specific signal only present on the last row must still become a column.
-    last_metrics: dict[str, Any] = samples[-1]["metrics"]
-    last_metrics["custom.oil_pressure"] = 3.4
+    last_observations: list[dict[str, Any]] = samples[-1]["observations"]
+    last_observations.append(
+        {
+            "key": "custom.oil_pressure",
+            "value": 3.4,
+            "observed_at": samples[-1]["recorded_at"],
+            "channel": "can",
+            "method": "direct",
+        }
+    )
     response = client.post(
         "/api/v1/agent/telemetry/batch",
         headers={"Authorization": f"Agent {credential}"},

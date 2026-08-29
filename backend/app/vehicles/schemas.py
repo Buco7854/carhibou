@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from backend.app.telemetry.schemas import ReadingResponse, ResolvedPositionResponse
+
 
 class VehicleCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -22,20 +24,11 @@ class VehicleCreate(BaseModel):
         return value.upper() if value else None
 
 
-class PositionResponse(BaseModel):
-    latitude: float
-    longitude: float
-    altitude: float | None = None
-    speed: float | None = None
-    heading: float | None = None
-    accuracy: float | None = None
-
-
 class StateResponse(BaseModel):
     updated_at: datetime
     online: bool
-    position: PositionResponse | None
-    metrics: dict[str, object]
+    position: ResolvedPositionResponse | None
+    readings: dict[str, ReadingResponse]
     agent: dict[str, object]
 
 

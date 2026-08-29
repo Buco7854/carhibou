@@ -6,5 +6,5 @@ schema = 1
 id = "carhibou.go"
 name = "Carhibou Go agent"
 hardware = "Raspberry Pi and other Linux boards (ARMv6, ARMv7, ARM64, AMD64)"
-protocol_version = 1
+protocol_version = 2
 setup_kind = "command"

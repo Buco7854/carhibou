@@ -111,11 +111,9 @@ def test_snapshot_delta_window_and_end_to_end_pipeline(
         assert rows[1].longitude is None
         state = db.get(VehicleState, vehicle_id)
         assert state
-        assert state.latest_metrics == {
-            "battery.soc": 70.0,
-            "teslamate.inside_temp": 21.5,
-        }
-        assert state.latitude is None
+        assert state.readings["battery.soc"]["value"] == 70.0
+        assert state.readings["teslamate.inside_temp"]["value"] == 21.5
+        assert state.position and state.position["latitude"] == 48.1
 
     history = client.get(f"/api/v1/vehicles/{vehicle_id}/history")
     assert history.status_code == 200
@@ -301,13 +299,7 @@ def test_session_reconnects_and_recovers_status(
     )
     session = MqttConnectorSession(definition, db_factory, client_factory=lambda: next(clients))
     session.start()
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        with db_factory() as db:
-            connector = db.get(Connector, data["id"])
-            if connector and connector.status == "connected":
-                break
-        time.sleep(0.02)
+    assert session._connected.wait(5)
     session.stop()
     session.join(2)
     with db_factory() as db:

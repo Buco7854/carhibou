@@ -1,4 +1,35 @@
-export interface Position {
+/** How a source obtained a value, as opposed to which source it was. */
+export type ReadingChannel = 'can' | 'obd' | 'gnss' | 'mqtt' | 'derived'
+
+/** Whether the value was observed as such, or computed from other observations. */
+export type ReadingMethod = 'direct' | 'derived'
+
+export type SourceKind = 'agent' | 'connector'
+
+/**
+ * Which source a resolved value came from, and whether it still counts.
+ *
+ * Source identity and acquisition channel are separate facts: one agent may
+ * report the same metric over CAN and over GNSS, and the server picks between
+ * them. `fresh` is the server's verdict on the candidate's age; the client never
+ * recomputes it, because expiry is evaluated when state is read and only the
+ * server knows each metric's freshness policy.
+ */
+export interface Provenance {
+  observed_at: string
+  source_id: string
+  source_kind: SourceKind
+  channel: ReadingChannel
+  method: ReadingMethod
+  fresh: boolean
+}
+
+/** One resolved metric: the server's choice among competing candidates. */
+export interface Reading<T = unknown> extends Provenance {
+  value: T
+}
+
+export interface PositionFix {
   latitude: number
   longitude: number
   altitude: number | null
@@ -7,11 +38,22 @@ export interface Position {
   accuracy: number | null
 }
 
+/**
+ * The resolved fix. Provenance applies to the whole fix rather than to each
+ * field, because a position is observed atomically.
+ */
+export interface ResolvedPosition extends Provenance, PositionFix {}
+
 export interface VehicleState {
   updated_at: string
   online: boolean
-  position: Position | null
-  metrics: Record<string, unknown>
+  position: ResolvedPosition | null
+  /**
+   * Every metric the server resolved for this vehicle, canonical and namespaced
+   * alike. A key that is absent has no evidence behind it, which is not the same
+   * as a value of zero or false.
+   */
+  readings: Record<string, Reading>
   agent: Record<string, unknown>
 }
 
@@ -184,6 +226,34 @@ export interface HistoryEntries {
   metric_keys: string[]
   agent_keys: string[]
   entries: HistoryEntry[]
+}
+
+/**
+ * One row of the snapshot table: the whole car as of `bucket_end`.
+ *
+ * The server forward-fills, so a reading whose `observed_at` predates
+ * `bucket_start` was carried rather than measured in this bucket. It also
+ * collapses consecutive identical rows and reports how many buckets one row
+ * stands for, which is what keeps a quiet night cheap to ask for.
+ */
+export interface HistoryTableRow {
+  bucket_start: string
+  bucket_end: string
+  collapsed_buckets: number
+  readings: Record<string, Reading>
+  position: ResolvedPosition | null
+  agent: Record<string, unknown>
+}
+
+export interface HistoryTable {
+  vehicle_id: string
+  start: string
+  end: string
+  step_seconds: number
+  total: number
+  limit: number
+  offset: number
+  rows: HistoryTableRow[]
 }
 
 export interface DashboardWidget {

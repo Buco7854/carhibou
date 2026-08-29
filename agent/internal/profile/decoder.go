@@ -65,9 +65,11 @@ type ComputedMetric struct {
 }
 
 type DecodedSignal struct {
-	Name  string
-	Value any
-	Unit  string
+	Name   string
+	Value  any
+	Unit   string
+	Method string
+	Inputs []string
 }
 
 type DecoderEngine struct {
@@ -149,7 +151,7 @@ func (engine *DecoderEngine) Decode(frame model.CANFrame, current map[string]any
 			continue
 		}
 		values[signal.Name] = value
-		result = append(result, DecodedSignal{Name: signal.Name, Value: value, Unit: signal.Unit})
+		result = append(result, DecodedSignal{Name: signal.Name, Value: value, Unit: signal.Unit, Method: model.MethodDirect})
 	}
 	for _, computed := range engine.definition.ComputedMetrics {
 		left, leftOK := numeric(values[computed.Inputs[0]])
@@ -160,7 +162,10 @@ func (engine *DecoderEngine) Decode(frame model.CANFrame, current map[string]any
 				value *= *computed.Scale
 			}
 			values[computed.Name] = value
-			result = append(result, DecodedSignal{Name: computed.Name, Value: value, Unit: computed.Unit})
+			result = append(result, DecodedSignal{
+				Name: computed.Name, Value: value, Unit: computed.Unit,
+				Method: model.MethodDerived, Inputs: append([]string(nil), computed.Inputs...),
+			})
 		}
 	}
 	return result

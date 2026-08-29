@@ -434,17 +434,8 @@ def upgrade() -> None:
         sa.Column("sequence", sa.Integer(), nullable=False),
         sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("latitude", sa.Float(), nullable=True),
-        sa.Column("longitude", sa.Float(), nullable=True),
-        sa.Column("altitude", sa.Float(), nullable=True),
-        sa.Column("gps_speed", sa.Float(), nullable=True),
-        sa.Column("heading", sa.Float(), nullable=True),
-        sa.Column("accuracy", sa.Float(), nullable=True),
-        sa.Column(
-            "metrics",
-            sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
-            nullable=False,
-        ),
+        sa.Column("reporting_interval", sa.Integer(), nullable=True),
+        sa.Column("event_driven", sa.Boolean(), nullable=False),
         sa.Column(
             "agent_data",
             sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
@@ -469,6 +460,172 @@ def upgrade() -> None:
     )
     op.create_index(
         "ix_telemetry_vehicle_recorded", "telemetry", ["vehicle_id", "recorded_at"], unique=False
+    )
+    op.create_table(
+        "telemetry_observations",
+        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("telemetry_id", sa.String(length=36), nullable=False),
+        sa.Column("vehicle_id", sa.String(length=36), nullable=False),
+        sa.Column("source_id", sa.String(length=36), nullable=False),
+        sa.Column("metric_key", sa.String(length=120), nullable=False),
+        sa.Column(
+            "payload",
+            sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
+            nullable=False,
+        ),
+        sa.Column("observed_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("channel", sa.String(length=16), nullable=False),
+        sa.Column("method", sa.String(length=16), nullable=False),
+        sa.ForeignKeyConstraint(["telemetry_id"], ["telemetry.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["vehicle_id"], ["vehicles.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["source_id"], ["agents.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("telemetry_id", "metric_key", "channel"),
+    )
+    op.create_index(
+        "ix_telemetry_observations_vehicle_time",
+        "telemetry_observations",
+        ["vehicle_id", "observed_at"],
+    )
+    op.create_index(
+        "ix_telemetry_observations_vehicle_key_time",
+        "telemetry_observations",
+        ["vehicle_id", "metric_key", "observed_at"],
+    )
+    for column in ("telemetry_id", "vehicle_id", "source_id", "observed_at"):
+        op.create_index(
+            op.f(f"ix_telemetry_observations_{column}"),
+            "telemetry_observations",
+            [column],
+        )
+    op.create_table(
+        "telemetry_position_observations",
+        sa.Column("telemetry_id", sa.String(length=36), nullable=False),
+        sa.Column("vehicle_id", sa.String(length=36), nullable=False),
+        sa.Column("source_id", sa.String(length=36), nullable=False),
+        sa.Column(
+            "value",
+            sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
+            nullable=False,
+        ),
+        sa.Column("observed_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("channel", sa.String(length=16), nullable=False),
+        sa.Column("method", sa.String(length=16), nullable=False),
+        sa.ForeignKeyConstraint(["telemetry_id"], ["telemetry.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["vehicle_id"], ["vehicles.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["source_id"], ["agents.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("telemetry_id"),
+    )
+    op.create_index(
+        "ix_telemetry_position_observations_vehicle_time",
+        "telemetry_position_observations",
+        ["vehicle_id", "observed_at"],
+    )
+    for column in ("vehicle_id", "source_id", "observed_at"):
+        op.create_index(
+            op.f(f"ix_telemetry_position_observations_{column}"),
+            "telemetry_position_observations",
+            [column],
+        )
+    op.create_table(
+        "telemetry_metric_candidates",
+        sa.Column("vehicle_id", sa.String(length=36), nullable=False),
+        sa.Column("source_id", sa.String(length=36), nullable=False),
+        sa.Column("channel", sa.String(length=16), nullable=False),
+        sa.Column("metric_key", sa.String(length=120), nullable=False),
+        sa.Column(
+            "payload",
+            sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
+            nullable=False,
+        ),
+        sa.Column("observed_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("method", sa.String(length=16), nullable=False),
+        sa.Column("reporting_interval", sa.Integer(), nullable=True),
+        sa.Column("event_driven", sa.Boolean(), nullable=False),
+        sa.Column("telemetry_id", sa.String(length=36), nullable=False),
+        sa.ForeignKeyConstraint(["vehicle_id"], ["vehicles.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["source_id"], ["agents.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["telemetry_id"], ["telemetry.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("vehicle_id", "source_id", "channel", "metric_key"),
+    )
+    op.create_index(
+        "ix_metric_candidates_vehicle_key",
+        "telemetry_metric_candidates",
+        ["vehicle_id", "metric_key"],
+    )
+    op.create_index(
+        op.f("ix_telemetry_metric_candidates_observed_at"),
+        "telemetry_metric_candidates",
+        ["observed_at"],
+    )
+    op.create_index(
+        op.f("ix_telemetry_metric_candidates_telemetry_id"),
+        "telemetry_metric_candidates",
+        ["telemetry_id"],
+    )
+    op.create_table(
+        "telemetry_source_contacts",
+        sa.Column("source_id", sa.String(length=36), nullable=False),
+        sa.Column("last_contact_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("liveness_window_seconds", sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(["source_id"], ["agents.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("source_id"),
+    )
+    op.create_index(
+        op.f("ix_telemetry_source_contacts_last_contact_at"),
+        "telemetry_source_contacts",
+        ["last_contact_at"],
+    )
+    op.create_table(
+        "telemetry_source_contact_periods",
+        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("source_id", sa.String(length=36), nullable=False),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("last_contact_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("liveness_window_seconds", sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(["source_id"], ["agents.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(
+        "ix_source_contact_periods_source_started",
+        "telemetry_source_contact_periods",
+        ["source_id", "started_at"],
+    )
+    for column in ("source_id", "started_at", "last_contact_at"):
+        op.create_index(
+            op.f(f"ix_telemetry_source_contact_periods_{column}"),
+            "telemetry_source_contact_periods",
+            [column],
+        )
+    op.create_table(
+        "telemetry_position_candidates",
+        sa.Column("vehicle_id", sa.String(length=36), nullable=False),
+        sa.Column("source_id", sa.String(length=36), nullable=False),
+        sa.Column("channel", sa.String(length=16), nullable=False),
+        sa.Column(
+            "value",
+            sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
+            nullable=False,
+        ),
+        sa.Column("observed_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("method", sa.String(length=16), nullable=False),
+        sa.Column("reporting_interval", sa.Integer(), nullable=True),
+        sa.Column("event_driven", sa.Boolean(), nullable=False),
+        sa.Column("telemetry_id", sa.String(length=36), nullable=False),
+        sa.ForeignKeyConstraint(["vehicle_id"], ["vehicles.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["source_id"], ["agents.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["telemetry_id"], ["telemetry.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("vehicle_id", "source_id", "channel"),
+    )
+    op.create_index(
+        op.f("ix_telemetry_position_candidates_observed_at"),
+        "telemetry_position_candidates",
+        ["observed_at"],
+    )
+    op.create_index(
+        op.f("ix_telemetry_position_candidates_telemetry_id"),
+        "telemetry_position_candidates",
+        ["telemetry_id"],
     )
     op.create_table(
         "triggers",
@@ -514,16 +671,15 @@ def upgrade() -> None:
         sa.Column("vehicle_id", sa.String(length=36), nullable=False),
         sa.Column("telemetry_id", sa.String(length=36), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("latitude", sa.Float(), nullable=True),
-        sa.Column("longitude", sa.Float(), nullable=True),
-        sa.Column("altitude", sa.Float(), nullable=True),
-        sa.Column("gps_speed", sa.Float(), nullable=True),
-        sa.Column("heading", sa.Float(), nullable=True),
-        sa.Column("accuracy", sa.Float(), nullable=True),
         sa.Column(
-            "latest_metrics",
+            "readings",
             sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
             nullable=False,
+        ),
+        sa.Column(
+            "position",
+            sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
+            nullable=True,
         ),
         sa.Column(
             "agent_state",
@@ -610,6 +766,64 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_triggers_telemetry_id"), table_name="triggers")
     op.drop_index(op.f("ix_triggers_occurred_at"), table_name="triggers")
     op.drop_table("triggers")
+    op.drop_index(
+        op.f("ix_telemetry_position_candidates_telemetry_id"),
+        table_name="telemetry_position_candidates",
+    )
+    op.drop_index(
+        op.f("ix_telemetry_position_candidates_observed_at"),
+        table_name="telemetry_position_candidates",
+    )
+    op.drop_table("telemetry_position_candidates")
+    for column in ("source_id", "started_at", "last_contact_at"):
+        op.drop_index(
+            op.f(f"ix_telemetry_source_contact_periods_{column}"),
+            table_name="telemetry_source_contact_periods",
+        )
+    op.drop_index(
+        "ix_source_contact_periods_source_started",
+        table_name="telemetry_source_contact_periods",
+    )
+    op.drop_table("telemetry_source_contact_periods")
+    op.drop_index(
+        op.f("ix_telemetry_source_contacts_last_contact_at"),
+        table_name="telemetry_source_contacts",
+    )
+    op.drop_table("telemetry_source_contacts")
+    op.drop_index(
+        op.f("ix_telemetry_metric_candidates_telemetry_id"),
+        table_name="telemetry_metric_candidates",
+    )
+    op.drop_index(
+        op.f("ix_telemetry_metric_candidates_observed_at"),
+        table_name="telemetry_metric_candidates",
+    )
+    op.drop_index("ix_metric_candidates_vehicle_key", table_name="telemetry_metric_candidates")
+    op.drop_table("telemetry_metric_candidates")
+    for column in ("vehicle_id", "source_id", "observed_at"):
+        op.drop_index(
+            op.f(f"ix_telemetry_position_observations_{column}"),
+            table_name="telemetry_position_observations",
+        )
+    op.drop_index(
+        "ix_telemetry_position_observations_vehicle_time",
+        table_name="telemetry_position_observations",
+    )
+    op.drop_table("telemetry_position_observations")
+    for column in ("telemetry_id", "vehicle_id", "source_id", "observed_at"):
+        op.drop_index(
+            op.f(f"ix_telemetry_observations_{column}"),
+            table_name="telemetry_observations",
+        )
+    op.drop_index(
+        "ix_telemetry_observations_vehicle_key_time",
+        table_name="telemetry_observations",
+    )
+    op.drop_index(
+        "ix_telemetry_observations_vehicle_time",
+        table_name="telemetry_observations",
+    )
+    op.drop_table("telemetry_observations")
     op.drop_index("ix_telemetry_vehicle_recorded", table_name="telemetry")
     op.drop_index("ix_telemetry_agent_recorded", table_name="telemetry")
     op.drop_table("telemetry")

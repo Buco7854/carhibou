@@ -9,7 +9,7 @@ import AppModal from '../components/AppModal.vue'
 import HookEditorForm, { type HookDraft } from '../components/HookEditorForm.vue'
 
 interface Secret { id: string; name: string; masked: string; created_at: string; updated_at: string }
-const defaultSource = `# Runs after telemetry is safely stored.\nsoc = ctx.telemetry.metrics.get("battery.soc")\nif soc is not None and soc < 20:\n    ctx.log.warning("Battery is low", soc=soc)\n`
+const defaultSource = `# Runs after telemetry is safely stored.\nsoc = ctx.telemetry.current.readings.get("battery.soc")\nif soc is None or not soc.fresh:\n    return\n\narmed = ctx.state.get("armed", True)\nif armed and soc.value < 20:\n    ctx.log.warning("Battery is low", soc=soc.value, observed_at=soc.observed_at)\n    ctx.state["armed"] = False\nelif not armed and soc.value > 23:\n    ctx.state["armed"] = True\n`
 const emptyDraft = (): HookDraft => ({ name:'', description:'', enabled:false, trigger_type:'telemetry.received', vehicle_id:null, source:defaultSource, timeout_seconds:10 })
 const { t } = useI18n()
 const hooks = ref<Hook[]>([])

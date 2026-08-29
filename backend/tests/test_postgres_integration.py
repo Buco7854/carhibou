@@ -82,21 +82,35 @@ def test_postgres_idempotency_state_and_skip_locked(
         json={
             "token": enrollment["token"],
             "implementation_id": "custom",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "agent_version": "test",
             "hostname": "pg",
         },
     ).json()
     sample_id = str(uuid4())
+    observed_at = datetime.now(UTC).isoformat()
     batch = {
         "boot_id": str(uuid4()),
         "samples": [
             {
                 "id": sample_id,
                 "sequence": 1,
-                "recorded_at": datetime.now(UTC).isoformat(),
-                "position": {"latitude": 48.0, "longitude": 2.0},
-                "metrics": {"battery.soc": 73},
+                "recorded_at": observed_at,
+                "position": {
+                    "value": {"latitude": 48.0, "longitude": 2.0},
+                    "observed_at": observed_at,
+                    "channel": "gnss",
+                    "method": "direct",
+                },
+                "observations": [
+                    {
+                        "key": "battery.soc",
+                        "value": 73,
+                        "observed_at": observed_at,
+                        "channel": "can",
+                        "method": "direct",
+                    }
+                ],
             }
         ],
     }
@@ -109,7 +123,8 @@ def test_postgres_idempotency_state_and_skip_locked(
     ).json()["duplicates"] == [sample_id]
     with postgres_factory() as db:
         assert db.scalar(select(Telemetry).where(Telemetry.id == sample_id)) is not None
-        assert db.get(VehicleState, vehicle["id"]).latest_metrics["battery.soc"] == 73  # type: ignore[union-attr]
+        state = db.get(VehicleState, vehicle["id"])
+        assert state and state.readings["battery.soc"]["value"] == 73
         db.add_all([Job(type="test.one", payload={}), Job(type="test.two", payload={})])
         db.commit()
 

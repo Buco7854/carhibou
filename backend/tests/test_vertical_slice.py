@@ -33,7 +33,7 @@ def _vehicle_and_agent(client: TestClient, csrf: str) -> tuple[dict[str, Any], d
     enroll_data = {
         "token": token,
         "implementation_id": "custom",
-        "protocol_version": 1,
+        "protocol_version": 2,
         "agent_version": "0.1.0",
         "hostname": "simulator",
         "hardware": {"model": "simulated-pi-zero"},
@@ -51,6 +51,7 @@ def test_idempotent_telemetry_current_state_history_and_dashboard(
     vehicle, enrolled = _vehicle_and_agent(client, csrf)
     sample_id = str(uuid4())
     recorded = datetime.now(UTC) - timedelta(seconds=5)
+    observed_at = recorded.isoformat()
     batch = {
         "boot_id": str(uuid4()),
         "samples": [
@@ -59,12 +60,29 @@ def test_idempotent_telemetry_current_state_history_and_dashboard(
                 "sequence": 1,
                 "recorded_at": recorded.isoformat(),
                 "position": {
-                    "latitude": 48.12345,
-                    "longitude": 2.12345,
-                    "speed": 42.5,
-                    "heading": 120,
+                    "value": {
+                        "latitude": 48.12345,
+                        "longitude": 2.12345,
+                        "speed": 42.5,
+                        "heading": 120,
+                    },
+                    "observed_at": observed_at,
+                    "channel": "gnss",
+                    "method": "direct",
                 },
-                "metrics": {"battery.soc": 70, "battery.pack_voltage": 330.5},
+                "observations": [
+                    {
+                        "key": key,
+                        "value": value,
+                        "observed_at": observed_at,
+                        "channel": "can",
+                        "method": "direct",
+                    }
+                    for key, value in {
+                        "battery.soc": 70,
+                        "battery.pack_voltage": 330.5,
+                    }.items()
+                ],
                 "agent": {"mobile_signal": -82},
             }
         ],
@@ -80,7 +98,7 @@ def test_idempotent_telemetry_current_state_history_and_dashboard(
 
     current = client.get(f"/api/v1/vehicles/{vehicle['id']}")
     assert current.status_code == 200
-    assert current.json()["state"]["metrics"]["battery.soc"] == 70
+    assert current.json()["state"]["readings"]["battery.soc"]["value"] == 70
     assert current.json()["state"]["position"]["latitude"] == 48.12345
     agents = client.get("/api/v1/agents").json()
     assert agents[0]["online"] is True
@@ -132,15 +150,24 @@ def test_vehicle_deletion_removes_owned_data_and_unpins_dashboard_widgets(
     client, csrf = registered
     vehicle, enrolled = _vehicle_and_agent(client, csrf)
     credential = enrolled["credential"]
+    observed_at = datetime.now(UTC).isoformat()
     telemetry = {
         "boot_id": str(uuid4()),
         "samples": [
             {
                 "id": str(uuid4()),
                 "sequence": 1,
-                "recorded_at": datetime.now(UTC).isoformat(),
+                "recorded_at": observed_at,
                 "position": None,
-                "metrics": {"vehicle.speed": 12},
+                "observations": [
+                    {
+                        "key": "vehicle.speed",
+                        "value": 12,
+                        "observed_at": observed_at,
+                        "channel": "can",
+                        "method": "direct",
+                    }
+                ],
                 "agent": {},
             }
         ],

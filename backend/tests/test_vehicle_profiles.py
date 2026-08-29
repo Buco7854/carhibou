@@ -79,7 +79,7 @@ def test_owner_profile_reaches_agent_and_updates_config_version(
         json={
             "token": enrollment["token"],
             "implementation_id": "custom",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "agent_version": "test",
             "hostname": "pi",
         },

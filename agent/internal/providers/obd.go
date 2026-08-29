@@ -677,32 +677,36 @@ func NewStandardOBDProvider(adapter *OBDAdapter) *StandardOBDProvider {
 // Status explains why the provider is publishing nothing. See ProfileProvider.
 func (provider *StandardOBDProvider) Status() string { return provider.failure }
 
-func (provider *StandardOBDProvider) ReadMetrics() (map[string]any, error) {
+func (provider *StandardOBDProvider) Live() bool {
+	return provider.connected && provider.failure == ""
+}
+
+func (provider *StandardOBDProvider) ReadObservations() (model.MetricObservations, error) {
 	if !provider.connected {
 		if time.Now().Before(provider.nextTry) {
-			return map[string]any{}, nil
+			return model.MetricObservations{}, nil
 		}
 		provider.nextTry = time.Now().Add(connectRetryInterval)
 		if err := provider.adapter.Connect(); err != nil {
 			provider.failure = "adapter did not connect: " + err.Error()
-			return map[string]any{}, nil
+			return model.MetricObservations{}, nil
 		}
 		if err := provider.adapter.SelectProtocol("0"); err != nil {
 			provider.adapter.Close()
 			provider.failure = "adapter rejected automatic protocol search: " + err.Error()
-			return map[string]any{}, nil
+			return model.MetricObservations{}, nil
 		}
 		provider.connected = true
 		provider.failure = ""
 	}
-	metrics := map[string]any{}
+	observations := model.MetricObservations{}
 	for pid, definition := range StandardPIDs {
 		lines, err := provider.adapter.Query(1, pid)
 		if err != nil {
 			provider.adapter.Close()
 			provider.connected = false
 			provider.failure = "adapter stopped answering: " + err.Error()
-			return metrics, nil
+			return observations, nil
 		}
 		data := ParseOBDResponse(1, pid, lines)
 		if data == nil {
@@ -710,9 +714,16 @@ func (provider *StandardOBDProvider) ReadMetrics() (map[string]any, error) {
 		}
 		value, err := definition.Decode(data)
 		if err == nil {
-			metrics[definition.Name] = value
+			observations[definition.Name] = model.MetricObservation{
+				Value: value,
+				Metadata: model.ObservationMetadata{
+					ObservedAt: time.Now().UTC(),
+					Channel:    model.ChannelOBD,
+					Method:     model.MethodDirect,
+				},
+			}
 		}
 	}
-	return metrics, nil
+	return observations, nil
 }
 func (provider *StandardOBDProvider) Close() { provider.adapter.Close() }

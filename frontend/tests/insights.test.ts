@@ -6,7 +6,7 @@ import { auth } from '../src/api/auth'
 import type { DashboardWidget, SelectedSegment, Vehicle } from '../src/api/types'
 import { dashboardRuntimeKey } from '../src/widgets/dashboardContext'
 import { widgetRegistry } from '../src/widgets/registry'
-import { adminUser, charge, drive, jsonResponse, mockApi, vehicle } from './helpers'
+import { adminUser, charge, drive, jsonResponse, mockApi, readings, vehicle } from './helpers'
 
 vi.mock('../src/components/VehicleMap.vue', () => ({
   default: defineComponent({
@@ -315,7 +315,7 @@ describe('driving insight widgets', () => {
   })
 
   it('keeps ranged widgets visible for a vehicle with no live reading', () => {
-    const parked = { ...vehicle, state: { ...vehicle.state, position: null, metrics: {} } } as unknown as Vehicle
+    const parked = { ...vehicle, state: { ...vehicle.state, position: null, readings: {} } } as unknown as Vehicle
     // The route map is about where the vehicle went, which a live snapshot cannot
     // answer either way, so it stays and lets its own range decide.
     expect(widgetRegistry['route-map']!.isEmpty?.({ id: 'w', type: 'route-map', x: 0, y: 0, w: 4, h: 3 }, parked)).toBe(false)
@@ -325,7 +325,7 @@ describe('driving insight widgets', () => {
     const chart = (extra: Partial<DashboardWidget>, metrics: Record<string, unknown>) =>
       widgetRegistry['xy-chart']!.isEmpty?.(
         { id: 'w', type: 'xy-chart', x: 0, y: 0, w: 4, h: 3, ...extra },
-        { ...vehicle, state: { ...vehicle.state, position: null, metrics } } as unknown as Vehicle,
+        { ...vehicle, state: { ...vehicle.state, position: null, readings: readings(metrics) } } as unknown as Vehicle,
       )
     // Hiding answers "can this vehicle ever plot these axes", which only live
     // state can say cheaply. The range still decides what the visible chart

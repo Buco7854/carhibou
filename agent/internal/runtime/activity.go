@@ -74,7 +74,7 @@ func (detector *ActivityDetector) Observe(sample model.Sample, now time.Time) (b
 	// receiver that reports no speed — can never fire. A sample without a fix
 	// leaves the previous anchor alone rather than forgetting it.
 	if sample.Position != nil && (found || detector.anchor == nil) {
-		detector.anchor = sample.Position
+		detector.anchor = &sample.Position.Value
 	}
 	if found {
 		detector.lastEvidence = now
@@ -93,8 +93,9 @@ func (detector *ActivityDetector) Observe(sample model.Sample, now time.Time) (b
 }
 
 func (detector *ActivityDetector) evidence(sample model.Sample) (ActivitySource, bool) {
+	metrics := sample.MetricValues()
 	for _, name := range readinessMetrics {
-		if value, present := sample.Metrics[name]; present {
+		if value, present := metrics[name]; present {
 			if truthy(value) {
 				return SourceReadiness, true
 			}
@@ -110,17 +111,17 @@ func (detector *ActivityDetector) evidence(sample model.Sample) (ActivitySource,
 	// A turning engine is running, whatever else is silent. Only a positive
 	// reading is evidence: zero covers a stop-start system at a light and every
 	// electric vehicle, neither of which is parked.
-	if rpm, ok := number(sample.Metrics["engine.rpm"]); ok && rpm > 0 {
+	if rpm, ok := number(metrics["engine.rpm"]); ok && rpm > 0 {
 		return SourceEngine, true
 	}
-	if speed, ok := number(sample.Metrics["vehicle.speed"]); ok && speed >= movingKMH {
+	if speed, ok := number(metrics["vehicle.speed"]); ok && speed >= movingKMH {
 		return SourceSpeed, true
 	}
 	if sample.Position != nil {
-		if sample.Position.Speed != nil && *sample.Position.Speed >= movingKMH {
+		if sample.Position.Value.Speed != nil && *sample.Position.Value.Speed >= movingKMH {
 			return SourceSpeed, true
 		}
-		if detector.anchor != nil && distanceMeters(*detector.anchor, *sample.Position) >= movedMeters {
+		if detector.anchor != nil && distanceMeters(*detector.anchor, sample.Position.Value) >= movedMeters {
 			return SourceMovement, true
 		}
 	}

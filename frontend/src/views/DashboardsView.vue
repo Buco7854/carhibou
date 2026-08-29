@@ -10,7 +10,7 @@ import type { Dashboard, DashboardWidget, SelectedSegment, Vehicle } from '../ap
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
-import { defaultDashboardMetrics, metricDefinition, reportedChartMetrics } from '../vehicleDisplay'
+import { defaultDashboardMetrics, metricDefinition, reportedChartMetrics, reportedKeys } from '../vehicleDisplay'
 import { isGeneralChoice, needsSpecificData, normalizeWidget, widgetRegistry } from '../widgets/registry'
 import { dashboardRuntimeKey } from '../widgets/dashboardContext'
 
@@ -90,8 +90,9 @@ const metricSuggestion = computed(() => {
 })
 const availableMetrics = computed(() => {
   const vehicle = vehicles.value.find((row) => row.id === form.value.vehicle_id) ?? selectedVehicle.value
-  const metrics = new Set(Object.keys(vehicle?.state?.metrics ?? {}))
-  if (vehicle?.state?.position?.speed !== null && vehicle?.state?.position?.speed !== undefined) metrics.add('vehicle.speed')
+  // What the server resolved for this vehicle, plus whatever the editor would
+  // suggest by default, so the datalist never offers an axis the car cannot plot.
+  const metrics = new Set(reportedKeys(vehicle))
   for (const metric of defaultDashboardMetrics(vehicle)) metrics.add(metric)
   return [...metrics].sort()
 })

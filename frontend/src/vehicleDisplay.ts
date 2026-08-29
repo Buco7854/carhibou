@@ -1,4 +1,4 @@
-import type { Vehicle } from './api/types'
+import type { Provenance, Reading, Vehicle } from './api/types'
 
 export interface MetricDefinition {
   key: string
@@ -11,6 +11,12 @@ export interface MetricDefinition {
 
 export interface MetricReading extends MetricDefinition {
   value: number | boolean | null
+  /**
+   * Where the server got this value, and whether it still counts. Null when the
+   * vehicle has no reading for the key at all, which a card renders as absent
+   * rather than as a zero.
+   */
+  provenance: Provenance | null
 }
 
 export interface EnergySummary extends MetricReading {
@@ -99,7 +105,13 @@ const metricDefinitions: Record<string, MetricDefinition> = {
   },
 }
 
-/** The one metric key that resolves across sources; see speedReading. */
+/**
+ * The canonical speed key.
+ *
+ * The server resolves it across sources, preferring a direct CAN or OBD reading
+ * over a GNSS one, so the client reads a single value and never chooses. Kept as
+ * a constant because history still addresses the same key by name.
+ */
 export const SPEED_KEY = 'vehicle.speed'
 
 const unknownEnergy: MetricDefinition = {
@@ -143,14 +155,20 @@ export function agentStatus(vehicle: Vehicle | null | undefined): AgentStatus {
 export function vehicleActivity(vehicle: Vehicle | null | undefined): VehicleActivity {
   const state = vehicle?.state
   if (!state || !state.online) return 'unknown'
-  const declared = state.metrics['vehicle.state']
+  const declared = readingValue(vehicle, 'vehicle.state')
   if (typeof declared === 'string') {
     if (declared === 'charging') return 'charging'
     if (declared === 'ready' || declared === 'driving' || declared === 'on') return 'driving'
   }
+  const speed = metricNumber(vehicle, SPEED_KEY)
+  if (speed !== null && speed > 0) return 'driving'
   if (chargingState(vehicle).active) return 'charging'
   if (state.agent['vehicle_in_use'] === true) return 'driving'
-  return 'parked'
+  // Rest is a claim about the vehicle, so it needs evidence of rest rather than
+  // an absence of evidence of motion. A GNSS-only agent reporting nothing but a
+  // stale fix used to be shown as parked, which nobody had established.
+  if (speed === 0 || state.agent['vehicle_in_use'] === false) return 'parked'
+  return 'unknown'
 }
 
 export function metricDefinition(key: string): MetricDefinition {
@@ -162,49 +180,58 @@ function finite(value: unknown): number | null {
 }
 
 /**
- * How fast the vehicle is going, whatever it is able to say.
+ * One history point's value for a metric.
  *
- * Speed is standard data: a CAN or OBD-II agent reports it as a metric, and an
- * agent with only a GNSS fix still carries it on the position. The vehicle's own
- * reading wins because it is measured rather than derived, and the fix is the
- * fallback, so a card asking for speed is answered for either kind of vehicle.
- */
-export function speedReading(vehicle: Vehicle | null | undefined): number | null {
-  return finite(vehicle?.state?.metrics['vehicle.speed']) ?? finite(vehicle?.state?.position?.speed)
-}
-
-/**
- * One history point's value for a metric, resolved the same way.
- *
- * The history endpoint returns a GNSS speed column alongside the metric map, so
- * a series for the standard speed key reads whichever of the two the point has.
+ * History still exposes recorded observations with a separate GNSS speed column,
+ * and its shape is not part of this contract yet, so this reads it as it stands.
  */
 export function historyValue(point: { speed: number | null; metrics: Record<string, unknown> }, key: string): number | null {
   if (key === SPEED_KEY) return finite(point.metrics[SPEED_KEY]) ?? finite(point.speed)
   return finite(point.metrics[key])
 }
 
+/** The server's resolved reading for a key, or undefined when it resolved none. */
+export function reading(vehicle: Vehicle | null | undefined, key: string): Reading | undefined {
+  return vehicle?.state?.readings[key]
+}
+
+export function readingValue(vehicle: Vehicle | null | undefined, key: string): unknown {
+  return reading(vehicle, key)?.value
+}
+
+/** Whether the server still counts its reading for a key as current. */
+export function isFresh(vehicle: Vehicle | null | undefined, key: string): boolean {
+  return reading(vehicle, key)?.fresh === true
+}
+
 export function metricNumber(vehicle: Vehicle | null | undefined, key: string): number | null {
-  if (key === SPEED_KEY) return speedReading(vehicle)
-  return finite(vehicle?.state?.metrics[key])
+  return finite(readingValue(vehicle, key))
 }
 
 export function metricReading(vehicle: Vehicle | null | undefined, key: string): MetricReading {
   const definition = metricDefinition(key)
-  const raw = vehicle?.state?.metrics[key]
+  const resolved = reading(vehicle, key)
   const value = definition.kind === 'boolean'
-    ? (typeof raw === 'boolean' ? raw : null)
-    : metricNumber(vehicle, key)
-  return { ...definition, value }
+    ? (typeof resolved?.value === 'boolean' ? resolved.value : null)
+    : finite(resolved?.value)
+  // A Reading is its own provenance plus a value, so it satisfies Provenance
+  // directly and nothing has to be copied out of it.
+  return { ...definition, value, provenance: resolved ?? null }
 }
 
 export function energySummary(vehicle: Vehicle | null | undefined): EnergySummary {
-  const metrics = vehicle?.state?.metrics ?? {}
+  const readings = vehicle?.state?.readings ?? {}
   let definition = unknownEnergy
-  if ('battery.soc' in metrics) definition = metricDefinition('battery.soc')
-  else if ('fuel.level' in metrics) definition = metricDefinition('fuel.level')
-  const value = definition.key ? metricNumber(vehicle, definition.key) : null
-  return { ...definition, value, progress: value === null ? 0 : Math.min(100, Math.max(0, value)) }
+  if ('battery.soc' in readings) definition = metricDefinition('battery.soc')
+  else if ('fuel.level' in readings) definition = metricDefinition('fuel.level')
+  const resolved = definition.key ? metricReading(vehicle, definition.key) : null
+  const value = typeof resolved?.value === 'number' ? resolved.value : null
+  return {
+    ...definition,
+    value,
+    provenance: resolved?.provenance ?? null,
+    progress: value === null ? 0 : Math.min(100, Math.max(0, value)),
+  }
 }
 
 /**
@@ -235,9 +262,13 @@ const conventionalOrder = [
   'charging.active',
 ]
 
+/** Every metric key the server resolved for this vehicle, canonical or namespaced. */
+export function reportedKeys(vehicle: Vehicle | null | undefined): string[] {
+  return Object.keys(vehicle?.state?.readings ?? {})
+}
+
 function reportedReadings(vehicle: Vehicle | null | undefined, exclude: string[] = []): MetricReading[] {
-  const reported = new Set(Object.keys(vehicle?.state?.metrics ?? {}))
-  if (metricNumber(vehicle, 'vehicle.speed') !== null) reported.add('vehicle.speed')
+  const reported = new Set(reportedKeys(vehicle))
   const ordered = conventionalOrder.filter((key) => reported.has(key) && !exclude.includes(key))
   const extra = [...reported].filter((key) => !conventionalOrder.includes(key) && !exclude.includes(key)).sort()
   return [...ordered, ...extra].map((key) => metricReading(vehicle, key)).filter((row) => row.value !== null)
@@ -272,41 +303,24 @@ export interface ChargingState {
 }
 
 /**
- * The smallest pack power that counts as charging when nothing declares it.
- *
- * A pack at rest is not at zero: contactors, the 12V converter and measurement
- * noise leave a couple of hundred watts on the meter, and its sign wanders
- * either side of zero. Treating any negative reading as charge therefore put a
- * parked car "charging" at 0.2 kW. Nothing real sits in that band: the slowest
- * genuine charge, a granny cable on a domestic socket, draws about 1.3 kW, so a
- * floor of half a kilowatt clears the noise without reaching any real rate.
- *
- * The backend applies the same floor when it decides where a charge segment
- * starts, so a card and the history behind it cannot disagree about it.
- */
-export const CHARGING_POWER_FLOOR_KW = 0.5
-
-/**
  * Whether the pack is taking charge, and how fast.
  *
- * No OBD-II PID reports charging directly, so an explicit `charging.active` from a
- * vehicle profile wins when present, in both directions: a profile saying the car is
- * not charging is evidence, not an absence of it. Otherwise it is derived from battery
- * power under the convention this application applies everywhere: `battery.power` is
- * positive while the pack delivers energy and negative while it absorbs it, and only
- * a reading past CHARGING_POWER_FLOOR_KW counts.
+ * The server resolves `charging.active`: an explicit boolean from a profile is
+ * authoritative in both directions, and where none exists the server derives one
+ * from power evidence against a floor it owns. None of that happens here any
+ * more. Deriving it from `battery.power` in the widget is what put a parked car
+ * at "charging, 0.2 kW", and two layers guessing separately could disagree about
+ * the same car.
+ *
+ * Charging is a safety-sensitive live state, so evidence that has expired is not
+ * evidence: a reading the server marks stale reads as unknown rather than as a
+ * charge that may have stopped. Unknown is also what an absent reading means; it
+ * is never false.
  */
 export function chargingState(vehicle: Vehicle | null | undefined): ChargingState {
-  const metrics = vehicle?.state?.metrics ?? {}
-  const declared = metrics['charging.active']
-  const rate = metricNumber(vehicle, 'charging.power')
-  const power = metricNumber(vehicle, 'battery.power')
-  if (typeof declared === 'boolean') {
-    return { active: declared, power: declared ? rate ?? (power === null ? null : Math.abs(power)) : null }
-  }
-  if (power === null) return { active: null, power: rate }
-  const charging = power <= -CHARGING_POWER_FLOOR_KW
-  return { active: charging, power: charging ? rate ?? Math.abs(power) : null }
+  const resolved = reading(vehicle, 'charging.active')
+  if (typeof resolved?.value !== 'boolean' || !resolved.fresh) return { active: null, power: null }
+  return { active: resolved.value, power: resolved.value ? metricNumber(vehicle, 'charging.power') : null }
 }
 
 export function preferredHistoryMetric(vehicle: Vehicle | null | undefined, available: string[], hasSpeed: boolean): string {
@@ -318,13 +332,11 @@ export function preferredHistoryMetric(vehicle: Vehicle | null | undefined, avai
 }
 
 export function defaultDashboardMetrics(vehicle: Vehicle | null | undefined): string[] {
-  const available = Object.keys(vehicle?.state?.metrics ?? {})
-  const hasSpeed = metricNumber(vehicle, 'vehicle.speed') !== null
-  const primary = preferredHistoryMetric(vehicle, available, hasSpeed)
+  const available = reportedKeys(vehicle)
+  const primary = preferredHistoryMetric(vehicle, available, false)
   const defaults = ['battery.soc', 'fuel.level', 'engine.rpm', 'battery.power', 'vehicle.speed']
-  if (!available.length && !hasSpeed) return ['vehicle.speed']
+  if (!available.length) return ['vehicle.speed']
   const options = new Set(available)
-  if (hasSpeed) options.add('vehicle.speed')
   return [...new Set([primary, ...defaults])].filter((key) => options.has(key)).slice(0, 2)
 }
 
@@ -338,11 +350,9 @@ export function defaultDashboardMetrics(vehicle: Vehicle | null | undefined): st
  * or off is not something to put on an axis.
  */
 export function reportedChartMetrics(vehicle: Vehicle | null | undefined): string[] {
-  const available = Object.keys(vehicle?.state?.metrics ?? {})
-  const hasSpeed = metricNumber(vehicle, 'vehicle.speed') !== null
+  const available = reportedKeys(vehicle)
   const options = new Set(available)
-  if (hasSpeed) options.add('vehicle.speed')
-  const preferred = preferredHistoryMetric(vehicle, available, hasSpeed)
+  const preferred = preferredHistoryMetric(vehicle, available, false)
   const order = ['battery.soc', 'fuel.level', 'engine.rpm', 'battery.power', 'vehicle.speed']
   const ranked = [...new Set([preferred, ...order, ...[...options].sort()])]
   return ranked.filter((key) => options.has(key)
@@ -352,6 +362,29 @@ export function reportedChartMetrics(vehicle: Vehicle | null | undefined): strin
 
 export function formatMetricNumber(value: number, definition: MetricDefinition): string {
   return definition.decimals === 0 ? String(Math.round(value)) : value.toFixed(definition.decimals)
+}
+
+/**
+ * A span of seconds in words, pluralized by the locale rather than by us.
+ *
+ * `formatDuration` in agentCadence names the unit through DisplayNames, which
+ * yields the field name and so reads "5 minute". These two go through Intl's
+ * unit and relative-time formatters, which know that English wants "minutes"
+ * and French wants "il y a 20 minutes".
+ */
+export function formatSpan(seconds: number, locale: string): string {
+  const unit = seconds >= 86_400 ? 'day' : seconds >= 3_600 ? 'hour' : seconds >= 60 ? 'minute' : 'second'
+  const divisor = unit === 'day' ? 86_400 : unit === 'hour' ? 3_600 : unit === 'minute' ? 60 : 1
+  return new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: 'long', maximumFractionDigits: 0 })
+    .format(Math.round(seconds / divisor))
+}
+
+/** The same span, said as an age: "20 minutes ago", "il y a 20 minutes". */
+export function formatAge(seconds: number, locale: string): string {
+  const unit = seconds >= 86_400 ? 'day' : seconds >= 3_600 ? 'hour' : seconds >= 60 ? 'minute' : 'second'
+  const divisor = unit === 'day' ? 86_400 : unit === 'hour' ? 3_600 : unit === 'minute' ? 60 : 1
+  return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
+    .format(-Math.round(seconds / divisor), unit)
 }
 
 export function formatInstant(value: string | null | undefined): string {

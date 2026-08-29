@@ -8,24 +8,30 @@ import (
 )
 
 func at(latitude, longitude float64, speed *float64) model.Sample {
-	return model.Sample{Position: &model.PositionFix{Latitude: latitude, Longitude: longitude, Speed: speed}}
+	return model.Sample{Position: &model.PositionObservation{Value: model.PositionFix{Latitude: latitude, Longitude: longitude, Speed: speed}}}
 }
 
-func metrics(values map[string]any) model.Sample { return model.Sample{Metrics: values} }
+func metrics(values map[string]any) model.Sample {
+	observations := make([]model.Observation, 0, len(values))
+	for key, value := range values {
+		observations = append(observations, model.Observation{Key: key, Value: value})
+	}
+	return model.Sample{Observations: observations}
+}
 
 func TestReadinessOutranksEverythingWeaker(t *testing.T) {
 	moving := 90.0
 	detector := &ActivityDetector{}
 
 	sample := at(48.8, 2.3, &moving)
-	sample.Metrics = map[string]any{"vehicle.ready": false, "vehicle.speed": 90, "engine.rpm": 900}
+	sample = withMetrics(sample, map[string]any{"vehicle.ready": false, "vehicle.speed": 90, "engine.rpm": 900})
 	// A receiver still reporting speed, and an engine speed left over from the
 	// last read, do not outrank the vehicle saying its ignition is off.
 	if active, source := detector.Observe(sample, time.Now()); active || source != SourceIdle {
 		t.Fatalf("a vehicle saying it is not ready must be parked, got active=%v source=%s", active, source)
 	}
 
-	sample.Metrics = map[string]any{"vehicle.ready": true}
+	sample = withMetrics(sample, map[string]any{"vehicle.ready": true})
 	if active, source := detector.Observe(sample, time.Now()); !active || source != SourceReadiness {
 		t.Fatalf("a vehicle saying it is ready must be active, got active=%v source=%s", active, source)
 	}
@@ -150,8 +156,13 @@ func TestAnUnmappedStateFallsThroughToMotion(t *testing.T) {
 	}
 
 	// A stated false still outranks motion, because that is a claim.
-	sample.Metrics = map[string]any{"vehicle.ready": false}
+	sample = withMetrics(sample, map[string]any{"vehicle.ready": false})
 	if active, source := (&ActivityDetector{}).Observe(sample, now); active || source != SourceIdle {
 		t.Fatalf("active=%v source=%s, want a stated false to hold", active, source)
 	}
+}
+
+func withMetrics(sample model.Sample, values map[string]any) model.Sample {
+	sample.Observations = metrics(values).Observations
+	return sample
 }

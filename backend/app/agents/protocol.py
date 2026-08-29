@@ -17,7 +17,7 @@ from backend.app.agents.manifests import (
 from backend.app.branding import APP_VERSION
 from backend.app.common.settings import get_settings
 
-SUPPORTED_PROTOCOL_VERSION = 1
+SUPPORTED_PROTOCOL_VERSION = 2
 BUNDLED_IMPLEMENTATION_ID = "carhibou.go"
 CUSTOM_IMPLEMENTATION_ID = "custom"
 Compatibility = Literal["compatible", "incompatible"]

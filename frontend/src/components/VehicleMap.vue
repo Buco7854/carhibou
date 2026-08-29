@@ -2,12 +2,12 @@
 import L from 'leaflet'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { Position } from '../api/types'
+import type { PositionFix } from '../api/types'
 
 export interface TrailPoint { lat: number; lng: number; speed: number | null }
 
 const props = defineProps<{
-  position: Position | null | undefined
+  position: PositionFix | null | undefined
   route?: Array<[number, number]> | undefined
   trail?: TrailPoint[] | undefined
   marks?: number[] | undefined

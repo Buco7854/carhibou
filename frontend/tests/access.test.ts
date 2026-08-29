@@ -31,8 +31,10 @@ describe('permission-gated controls', () => {
     expect(wrapper.text()).not.toContain('Add vehicle')
     // The decoding profile moved to the agent, so no vehicle card carries it.
     expect(wrapper.find('.card-profile-select').exists()).toBe(false)
+    // A viewer can operate nothing on the card, so it carries no overflow menu
+    // at all rather than an empty one.
+    expect(wrapper.find('.vehicle-card footer .row-menu-button').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Clear data')
-    expect(wrapper.find('.vehicle-card footer .danger').exists()).toBe(false)
     expect(wrapper.find('input[type="file"]').exists()).toBe(false)
   })
 
@@ -43,11 +45,12 @@ describe('permission-gated controls', () => {
     const wrapper = mount(VehiclesView, { global: { plugins: [i18n], stubs } })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Clear data')
+    await wrapper.get('.vehicle-card footer .row-menu-button').trigger('click')
+    expect(wrapper.get('.vehicle-card footer .row-menu-list').text()).toContain('Clear data')
     expect(wrapper.find('input[type="file"]').exists()).toBe(true)
     // Creating and deleting vehicles stays with the administrator.
     expect(wrapper.text()).not.toContain('Add vehicle')
-    expect(wrapper.find('.vehicle-card footer .danger').exists()).toBe(false)
+    expect(wrapper.find('.vehicle-card footer .row-menu-list .danger').exists()).toBe(false)
   })
 
   it('hides enrollment and agent actions from a viewer', async () => {

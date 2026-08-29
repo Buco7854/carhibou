@@ -2,6 +2,14 @@ import type { Vehicle } from './types'
 
 export type LiveConnectionStatus = 'connecting' | 'open' | 'reconnecting'
 
+/**
+ * The envelope version is the stream's own, not the telemetry protocol's.
+ *
+ * The payload is `Vehicle`, so the normalized reading shape reaches this file
+ * through that type and nothing here restates it. A protocol v2 server does not
+ * by itself imply a v2 envelope, and an envelope this does not recognise is
+ * dropped in silence, so the number is only safe to change alongside the server.
+ */
 interface VehicleStatesEnvelope {
   type: 'vehicle.states'
   version: 1

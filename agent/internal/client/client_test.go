@@ -43,7 +43,7 @@ func TestExplicitHTTPEnrollmentAndBatchTransport(t *testing.T) {
 	if len(accepted) != 1 || accepted[0] != sample.ID || authorization != "Agent secret" {
 		t.Fatalf("unexpected upload: %#v %q", accepted, authorization)
 	}
-	if enrollment.ImplementationID != "carhibou.go" || enrollment.ProtocolVersion != 1 || enrollment.AgentVersion != "test" {
+	if enrollment.ImplementationID != "carhibou.go" || enrollment.ProtocolVersion != ProtocolVersion || enrollment.AgentVersion != "test" {
 		t.Fatalf("unexpected enrollment identity: %#v", enrollment)
 	}
 }

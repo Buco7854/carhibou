@@ -1,15 +1,25 @@
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.app.agents.models import Agent
 from backend.app.common.time import as_utc, utcnow
 from backend.app.hooks.models import Hook, HookExecution, Trigger
 from backend.app.jobs.models import Job
-from backend.app.telemetry.models import Telemetry
-from backend.app.telemetry.schemas import TelemetryBatch, TelemetrySample
+from backend.app.telemetry.models import (
+    MetricCandidate,
+    PositionCandidate,
+    SourceContact,
+    SourceContactPeriod,
+    Telemetry,
+    TelemetryObservation,
+    TelemetryPositionObservation,
+)
+from backend.app.telemetry.registry import normalize_value
+from backend.app.telemetry.resolution import resolve_vehicle
+from backend.app.telemetry.schemas import Observation, TelemetryBatch, TelemetrySample
 from backend.app.vehicle_state.models import VehicleState
 from backend.app.vehicles.models import Vehicle
 
@@ -20,8 +30,64 @@ class IngestionResult:
     duplicates: list[str]
 
 
-def _telemetry_model(agent: Agent, boot_id: str, sample: TelemetrySample) -> Telemetry:
-    position = sample.position
+def touch_source_contact(
+    db: Session,
+    source_id: str,
+    contacted_at: datetime,
+    liveness_window_seconds: int,
+) -> None:
+    contacted_at = as_utc(contacted_at)
+    contact = db.get(SourceContact, source_id)
+    if contact and as_utc(contact.last_contact_at) > contacted_at:
+        return
+    latest_period = db.scalar(
+        select(SourceContactPeriod)
+        .where(SourceContactPeriod.source_id == source_id)
+        .order_by(SourceContactPeriod.started_at.desc(), SourceContactPeriod.id.desc())
+        .limit(1)
+    )
+    if latest_period is None or contacted_at > as_utc(latest_period.last_contact_at) + timedelta(
+        seconds=latest_period.liveness_window_seconds
+    ):
+        db.add(
+            SourceContactPeriod(
+                source_id=source_id,
+                started_at=contacted_at,
+                last_contact_at=contacted_at,
+                liveness_window_seconds=liveness_window_seconds,
+            )
+        )
+    else:
+        latest_period.last_contact_at = contacted_at
+        latest_period.liveness_window_seconds = liveness_window_seconds
+    if contact:
+        contact.last_contact_at = contacted_at
+        contact.liveness_window_seconds = liveness_window_seconds
+    else:
+        db.add(
+            SourceContact(
+                source_id=source_id,
+                last_contact_at=contacted_at,
+                liveness_window_seconds=liveness_window_seconds,
+            )
+        )
+
+
+def _accepted_observations(sample: TelemetrySample) -> list[Observation]:
+    accepted: list[Observation] = []
+    for observation in sample.observations:
+        valid, value = normalize_value(observation.key, observation.value)
+        if not valid:
+            continue
+        accepted.append(observation.model_copy(update={"value": value}))
+    return accepted
+
+
+def _telemetry_model(
+    agent: Agent,
+    boot_id: str,
+    sample: TelemetrySample,
+) -> Telemetry:
     return Telemetry(
         id=str(sample.id),
         vehicle_id=agent.vehicle_id,
@@ -29,49 +95,120 @@ def _telemetry_model(agent: Agent, boot_id: str, sample: TelemetrySample) -> Tel
         boot_id=boot_id,
         sequence=sample.sequence,
         recorded_at=as_utc(sample.recorded_at),
-        latitude=position.latitude if position else None,
-        longitude=position.longitude if position else None,
-        altitude=position.altitude if position else None,
-        gps_speed=position.speed if position else None,
-        heading=position.heading if position else None,
-        accuracy=position.accuracy if position else None,
-        metrics=dict(sample.metrics),
+        reporting_interval=sample.reporting_interval,
+        event_driven=sample.event_driven,
         agent_data=dict(sample.agent),
     )
 
 
-def _update_current_state(db: Session, telemetry: Telemetry) -> None:
-    state = db.get(VehicleState, telemetry.vehicle_id)
-    if state and as_utc(state.updated_at) > as_utc(telemetry.recorded_at):
+def _apply_metric_candidate(
+    db: Session,
+    telemetry: Telemetry,
+    observation: Observation,
+) -> None:
+    identity = (
+        telemetry.vehicle_id,
+        telemetry.agent_id,
+        observation.channel,
+        observation.key,
+    )
+    row = db.get(MetricCandidate, identity)
+    observed_at = as_utc(observation.observed_at)
+    if row and as_utc(row.observed_at) >= observed_at:
         return
-    previous_metrics = state.latest_metrics if state else {}
-    previous_agent = state.agent_state if state else {}
     values = {
+        "payload": {"value": observation.value},
+        "observed_at": observed_at,
+        "method": observation.method,
+        "reporting_interval": telemetry.reporting_interval,
+        "event_driven": telemetry.event_driven,
         "telemetry_id": telemetry.id,
-        "updated_at": telemetry.recorded_at,
-        "latitude": telemetry.latitude,
-        "longitude": telemetry.longitude,
-        "altitude": telemetry.altitude,
-        "gps_speed": telemetry.gps_speed,
-        "heading": telemetry.heading,
-        "accuracy": telemetry.accuracy,
-        "latest_metrics": {**previous_metrics, **telemetry.metrics},
-        "agent_state": {**previous_agent, **telemetry.agent_data},
+    }
+    if row:
+        for key, value in values.items():
+            setattr(row, key, value)
+    else:
+        db.add(
+            MetricCandidate(
+                vehicle_id=telemetry.vehicle_id,
+                source_id=telemetry.agent_id,
+                channel=observation.channel,
+                metric_key=observation.key,
+                **values,
+            )
+        )
+
+
+def _apply_position_candidate(db: Session, telemetry: Telemetry, sample: TelemetrySample) -> None:
+    position = sample.position
+    if position is None:
+        return
+    identity = (telemetry.vehicle_id, telemetry.agent_id, position.channel)
+    row = db.get(PositionCandidate, identity)
+    observed_at = as_utc(position.observed_at)
+    if not row or as_utc(row.observed_at) < observed_at:
+        values = {
+            "value": position.value.model_dump(mode="json"),
+            "observed_at": observed_at,
+            "method": position.method,
+            "reporting_interval": telemetry.reporting_interval,
+            "event_driven": telemetry.event_driven,
+            "telemetry_id": telemetry.id,
+        }
+        if row:
+            for key, value in values.items():
+                setattr(row, key, value)
+        else:
+            db.add(
+                PositionCandidate(
+                    vehicle_id=telemetry.vehicle_id,
+                    source_id=telemetry.agent_id,
+                    channel=position.channel,
+                    **values,
+                )
+            )
+    speed = Observation(
+        key="vehicle.speed",
+        value=position.value.speed,
+        observed_at=position.observed_at,
+        channel="gnss",
+        method=position.method,
+    )
+    _apply_metric_candidate(db, telemetry, speed)
+
+
+def _update_current_state(db: Session, vehicle_id: str, accepted: list[Telemetry]) -> None:
+    if not accepted:
+        return
+    state = db.get(VehicleState, vehicle_id)
+    newest = max(accepted, key=lambda row: (as_utc(row.recorded_at), row.sequence, row.id))
+    previous_updated = as_utc(state.updated_at) if state else None
+    updated_at = max(
+        [as_utc(row.recorded_at) for row in accepted]
+        + ([previous_updated] if previous_updated else [])
+    )
+    agent_state = dict(state.agent_state) if state else {}
+    if previous_updated is None or as_utc(newest.recorded_at) >= previous_updated:
+        agent_state.update(newest.agent_data)
+    readings, position = resolve_vehicle(db, vehicle_id)
+    telemetry_id = newest.id
+    if state and updated_at != as_utc(newest.recorded_at):
+        telemetry_id = state.telemetry_id
+    values = {
+        "telemetry_id": telemetry_id,
+        "updated_at": updated_at,
+        "readings": readings,
+        "position": position,
+        "agent_state": agent_state,
     }
     if state:
         for key, value in values.items():
             setattr(state, key, value)
     else:
-        db.add(VehicleState(vehicle_id=telemetry.vehicle_id, **values))
+        db.add(VehicleState(vehicle_id=vehicle_id, **values))
 
 
 def _enqueue_hooks(db: Session, samples: list[Telemetry]) -> None:
-    """Queue one execution per hook for the whole accepted batch.
-
-    A batch is one physical upload, so the hook sees every sample in it and decides
-    whether to act on the latest reading or iterate. Firing per sample instead would
-    spawn one child process per row and force that choice on the author.
-    """
     if not samples:
         return
     latest = samples[-1]
@@ -110,24 +247,53 @@ def _enqueue_hooks(db: Session, samples: list[Telemetry]) -> None:
 
 
 def ingest_batch(db: Session, agent: Agent, batch: TelemetryBatch) -> IngestionResult:
-    # Serialize ingestion per vehicle. This prevents two agents/requests from racing
-    # the initial current-state row or rewinding merged JSON state.
     db.execute(select(Vehicle.id).where(Vehicle.id == agent.vehicle_id).with_for_update())
     result = IngestionResult(accepted=[], duplicates=[])
     stored: list[Telemetry] = []
+    incoming_ids = [str(sample.id) for sample in batch.samples]
+    existing_ids = set(db.scalars(select(Telemetry.id).where(Telemetry.id.in_(incoming_ids))))
     for sample in batch.samples:
+        observations = _accepted_observations(sample)
         telemetry = _telemetry_model(agent, str(batch.boot_id), sample)
-        try:
-            with db.begin_nested():
-                db.add(telemetry)
-                db.flush()
-        except IntegrityError:
+        if telemetry.id in existing_ids:
             result.duplicates.append(telemetry.id)
             continue
-        _update_current_state(db, telemetry)
+        db.add(telemetry)
+        db.flush([telemetry])
+        for observation in observations:
+            db.add(
+                TelemetryObservation(
+                    telemetry_id=telemetry.id,
+                    vehicle_id=telemetry.vehicle_id,
+                    source_id=telemetry.agent_id,
+                    metric_key=observation.key,
+                    payload={"value": observation.value},
+                    observed_at=as_utc(observation.observed_at),
+                    channel=observation.channel,
+                    method=observation.method,
+                )
+            )
+            _apply_metric_candidate(db, telemetry, observation)
+        if sample.position:
+            db.add(
+                TelemetryPositionObservation(
+                    telemetry_id=telemetry.id,
+                    vehicle_id=telemetry.vehicle_id,
+                    source_id=telemetry.agent_id,
+                    value=sample.position.value.model_dump(mode="json"),
+                    observed_at=as_utc(sample.position.observed_at),
+                    channel=sample.position.channel,
+                    method=sample.position.method,
+                )
+            )
+        _apply_position_candidate(db, telemetry, sample)
         stored.append(telemetry)
         result.accepted.append(telemetry.id)
-    stored.sort(key=lambda row: (as_utc(row.recorded_at), row.sequence))
+    db.flush()
+    stored.sort(key=lambda row: (as_utc(row.recorded_at), row.sequence, row.id))
+    _update_current_state(db, agent.vehicle_id, stored)
     _enqueue_hooks(db, stored)
     agent.last_seen_at = utcnow()
+    liveness = max([sample.reporting_interval or 0 for sample in batch.samples] + [15])
+    touch_source_contact(db, agent.id, agent.last_seen_at, liveness)
     return result

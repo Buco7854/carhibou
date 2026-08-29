@@ -55,7 +55,7 @@ def create_connector(db: Session, vehicle: Vehicle, data: ConnectorCreate) -> Co
             name=data.name,
             credential_hash=hash_token(secrets.token_urlsafe(48)),
             implementation_id=TESLAMATE_IMPLEMENTATION_ID,
-            protocol_version=1,
+            protocol_version=2,
             agent_version=APP_VERSION,
             hostname=None,
             hardware={"connector_kind": data.kind},

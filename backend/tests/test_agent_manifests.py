@@ -12,7 +12,7 @@ schema = 1
 id = "community.example"
 name = "Example agent"
 hardware = "Linux board"
-protocol_version = 1
+protocol_version = 2
 setup_kind = "guided"
 docs_url = "https://example.invalid/agent"
 
@@ -48,7 +48,7 @@ def test_valid_manifest_preserves_order_and_protocol(tmp_path: Path) -> None:
     manifest = discover_manifests(tmp_path)[0]
 
     assert manifest.id == "community.example"
-    assert manifest.protocol_version == 1
+    assert manifest.protocol_version == 2
     assert manifest.setup_kind == "guided"
     assert [step.kind for step in manifest.setup_steps] == [
         "manual",
@@ -66,8 +66,8 @@ def test_valid_manifest_preserves_order_and_protocol(tmp_path: Path) -> None:
         ('id = "community.example"', 'id = "Invalid id"'),
         ('id = "community.example"', 'id = "connector.community"'),
         ('name = "Example agent"', "name = 4"),
-        ("protocol_version = 1", "protocol_version = 0"),
-        ("protocol_version = 1", "protocol_version = true"),
+        ("protocol_version = 2", "protocol_version = 0"),
+        ("protocol_version = 2", "protocol_version = true"),
         ('setup_kind = "guided"', 'setup_kind = "automatic"'),
         ('kind = "manual"', 'kind = "manual"\nunknown = "closed"'),
         ('kind = "command"', 'kind = "command"\nvalue = "wrong payload"'),
@@ -140,4 +140,4 @@ def test_bundled_manifest_is_available_from_the_installed_agent_package() -> Non
 
     assert bundled.is_file()
     assert manifest.id == "carhibou.go"
-    assert manifest.protocol_version == 1
+    assert manifest.protocol_version == 2

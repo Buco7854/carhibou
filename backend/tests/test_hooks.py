@@ -29,7 +29,7 @@ def _prepare_agent(client: TestClient, csrf: str) -> tuple[str, str]:
         json={
             "token": token,
             "implementation_id": "custom",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "agent_version": "test",
             "hostname": "sim",
         },
@@ -39,6 +39,7 @@ def _prepare_agent(client: TestClient, csrf: str) -> tuple[str, str]:
 
 def _send_sample(client: TestClient, credential: str) -> str:
     sample_id = str(uuid4())
+    observed_at = datetime.now(UTC).isoformat()
     response = client.post(
         "/api/v1/agent/telemetry/batch",
         headers={"Authorization": f"Agent {credential}"},
@@ -48,9 +49,22 @@ def _send_sample(client: TestClient, credential: str) -> str:
                 {
                     "id": sample_id,
                     "sequence": 1,
-                    "recorded_at": datetime.now(UTC).isoformat(),
-                    "position": {"latitude": 48.0, "longitude": 2.0},
-                    "metrics": {"battery.soc": 25},
+                    "recorded_at": observed_at,
+                    "position": {
+                        "value": {"latitude": 48.0, "longitude": 2.0},
+                        "observed_at": observed_at,
+                        "channel": "gnss",
+                        "method": "direct",
+                    },
+                    "observations": [
+                        {
+                            "key": "battery.soc",
+                            "value": 25,
+                            "observed_at": observed_at,
+                            "channel": "can",
+                            "method": "direct",
+                        }
+                    ],
                 }
             ],
         },
@@ -72,7 +86,15 @@ def _send_batch(client: TestClient, credential: str, soc_values: list[float]) ->
                     "id": identifier,
                     "sequence": index,
                     "recorded_at": (base + timedelta(seconds=index)).isoformat(),
-                    "metrics": {"battery.soc": soc},
+                    "observations": [
+                        {
+                            "key": "battery.soc",
+                            "value": soc,
+                            "observed_at": (base + timedelta(seconds=index)).isoformat(),
+                            "channel": "can",
+                            "method": "direct",
+                        }
+                    ],
                 }
                 for index, (identifier, soc) in enumerate(zip(identifiers, soc_values, strict=True))
             ],
@@ -117,7 +139,7 @@ def test_telemetry_hook_runs_outside_request_persists_state_and_redacts_secrets(
             "enabled": True,
             "source": (
                 'ctx.state["count"] = ctx.state.get("count", 0) + 1\n'
-                'ctx.state["soc"] = ctx.telemetry.metrics["battery.soc"]\n'
+                'ctx.state["soc"] = ctx.telemetry.current.readings["battery.soc"].value\n'
                 'ctx.log.info("token=" + ctx.secrets["api_token"])\n'
                 'print(ctx.secrets["api_token"])'
             ),
@@ -275,8 +297,9 @@ def test_one_batch_queues_one_execution_that_can_iterate_every_sample(
             "enabled": True,
             "source": (
                 'ctx.state["runs"] = ctx.state.get("runs", 0) + 1\n'
-                'ctx.state["seen"] = [row.metrics["battery.soc"] for row in ctx.telemetry_batch]\n'
-                'ctx.state["latest"] = ctx.telemetry.metrics["battery.soc"]'
+                'ctx.state["seen"] = [row.value for row in ctx.telemetry.triggering '
+                'if row.key == "battery.soc"]\n'
+                'ctx.state["latest"] = ctx.telemetry.current.readings["battery.soc"].value'
             ),
         },
     )
@@ -308,7 +331,9 @@ def test_manual_test_run_exposes_a_single_sample_batch(
         json={
             "name": "Manual batch",
             "enabled": False,
-            "source": 'ctx.state["size"] = len(ctx.telemetry_batch)',
+            "source": (
+                'ctx.state["size"] = len({row.telemetry_id for row in ctx.telemetry.triggering})'
+            ),
         },
     )
     assert hook.status_code == 201, hook.text

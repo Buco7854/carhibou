@@ -31,6 +31,7 @@ class Sample:
     position: PositionFix | None
     metrics: dict[str, Any] = field(default_factory=dict)
     agent: dict[str, Any] = field(default_factory=dict)
+    reporting_interval: int | None = 5
     id: str = field(default_factory=lambda: str(uuid4()))
 
     def as_payload(self) -> dict[str, object]:
@@ -38,9 +39,28 @@ class Sample:
             "id": self.id,
             "sequence": self.sequence,
             "recorded_at": self.recorded_at.isoformat(),
-            "position": self.position.as_telemetry() if self.position else None,
-            "metrics": self.metrics,
+            "position": (
+                {
+                    "value": self.position.as_telemetry(),
+                    "observed_at": (self.position.recorded_at or self.recorded_at).isoformat(),
+                    "channel": "gnss",
+                    "method": "direct",
+                }
+                if self.position
+                else None
+            ),
+            "observations": [
+                {
+                    "key": key,
+                    "value": value,
+                    "observed_at": self.recorded_at.isoformat(),
+                    "channel": "can",
+                    "method": "direct",
+                }
+                for key, value in sorted(self.metrics.items())
+            ],
             "agent": self.agent,
+            "reporting_interval": self.reporting_interval,
         }
 
 

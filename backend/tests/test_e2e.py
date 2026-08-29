@@ -71,7 +71,7 @@ def test_complete_simulator_dashboard_and_hook_scenario(
             json={
                 "token": enrollment["token"],
                 "implementation_id": "custom",
-                "protocol_version": 1,
+                "protocol_version": 2,
                 "agent_version": "0.1.0",
                 "hostname": "simulator",
                 "hardware": {"model": "simulated-pi-zero"},
@@ -89,12 +89,15 @@ def test_complete_simulator_dashboard_and_hook_scenario(
                 # One upload, one execution: the author opts into per-sample work.
                 "source": (
                     'ctx.state["count"] = ctx.state.get("count", 0) + 1\n'
-                    'ctx.state["batch_size"] = len(ctx.telemetry_batch)\n'
-                    'ctx.state["last_timestamp"] = ctx.telemetry.recorded_at.isoformat()\n'
-                    "for row in ctx.telemetry_batch:\n"
+                    'ctx.state["batch_size"] = len({row.telemetry_id for row in '
+                    "ctx.telemetry.triggering})\n"
+                    'ctx.state["last_timestamp"] = max(row.observed_at for row in '
+                    "ctx.telemetry.triggering).isoformat()\n"
+                    "for row in ctx.telemetry.triggering:\n"
+                    '    if row.key != "battery.soc":\n'
+                    "        continue\n"
                     f'    ctx.http.post("{receiver_url}", '
-                    'json={"vehicle": ctx.vehicle.id, "soc": '
-                    'row.metrics["battery.soc"]})'
+                    'json={"vehicle": ctx.vehicle.id, "soc": row.value})'
                 ),
             },
         )
@@ -112,10 +115,14 @@ def test_complete_simulator_dashboard_and_hook_scenario(
         assert len(sent.json()["accepted"]) == 3
 
         current = client.get(f"/api/v1/vehicles/{vehicle['id']}").json()
-        last_metrics = cast(dict[str, object], samples[-1]["metrics"])
+        last_observations = cast(list[dict[str, object]], samples[-1]["observations"])
         last_position = cast(dict[str, object], samples[-1]["position"])
-        assert current["state"]["metrics"]["battery.soc"] == last_metrics["battery.soc"]
-        assert current["state"]["position"]["latitude"] == last_position["latitude"]
+        last_soc = next(row["value"] for row in last_observations if row["key"] == "battery.soc")
+        assert current["state"]["readings"]["battery.soc"]["value"] == last_soc
+        assert (
+            current["state"]["position"]["latitude"]
+            == cast(dict[str, object], last_position["value"])["latitude"]
+        )
         history = client.get(f"/api/v1/vehicles/{vehicle['id']}/history").json()
         assert history["original_count"] == 3
         assert "battery.soc" in history["available_metrics"]

@@ -639,11 +639,15 @@ func commandMonitor(locations paths, arguments []string) error {
 		default:
 			row["gps"] = fix
 		}
-		metrics, metricsErr := vehicle.ReadMetrics()
+		observations, metricsErr := vehicle.ReadObservations()
 		if metricsErr != nil {
 			row["obd_error"] = metricsErr.Error()
 		} else {
-			row["metrics"] = metrics
+			values := map[string]any{}
+			for _, observation := range observations.List() {
+				values[observation.Key] = observation.Value
+			}
+			row["metrics"] = values
 		}
 		printJSON(row)
 		time.Sleep(time.Duration(*seconds) * time.Second)
@@ -1112,6 +1116,14 @@ func commandRun(locations paths, arguments []string) error {
 			nextSync = now.Add(time.Duration(*syncSeconds) * time.Second)
 		}
 		if !now.Before(nextSample) {
+			agent.DrivingReportingInterval = max(
+				configuration.Sampling.Seconds(true),
+				configuration.Upload.Seconds(true),
+			)
+			agent.ParkedReportingInterval = max(
+				configuration.Sampling.Seconds(false),
+				configuration.Upload.Seconds(false),
+			)
 			if _, err := agent.Collect(); err != nil {
 				fmt.Fprintln(os.Stderr, "Collection failed:", err)
 			}

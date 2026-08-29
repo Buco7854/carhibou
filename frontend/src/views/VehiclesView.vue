@@ -6,6 +6,7 @@ import { useLiveVehicles } from '../api/live'
 import type { Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
+import RowMenu from '../components/RowMenu.vue'
 import VehicleMedia from '../components/VehicleMedia.vue'
 import { canOperate, isAdmin } from '../access'
 import { chargingState, energySummary, energyTone, formatMetricNumber, headlineReading, isPercentage, metricLabel, metricNumber, agentStatus, vehicleActivity } from '../vehicleDisplay'
@@ -246,11 +247,18 @@ onMounted(load)
           </p>
         </div>
 
+        <!-- Two places to go, and the destructive pair behind the same menu the
+             data source rows use. Four labels never fitted one line in French,
+             so one wrapped and sat a line higher than the rest. -->
         <footer>
-          <RouterLink class="link-button" :to="`/vehicles/${vehicle.id}/history`">{{ t('vehicles.history') }}</RouterLink>
-          <RouterLink class="link-button" to="/data-sources">{{ t('vehicles.agent') }}</RouterLink>
-          <button v-if="canOperate(vehicle)" class="link-button" type="button" @click="clearTelemetry(vehicle)">{{ t('vehicles.clearData') }}</button>
-          <button v-if="isAdmin" class="link-button danger" type="button" @click="deleteTarget=vehicle">{{ t('common.delete') }}</button>
+          <div class="card-actions">
+            <RouterLink class="card-action" :to="`/vehicles/${vehicle.id}/history`"><AppIcon name="history" :size="15" />{{ t('vehicles.history') }}</RouterLink>
+            <RouterLink class="card-action" to="/data-sources"><AppIcon name="agent" :size="15" />{{ t('vehicles.agent') }}</RouterLink>
+          </div>
+          <RowMenu v-if="canOperate(vehicle) || isAdmin" :label="t('dataSources.moreActions', { name: vehicle.name })">
+            <button v-if="canOperate(vehicle)" type="button" role="menuitem" @click="clearTelemetry(vehicle)">{{ t('vehicles.clearData') }}</button>
+            <button v-if="isAdmin" type="button" role="menuitem" class="danger" @click="deleteTarget=vehicle">{{ t('common.delete') }}</button>
+          </RowMenu>
         </footer>
       </article>
 
@@ -312,7 +320,15 @@ onMounted(load)
 .vehicle-facts .is-charging{color:var(--success)}
 .vehicle-facts small{flex-basis:100%;color:var(--muted);font-size:var(--font-caption)}
 
-.vehicle-card>footer{display:flex;justify-content:flex-end;align-items:center;gap:14px;padding:10px 16px;border-top:1px solid var(--line)}
+/* One row, one height, one treatment. The links used to be .link-button, which
+   left the two RouterLinks with the browser's underline and the two buttons
+   without it. A fixed height is what keeps the four baselines on one line. */
+.vehicle-card>footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px 7px 8px;border-top:1px solid var(--line)}
+.card-actions{min-width:0;display:flex;align-items:center;gap:2px}
+.card-action{height:30px;display:inline-flex;align-items:center;gap:6px;padding:0 9px;color:var(--muted);border-radius:var(--radius);font-size:var(--font-body);text-decoration:none;white-space:nowrap;transition:color .12s,background-color .12s}
+.card-action:hover{color:var(--text);background:var(--panel-2)}
+/* The menu trigger is one of the row's controls, so it stands the same height. */
+.vehicle-card>footer :deep(.row-menu-button){width:30px;height:30px}
 
 .empty{grid-column:1/-1}
 
@@ -322,7 +338,8 @@ onMounted(load)
   .filter-tabs{flex:1}
   .filter-tabs button{flex:1}
   .vehicle-list{grid-template-columns:1fr}
-  .vehicle-card>footer{gap:12px;padding:10px 14px}
+  .vehicle-card>footer{padding:7px 8px}
+  .card-action{padding:0 7px}
   .vehicle-card-body{padding:14px}
 }
 </style>

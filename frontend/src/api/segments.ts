@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { History, Segments } from './types'
+import type { History, HistoryTable, Segments } from './types'
 
 export const EMPTY_SEGMENTS: Segments = { drives: [], charges: [] }
 
@@ -44,4 +44,34 @@ export async function loadHistory(vehicleId: string, range: HistoryRange): Promi
     `max_points=${range.maxPoints ?? 300}`,
   ].join('&')
   return api<History>(`/vehicles/${vehicleId}/history?${query}`)
+}
+
+/**
+ * The steps the table endpoint accepts.
+ *
+ * Mirrors TABLE_STEPS in the history routes, which rejects anything else with a
+ * 400 rather than rounding to something it likes. There is no endpoint that
+ * lists them, so the two lists are kept in step by hand and the picker offers
+ * only these.
+ */
+export const TABLE_STEP_SECONDS = [1, 5, 10, 30, 60, 300, 900, 3600, 21600, 86400] as const
+
+export interface HistoryTableRequest {
+  start: Date | string
+  end?: Date | string
+  stepSeconds: number
+  limit?: number
+  offset?: number
+}
+
+export async function loadHistoryTable(vehicleId: string, request: HistoryTableRequest): Promise<HistoryTable> {
+  const instant = (value: Date | string) => encodeURIComponent(typeof value === 'string' ? value : value.toISOString())
+  const query = [
+    `start=${instant(request.start)}`,
+    ...(request.end ? [`end=${instant(request.end)}`] : []),
+    `step_seconds=${request.stepSeconds}`,
+    `limit=${request.limit ?? 100}`,
+    `offset=${request.offset ?? 0}`,
+  ].join('&')
+  return api<HistoryTable>(`/vehicles/${vehicleId}/history/table?${query}`)
 }

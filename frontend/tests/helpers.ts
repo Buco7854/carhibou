@@ -1,5 +1,6 @@
 import { vi, type Mock } from 'vitest'
 import type { DOMWrapper } from '@vue/test-utils'
+import type { PositionFix, Provenance, Reading, ResolvedPosition } from '../src/api/types'
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -31,12 +32,51 @@ export const vehicle = {
   state: {
     updated_at: new Date().toISOString(),
     online: true,
-    position: { latitude: 48, longitude: 2, altitude: 20, speed: 42, heading: 90, accuracy: 5 },
-    metrics: { 'battery.soc': 70, 'battery.power': -11.1 },
+    position: resolvedPosition(),
+    readings: readings({ 'battery.soc': 70, 'battery.power': -11.1 }),
     agent: { mobile_signal: -82 },
   },
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
+}
+
+/**
+ * A resolved reading map from plain values.
+ *
+ * Live state carries provenance on every metric now, and a test that spells all
+ * six fields out per key says nothing about what it is testing. Defaults are a
+ * fresh direct reading from one agent; pass overrides to make one stale or to
+ * give it a different channel.
+ */
+export function readings(
+  values: Record<string, unknown>,
+  overrides: Partial<Reading> = {},
+): Record<string, Reading> {
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, {
+    value,
+    observed_at: '2026-08-28T12:00:00Z',
+    source_id: 'agent-1',
+    source_kind: 'agent' as const,
+    channel: 'can' as const,
+    method: 'direct' as const,
+    fresh: true,
+    ...overrides,
+  }]))
+}
+
+/** A resolved position: the fix plus the provenance the server chose it with. */
+export function resolvedPosition(fix: Partial<PositionFix> = {}, overrides: Partial<Provenance> = {}): ResolvedPosition {
+  return {
+    latitude: 48, longitude: 2, altitude: 20, speed: 42, heading: 90, accuracy: 5,
+    observed_at: '2026-08-28T12:00:00Z',
+    source_id: 'agent-1',
+    source_kind: 'agent',
+    channel: 'gnss',
+    method: 'direct',
+    fresh: true,
+    ...fix,
+    ...overrides,
+  }
 }
 
 export const agentImplementations = [

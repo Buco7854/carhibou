@@ -13,6 +13,8 @@ import (
 
 type Queue struct{ db *sql.DB }
 
+const queueSchemaVersion = 3
+
 func OpenQueue(path string) (*Queue, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, err
@@ -33,6 +35,36 @@ func OpenQueue(path string) (*Queue, error) {
         )`,
 	} {
 		if _, err := database.Exec(statement); err != nil {
+			database.Close()
+			return nil, err
+		}
+	}
+	var schemaVersion int
+	if err := database.QueryRow("PRAGMA user_version").Scan(&schemaVersion); err != nil {
+		database.Close()
+		return nil, err
+	}
+	if schemaVersion > queueSchemaVersion {
+		database.Close()
+		return nil, fmt.Errorf("telemetry queue schema %d is newer than supported schema %d", schemaVersion, queueSchemaVersion)
+	}
+	if schemaVersion < queueSchemaVersion {
+		transaction, err := database.Begin()
+		if err != nil {
+			database.Close()
+			return nil, err
+		}
+		if _, err := transaction.Exec("DELETE FROM samples"); err != nil {
+			transaction.Rollback()
+			database.Close()
+			return nil, err
+		}
+		if _, err := transaction.Exec(fmt.Sprintf("PRAGMA user_version=%d", queueSchemaVersion)); err != nil {
+			transaction.Rollback()
+			database.Close()
+			return nil, err
+		}
+		if err := transaction.Commit(); err != nil {
 			database.Close()
 			return nil, err
 		}

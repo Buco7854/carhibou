@@ -79,9 +79,9 @@ export function isGeneralChoice(type: string): boolean {
 /**
  * Metric keys every vehicle can answer, whatever its agent can see.
  *
- * Speed is the only one: a CAN or OBD-II agent reports it, and a GNSS-only agent
- * still derives it from the fix, so `speedReading` and `historyValue` resolve it
- * across both sources. A card bound to one of these is asking for standard data
+ * Speed is the only one: a CAN or OBD-II agent reports it directly and a
+ * GNSS-only agent contributes its fix as a candidate, and the server resolves the
+ * two into one reading. A card bound to one of these is asking for standard data
  * and belongs on any dashboard, its empty state reading as ordinary no-data.
  */
 export const STANDARD_METRICS: ReadonlySet<string> = new Set([SPEED_KEY])

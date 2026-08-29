@@ -34,7 +34,7 @@ def _enrollment_payload(invitation: dict[str, Any], implementation_id: str) -> d
     return {
         "token": invitation["token"],
         "implementation_id": implementation_id,
-        "protocol_version": 1,
+        "protocol_version": 2,
         "agent_version": "99.42.7-experimental",
         "hostname": "third-party-host",
         "hardware": {"board": "test"},
@@ -48,7 +48,7 @@ def test_catalog_and_selected_setup_are_concise(
     assert client.get("/api/v1/agent-implementations").status_code == 200
     catalog = client.get("/api/v1/agent-implementations").json()
     assert [entry["id"] for entry in catalog] == ["carhibou.go", "custom"]
-    assert all(entry["protocol_version"] == 1 for entry in catalog)
+    assert all(entry["protocol_version"] == 2 for entry in catalog)
     assert catalog[0]["setup_kind"] == "command"
     assert catalog[1]["setup_kind"] == "guided"
 
@@ -65,7 +65,7 @@ def test_catalog_and_selected_setup_are_concise(
     assert [step["kind"] for step in steps] == ["value", "value", "value", "link"]
     assert steps[0]["value"] == "http://localhost:8000"
     assert steps[1]["value"] == custom["token"]
-    assert steps[2]["value"] == "1"
+    assert steps[2]["value"] == "2"
     assert steps[3]["url"] == "http://localhost:8000/api/docs"
 
 
@@ -85,7 +85,7 @@ def test_bundled_and_custom_enrollment_persist_independent_identity(
     assert enrolled.status_code == 201, enrolled.text
     listed = client.get("/api/v1/agents").json()[0]
     assert listed["implementation_id"] == implementation_id
-    assert listed["protocol_version"] == 1
+    assert listed["protocol_version"] == 2
     assert listed["agent_version"] == "99.42.7-experimental"
     assert listed["compatibility"] == "compatible"
     with db_factory() as db:
@@ -93,7 +93,7 @@ def test_bundled_and_custom_enrollment_persist_independent_identity(
         assert agent is not None
         assert (agent.implementation_id, agent.protocol_version, agent.agent_version) == (
             implementation_id,
-            1,
+            2,
             "99.42.7-experimental",
         )
 
@@ -102,7 +102,7 @@ def test_bundled_and_custom_enrollment_persist_independent_identity(
     ("field", "wrong", "message"),
     [
         ("implementation_id", "carhibou.go", "different agent implementation"),
-        ("protocol_version", 2, "unsupported protocol version 2"),
+        ("protocol_version", 3, "unsupported protocol version 3"),
     ],
 )
 def test_mismatch_does_not_consume_token(

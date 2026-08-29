@@ -99,7 +99,7 @@ def test_connector_api_access_password_and_shadow_agent(
         assert connector_password(connector) == "outbound-secret"
         assert agent
         assert agent.implementation_id == TESLAMATE_IMPLEMENTATION_ID
-        assert agent.protocol_version == 1
+        assert agent.protocol_version == 2
         assert agent.sampling_seconds == 10
 
     assert admin.get("/api/v1/connectors").json()[0]["id"] == connector_id
@@ -232,7 +232,7 @@ def test_reserved_connector_enrollment_rejection_does_not_consume_token(
         json={
             "token": raw,
             "implementation_id": TESLAMATE_IMPLEMENTATION_ID,
-            "protocol_version": 1,
+            "protocol_version": 2,
             "agent_version": "forbidden",
             "hostname": "",
         },

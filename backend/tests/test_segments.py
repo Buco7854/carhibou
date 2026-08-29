@@ -12,7 +12,11 @@ from backend.app.history.segments import (
     _drive_segment,
     _power_integral,
 )
-from backend.app.telemetry.models import Telemetry
+from backend.app.telemetry.models import (
+    Telemetry,
+    TelemetryObservation,
+    TelemetryPositionObservation,
+)
 
 
 def _row(
@@ -24,17 +28,44 @@ def _row(
     latitude: float | None = None,
     longitude: float | None = None,
 ) -> Telemetry:
+    telemetry_id = str(uuid4())
+    observed_at = base + timedelta(seconds=seconds)
     return Telemetry(
-        id=str(uuid4()),
+        id=telemetry_id,
         vehicle_id="vehicle",
         agent_id="agent",
         boot_id="boot",
         sequence=sequence,
-        recorded_at=base + timedelta(seconds=seconds),
-        latitude=latitude,
-        longitude=longitude,
-        metrics=metrics or {},
+        recorded_at=observed_at,
+        reporting_interval=None,
+        event_driven=False,
         agent_data={},
+        observation_rows=[
+            TelemetryObservation(
+                telemetry_id=telemetry_id,
+                vehicle_id="vehicle",
+                source_id="agent",
+                metric_key=key,
+                payload={"value": value},
+                observed_at=observed_at,
+                channel="can",
+                method="direct",
+            )
+            for key, value in (metrics or {}).items()
+        ],
+        position_observation=(
+            TelemetryPositionObservation(
+                telemetry_id=telemetry_id,
+                vehicle_id="vehicle",
+                source_id="agent",
+                value={"latitude": latitude, "longitude": longitude},
+                observed_at=observed_at,
+                channel="gnss",
+                method="direct",
+            )
+            if latitude is not None and longitude is not None
+            else None
+        ),
     )
 
 
@@ -55,7 +86,7 @@ def _source(
         json={
             "token": enrollment["token"],
             "implementation_id": "custom",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "agent_version": "test",
             "hostname": "segments",
         },
@@ -75,26 +106,51 @@ def _upload(
         json={
             "boot_id": str(uuid4()),
             "samples": [
-                {
-                    "id": str(uuid4()),
-                    "sequence": sequence,
-                    "recorded_at": (base + timedelta(seconds=seconds)).isoformat(),
-                    "metrics": metrics,
-                    "position": (
-                        {
-                            "latitude": position[0],
-                            "longitude": position[1],
-                            "speed": position[2],
-                        }
-                        if position
-                        else None
-                    ),
-                }
+                _sample_payload(base, sequence, seconds, metrics, position)
                 for sequence, (seconds, metrics, position) in enumerate(samples)
             ],
         },
     )
     assert response.status_code == 200, response.text
+
+
+def _sample_payload(
+    base: datetime,
+    sequence: int,
+    seconds: int,
+    metrics: dict[str, object],
+    position: tuple[float, float, float | None] | None,
+) -> dict[str, object]:
+    observed_at = (base + timedelta(seconds=seconds)).isoformat()
+    return {
+        "id": str(uuid4()),
+        "sequence": sequence,
+        "recorded_at": observed_at,
+        "observations": [
+            {
+                "key": key,
+                "value": value,
+                "observed_at": observed_at,
+                "channel": "can",
+                "method": "direct",
+            }
+            for key, value in metrics.items()
+        ],
+        "position": (
+            {
+                "value": {
+                    "latitude": position[0],
+                    "longitude": position[1],
+                    "speed": position[2],
+                },
+                "observed_at": observed_at,
+                "channel": "gnss",
+                "method": "direct",
+            }
+            if position
+            else None
+        ),
+    }
 
 
 def _segments(
@@ -367,34 +423,46 @@ def test_segments_order_equal_timestamps_by_sequence(
             "boot_id": str(uuid4()),
             "samples": [
                 {
+                    **_sample_payload(
+                        base,
+                        0,
+                        0,
+                        {
+                            "charging.active": True,
+                            "charging.energy_added": 0,
+                            "battery.soc": 10,
+                        },
+                        None,
+                    ),
                     "id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
-                    "sequence": 0,
-                    "recorded_at": base.isoformat(),
-                    "metrics": {
-                        "charging.active": True,
-                        "charging.energy_added": 0,
-                        "battery.soc": 10,
-                    },
                 },
                 {
+                    **_sample_payload(
+                        base,
+                        1,
+                        0,
+                        {
+                            "charging.active": True,
+                            "charging.energy_added": 1,
+                            "battery.soc": 11,
+                        },
+                        None,
+                    ),
                     "id": "00000000-0000-4000-8000-000000000000",
-                    "sequence": 1,
-                    "recorded_at": base.isoformat(),
-                    "metrics": {
-                        "charging.active": True,
-                        "charging.energy_added": 1,
-                        "battery.soc": 11,
-                    },
                 },
                 {
+                    **_sample_payload(
+                        base,
+                        2,
+                        60,
+                        {
+                            "charging.active": True,
+                            "charging.energy_added": 2,
+                            "battery.soc": 12,
+                        },
+                        None,
+                    ),
                     "id": "11111111-1111-4111-8111-111111111111",
-                    "sequence": 2,
-                    "recorded_at": (base + timedelta(seconds=60)).isoformat(),
-                    "metrics": {
-                        "charging.active": True,
-                        "charging.energy_added": 2,
-                        "battery.soc": 12,
-                    },
                 },
             ],
         },

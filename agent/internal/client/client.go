@@ -39,6 +39,8 @@ type enrollmentRequest struct {
 	Hardware         map[string]any `json:"hardware"`
 }
 
+const ProtocolVersion = 2
+
 func NormalizeServerURL(value string, allowInsecureHTTP bool) (string, error) {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" && parsed.Path != "/" {
@@ -76,7 +78,7 @@ func Enroll(serverURL, token, hostname, version string, hardware map[string]any,
 	}
 	var response EnrollmentResponse
 	err = api.request(http.MethodPost, "/api/v1/agent/enroll", enrollmentRequest{
-		Token: token, ImplementationID: "carhibou.go", ProtocolVersion: 1,
+		Token: token, ImplementationID: "carhibou.go", ProtocolVersion: ProtocolVersion,
 		AgentVersion: version, Hostname: hostname, Hardware: hardware,
 	}, &response, false)
 	if err != nil {

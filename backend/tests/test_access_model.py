@@ -172,7 +172,7 @@ def test_four_personas_enforce_the_complete_access_model(
         json={
             "token": enrollment.json()["token"],
             "implementation_id": "custom",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "agent_version": "test",
             "hostname": "pi",
         },
@@ -180,14 +180,23 @@ def test_four_personas_enforce_the_complete_access_model(
     assert enrolled.status_code == 201, enrolled.text
     agent_id = enrolled.json()["agent_id"]
     agent_headers = {"Authorization": f"Agent {enrolled.json()['credential']}"}
+    observed_at = datetime.now(UTC).isoformat()
     batch = {
         "boot_id": str(uuid4()),
         "samples": [
             {
                 "id": str(uuid4()),
                 "sequence": 1,
-                "recorded_at": datetime.now(UTC).isoformat(),
-                "metrics": {"battery.soc": 50},
+                "recorded_at": observed_at,
+                "observations": [
+                    {
+                        "key": "battery.soc",
+                        "value": 50,
+                        "observed_at": observed_at,
+                        "channel": "can",
+                        "method": "direct",
+                    }
+                ],
             }
         ],
     }
@@ -289,7 +298,7 @@ def test_four_personas_enforce_the_complete_access_model(
         json={
             "token": operator_enrollment.json()["token"],
             "implementation_id": "custom",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "agent_version": "test",
             "hostname": "second-pi",
         },

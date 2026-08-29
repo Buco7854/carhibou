@@ -107,7 +107,7 @@ def test_local_identity_and_agent_auth_realms_are_isolated(
         json={
             "token": enrollment["token"],
             "implementation_id": "custom",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "agent_version": "test",
             "hostname": "simulator",
         },

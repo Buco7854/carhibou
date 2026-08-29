@@ -2,6 +2,7 @@ package providers
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -39,10 +40,10 @@ type ProfileProvider struct {
 	adapter *OBDAdapter
 	decoder *profile.DecoderEngine
 
-	mutex     sync.Mutex
-	metrics   map[string]any
-	lastFrame time.Time
-	failure   string
+	mutex        sync.Mutex
+	observations model.MetricObservations
+	lastFrame    time.Time
+	failure      string
 
 	stop    chan struct{}
 	stopped sync.WaitGroup
@@ -50,7 +51,7 @@ type ProfileProvider struct {
 }
 
 func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *ProfileProvider {
-	return &ProfileProvider{adapter: adapter, decoder: decoder, metrics: map[string]any{}}
+	return &ProfileProvider{adapter: adapter, decoder: decoder, observations: model.MetricObservations{}}
 }
 
 // Status explains why the provider is publishing nothing.
@@ -76,17 +77,17 @@ func (provider *ProfileProvider) Live() bool {
 	return !provider.lastFrame.IsZero() && time.Since(provider.lastFrame) < protocolTrial
 }
 
-// ReadMetrics returns the values the background monitor has collected.
+// ReadObservations returns the values the background monitor has collected.
 //
 // It does not wait for the bus. Frames arrive continuously whether or not anyone
 // is reading, so sampling is a snapshot of what the monitor has kept current: a
 // one-second cadence is a one-second cadence, rather than a second of listening
 // plus everything else the sample needs.
-func (provider *ProfileProvider) ReadMetrics() (map[string]any, error) {
+func (provider *ProfileProvider) ReadObservations() (model.MetricObservations, error) {
 	provider.start()
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
-	return copyMetrics(provider.metrics), nil
+	return copyObservations(provider.observations), nil
 }
 
 func (provider *ProfileProvider) start() {
@@ -166,10 +167,29 @@ func (provider *ProfileProvider) selectListeningProtocol() (string, error) {
 func (provider *ProfileProvider) record(frame model.CANFrame) {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
-	provider.lastFrame = time.Now()
-	for _, decoded := range provider.decoder.Decode(frame, provider.metrics) {
-		provider.metrics[decoded.Name] = decoded.Value
+	observedAt := frameTime(frame)
+	provider.lastFrame = observedAt
+	next := copyObservations(provider.observations)
+	for _, decoded := range provider.decoder.Decode(frame, observationValues(provider.observations)) {
+		metricObservedAt := observedAt
+		if decoded.Method == model.MethodDerived {
+			for _, input := range decoded.Inputs {
+				observation, ok := next[input]
+				if ok && observation.Metadata.ObservedAt.Before(metricObservedAt) {
+					metricObservedAt = observation.Metadata.ObservedAt
+				}
+			}
+		}
+		next[decoded.Name] = model.MetricObservation{
+			Value: decoded.Value,
+			Metadata: model.ObservationMetadata{
+				ObservedAt: metricObservedAt,
+				Channel:    model.ChannelCAN,
+				Method:     decoded.Method,
+			},
+		}
 	}
+	provider.observations = next
 }
 
 func (provider *ProfileProvider) fail(reason string) {
@@ -191,10 +211,27 @@ func (provider *ProfileProvider) Close() {
 	provider.adapter.Close()
 }
 
-func copyMetrics(source map[string]any) map[string]any {
-	result := map[string]any{}
-	for key, value := range source {
-		result[key] = value
+func observationValues(source model.MetricObservations) map[string]any {
+	values := make(map[string]any, len(source))
+	for key, observation := range source {
+		values[key] = observation.Value
+	}
+	return values
+}
+
+func copyObservations(source model.MetricObservations) model.MetricObservations {
+	result := model.MetricObservations{}
+	for key, observation := range source {
+		result[key] = observation
 	}
 	return result
+}
+
+func frameTime(frame model.CANFrame) time.Time {
+	if frame.Timestamp <= 0 || math.IsNaN(frame.Timestamp) || math.IsInf(frame.Timestamp, 0) {
+		return time.Now().UTC()
+	}
+	seconds := int64(frame.Timestamp)
+	nanoseconds := int64((frame.Timestamp - float64(seconds)) * float64(time.Second))
+	return time.Unix(seconds, nanoseconds).UTC()
 }

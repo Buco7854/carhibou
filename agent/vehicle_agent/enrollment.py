@@ -27,7 +27,7 @@ def enroll(
             {
                 "token": token,
                 "implementation_id": "custom",
-                "protocol_version": 1,
+                "protocol_version": 2,
                 "agent_version": __version__,
                 "hostname": hostname,
                 "hardware": hardware,

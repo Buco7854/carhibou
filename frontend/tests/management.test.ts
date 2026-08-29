@@ -10,7 +10,7 @@ import ProfilesView from '../src/views/ProfilesView.vue'
 import VehiclesView from '../src/views/VehiclesView.vue'
 import type { DashboardWidget } from '../src/api/types'
 import { needsSpecificData, widgetRegistry } from '../src/widgets/registry'
-import { adminUser, agentImplementations, agentRow, connectorKinds, jsonResponse, vehicle } from './helpers'
+import { adminUser, agentImplementations, agentRow, connectorKinds, jsonResponse, readings, vehicle } from './helpers'
 
 vi.mock('gridstack', () => ({
   GridStack: {
@@ -168,7 +168,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('filters the vehicle catalog by search and live status locally', async () => {
-    const parked = { ...vehicle, id:'vehicle-2', name:'Nimbus', battery_nominal_capacity_kwh:null, state:{ ...vehicle.state, online:false, metrics:{'fuel.level':48,'engine.rpm':900} } }
+    const parked = { ...vehicle, id:'vehicle-2', name:'Nimbus', battery_nominal_capacity_kwh:null, state:{ ...vehicle.state, online:false, readings:readings({'fuel.level':48,'engine.rpm':900}) } }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(jsonResponse(url.endsWith('/vehicle-profiles') ? [] : [vehicle, parked]))))
     const wrapper = mount(VehiclesView, { global:{plugins:[i18n],stubs:{Teleport:true,RouterLink:{template:'<a><slot /></a>'}}} })
     await flushPromises()
@@ -287,7 +287,7 @@ describe('vehicle and dashboard management', () => {
 
   it('uploads and removes a vehicle photo through the media controls', async () => {
     let photoUrl: string | null = null
-    const vehicleWithoutTelemetry = { ...vehicle, state: { ...vehicle.state, position: null, metrics: {} } }
+    const vehicleWithoutTelemetry = { ...vehicle, state: { ...vehicle.state, position: null, readings: {} } }
     const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
       if (url.endsWith('/vehicles/vehicle-1/photo') && options?.method === 'PUT') {
         photoUrl = '/api/v1/vehicles/vehicle-1/photo?v=abc123'
@@ -348,7 +348,10 @@ describe('vehicle and dashboard management', () => {
     const wrapper = mount(VehiclesView, { global:{plugins:[i18n],stubs:{Teleport:true,RouterLink:{template:'<a><slot /></a>'}}} })
     await flushPromises()
 
-    await wrapper.get('.vehicle-card footer .danger').trigger('click')
+    // Deleting is behind the card's overflow menu, with the two destructive
+    // actions, rather than loose in the footer beside the two links.
+    await wrapper.get('.vehicle-card footer .row-menu-button').trigger('click')
+    await wrapper.get('.vehicle-card footer .row-menu-list .danger').trigger('click')
     expect(wrapper.get('[role="dialog"]').attributes('aria-label')).toBe('Delete vehicle')
     expect(wrapper.get('.delete-warning').text()).toContain('telemetry history')
     await wrapper.get('.delete-actions .danger').trigger('click')
@@ -381,7 +384,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('suggests dashboard metrics that are actually reported by the selected vehicle', async () => {
-    const thermal = { ...vehicle, battery_nominal_capacity_kwh:null, state:{...vehicle.state,metrics:{'fuel.level':52,'engine.rpm':1400}} }
+    const thermal = { ...vehicle, battery_nominal_capacity_kwh:null, state:{...vehicle.state,readings:readings({'fuel.level':52,'engine.rpm':1400})} }
     const dashboard = { id:'dash-1',name:'My dashboard',is_default:true,layout:{preset:'test-fixture',widgets:[]},created_at:'',updated_at:'' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
@@ -399,7 +402,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('adapts the energy gauge to fuel for a combustion vehicle', async () => {
-    const thermal = { ...vehicle, battery_nominal_capacity_kwh:null, state:{...vehicle.state,metrics:{'fuel.level':52,'engine.rpm':1400}} }
+    const thermal = { ...vehicle, battery_nominal_capacity_kwh:null, state:{...vehicle.state,readings:readings({'fuel.level':52,'engine.rpm':1400})} }
     const dashboard = { id:'dash-1',name:'My dashboard',is_default:true,layout:{preset:'test-fixture',widgets:[{id:'energy',type:'battery-gauge',vehicle_id:thermal.id,x:0,y:0,w:3,h:3}]},created_at:'',updated_at:'' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
@@ -509,7 +512,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('updates dynamic widgets from the vehicle selector and persists card deletion', async () => {
-    const secondVehicle = { ...vehicle, id:'vehicle-2', name:'Nimbus', state:{...vehicle.state,metrics:{'fuel.level':25}} }
+    const secondVehicle = { ...vehicle, id:'vehicle-2', name:'Nimbus', state:{...vehicle.state,readings:readings({'fuel.level':25})} }
     const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v8',widgets:[
       {id:'selector',type:'vehicle-selector',x:0,y:0,w:12,h:1},
       {id:'fuel',type:'metric-card',metric:'fuel.level',x:0,y:1,w:3,h:2},
@@ -657,7 +660,10 @@ describe('vehicle and dashboard management', () => {
 
   it('hides opted-in widgets for a vehicle that cannot report them, and keeps the rest', async () => {
     // A standard OBD-II diesel: no traction battery, and no fuel-level PID support.
-    const diesel = { ...vehicle, id:'vehicle-2', name:'Golf', photo_url:null, state:{ ...vehicle.state, metrics:{ 'engine.rpm':1800 } } }
+    const diesel = { ...vehicle, id:'vehicle-2', name:'Golf', photo_url:null, state:{ ...vehicle.state, readings:readings({ 'engine.rpm':1800 }) } }
+    // The EV's charging card needs a resolved charging.active to have anything to
+    // say: the server resolves that flag now, and no reading means unknown.
+    const ev = { ...vehicle, state:{ ...vehicle.state!, readings:readings({ 'battery.soc':70, 'charging.active':false }) } }
     const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v8', widgets:[
       { id:'selector', type:'vehicle-selector', x:0, y:0, w:12, h:1 },
       { id:'energy', type:'battery-gauge', x:0, y:1, w:4, h:2, settings:{ hide_when_empty:true } },
@@ -666,7 +672,7 @@ describe('vehicle and dashboard management', () => {
     ] }, created_at:'', updated_at:'' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
-      if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle, diesel]))
+      if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([ev, diesel]))
       return Promise.resolve(jsonResponse({}))
     }))
     const wrapper = mount(DashboardsView, { global:{plugins:[i18n],stubs:{Teleport:true,TimeSeriesChart:{template:'<div />'},VehicleMap:{template:'<div />'}}} })

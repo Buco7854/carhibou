@@ -46,6 +46,16 @@ func TestCollectReportsHowOldAStreamedFixIs(t *testing.T) {
 	if value, ok := age.(float64); !ok || value < 3.1 || value > 3.3 {
 		t.Fatalf("gps_fix_age_seconds=%v, want about 3.2", age)
 	}
+	if sample.Position == nil {
+		t.Fatal("expected an atomic position observation")
+	}
+	positionAge := sample.RecordedAt.Sub(sample.Position.ObservedAt)
+	if positionAge < 3*time.Second || positionAge > 3400*time.Millisecond {
+		t.Fatalf("position observed age=%s, want about 3.2s", positionAge)
+	}
+	if sample.Position.Channel != model.ChannelGNSS || sample.Position.Method != model.MethodDirect {
+		t.Fatalf("position provenance=%s/%s", sample.Position.Channel, sample.Position.Method)
+	}
 }
 
 // A polling source answers from the hardware every read, so there is no age to report.
@@ -73,9 +83,22 @@ func TestCollectOmitsFixAgeWithoutAPosition(t *testing.T) {
 
 type failingVehicle struct{ reason string }
 
-func (v failingVehicle) ReadMetrics() (map[string]any, error) { return map[string]any{}, nil }
-func (v failingVehicle) Close()                               {}
-func (v failingVehicle) Status() string                       { return v.reason }
+func (v failingVehicle) ReadObservations() (model.MetricObservations, error) {
+	return model.MetricObservations{}, nil
+}
+func (v failingVehicle) Close()         {}
+func (v failingVehicle) Status() string { return v.reason }
+
+type switchingVehicle struct {
+	observations model.MetricObservations
+	live         bool
+}
+
+func (vehicle *switchingVehicle) ReadObservations() (model.MetricObservations, error) {
+	return vehicle.observations, nil
+}
+func (vehicle *switchingVehicle) Close()     {}
+func (vehicle *switchingVehicle) Live() bool { return vehicle.live }
 
 // An agent whose adapter never connects still reports position and health, so
 // without this the only evidence of a dead OBD path was the absence of metrics.
@@ -98,5 +121,64 @@ func TestCollectReportsWhyTheVehicleSourcePublishedNothing(t *testing.T) {
 	}
 	if _, present := healthy.Agent["vehicle_source_error"]; present {
 		t.Fatal("a working source must not add an error field")
+	}
+}
+
+func TestCollectDeclaresTheCadenceChosenForTheCurrentState(t *testing.T) {
+	parked := newAgent(t, EmptyPosition{})
+	parked.DrivingReportingInterval = 30
+	parked.ParkedReportingInterval = 600
+	parkedSample, err := parked.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parkedSample.ReportingInterval == nil || *parkedSample.ReportingInterval != 600 {
+		t.Fatalf("parked reporting interval=%v, want 600", parkedSample.ReportingInterval)
+	}
+
+	speed := 25.0
+	driving := newAgent(t, freshPosition{fix: &model.PositionFix{Latitude: 48.8, Longitude: 2.3, Speed: &speed}})
+	driving.DrivingReportingInterval = 30
+	driving.ParkedReportingInterval = 600
+	drivingSample, err := driving.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if drivingSample.ReportingInterval == nil || *drivingSample.ReportingInterval != 30 {
+		t.Fatalf("driving reporting interval=%v, want 30", drivingSample.ReportingInterval)
+	}
+}
+
+func TestCollectRetractsRememberedChannelKeysWhenTheProviderDies(t *testing.T) {
+	now := time.Now().UTC()
+	vehicle := &switchingVehicle{
+		live: true,
+		observations: model.MetricObservations{
+			"vehicle.speed": {
+				Value: 42.0,
+				Metadata: model.ObservationMetadata{
+					ObservedAt: now,
+					Channel:    model.ChannelCAN,
+					Method:     model.MethodDirect,
+				},
+			},
+		},
+	}
+	agent := newAgent(t, EmptyPosition{})
+	agent.Vehicle = vehicle
+	if _, err := agent.Collect(); err != nil {
+		t.Fatal(err)
+	}
+	vehicle.live = false
+	vehicle.observations = model.MetricObservations{}
+	retracted, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retracted.Observations) != 1 || retracted.Observations[0].Value != nil {
+		t.Fatalf("retractions=%#v, want one null observation", retracted.Observations)
+	}
+	if retracted.Observations[0].Key != "vehicle.speed" || retracted.Observations[0].Channel != model.ChannelCAN {
+		t.Fatalf("wrong retraction provenance: %#v", retracted.Observations[0])
 	}
 }

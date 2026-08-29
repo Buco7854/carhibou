@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Buco7854/carhibou/agent/internal/model"
 	"github.com/Buco7854/carhibou/agent/internal/profile"
 )
 
@@ -20,6 +21,42 @@ func testDecoder(t *testing.T) *profile.DecoderEngine {
 	return decoder
 }
 
+func TestProfileObservationsKeepFrameTimesAndDerivedDependencyAge(t *testing.T) {
+	decoder, err := profile.ParseJSON([]byte(`{
+        "id":"derived-times",
+        "signals":[
+          {"name":"battery.pack_voltage","source":{"type":"can","can_id":1},"decoder":{"data_type":"uint8"}},
+          {"name":"battery.current","source":{"type":"can","can_id":2},"decoder":{"data_type":"uint8"}}
+        ],
+        "computed_metrics":[{"name":"battery.power","operation":"multiply","inputs":["battery.pack_voltage","battery.current"]}]
+    }`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := NewProfileProvider(NewOBDAdapter("/dev/carhibou-absent"), decoder)
+	old := time.Date(2026, 8, 29, 1, 0, 0, 0, time.UTC)
+	newer := old.Add(10 * time.Second)
+	newest := old.Add(20 * time.Second)
+	provider.record(model.CANFrame{Timestamp: float64(old.Unix()), CANID: 1, Data: []byte{10}})
+	provider.record(model.CANFrame{Timestamp: float64(newer.Unix()), CANID: 2, Data: []byte{3}})
+	provider.record(model.CANFrame{Timestamp: float64(newest.Unix()), CANID: 2, Data: []byte{4}})
+
+	observations := provider.observations
+	if got := observations["battery.pack_voltage"].Metadata.ObservedAt; !got.Equal(old) {
+		t.Fatalf("voltage observed_at=%s want %s", got, old)
+	}
+	if got := observations["battery.current"].Metadata.ObservedAt; !got.Equal(newest) {
+		t.Fatalf("current observed_at=%s want %s", got, newest)
+	}
+	power := observations["battery.power"]
+	if power.Metadata.Method != model.MethodDerived || !power.Metadata.ObservedAt.Equal(old) {
+		t.Fatalf("derived power metadata=%#v, want oldest dependency %s", power.Metadata, old)
+	}
+	if power.Value != float64(40) {
+		t.Fatalf("derived power=%v want 40", power.Value)
+	}
+}
+
 // Sampling must not wait for the bus. Frames arrive continuously whether or not
 // anyone is reading, and a window opened per sample both blocked for its whole
 // duration — making a one-second cadence impossible — and saw only the fraction
@@ -30,7 +67,7 @@ func TestReadMetricsDoesNotWaitForTheBus(t *testing.T) {
 
 	started := time.Now()
 	for i := 0; i < 3; i++ {
-		if _, err := provider.ReadMetrics(); err != nil {
+		if _, err := provider.ReadObservations(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
@@ -54,9 +91,9 @@ func TestAFailedAdapterIsNotRetriedEverySample(t *testing.T) {
 	provider := NewProfileProvider(NewOBDAdapter("/dev/carhibou-absent"), testDecoder(t))
 	defer provider.Close()
 
-	provider.ReadMetrics()
+	provider.ReadObservations()
 	first := provider.nextTry
-	provider.ReadMetrics()
+	provider.ReadObservations()
 	if !provider.nextTry.Equal(first) {
 		t.Fatal("the retry window was reset by a sample that should have been held off")
 	}

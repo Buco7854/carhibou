@@ -6,7 +6,7 @@ import { auth } from '../src/api/auth'
 import type { DashboardWidget, Vehicle } from '../src/api/types'
 import { dashboardRuntimeKey } from '../src/widgets/dashboardContext'
 import { needsSpecificData, widgetRegistry } from '../src/widgets/registry'
-import { adminUser, mockApi, vehicle } from './helpers'
+import { adminUser, mockApi, readings, vehicle } from './helpers'
 
 vi.mock('../src/components/VehicleMap.vue', () => ({
   default: defineComponent({ setup: () => () => h('div', { class: 'vehicle-map-stub' }) }),
@@ -18,7 +18,7 @@ vi.mock('../src/components/TimeSeriesChart.vue', () => ({
 const EV = {
   ...vehicle,
   photo_url: null,
-  state: { ...vehicle.state!, metrics: { 'battery.soc': 61, 'charging.power': 7, 'battery.power': -4 } },
+  state: { ...vehicle.state!, readings: readings({ 'battery.soc': 61, 'charging.power': 7, 'battery.power': -4 }) },
 } as unknown as Vehicle
 
 /** Mounts one widget and returns the text its head actually renders. */
@@ -57,9 +57,9 @@ describe('opinionated cards name their data', () => {
 
   it('titles the energy gauge by the energy the vehicle actually reports', async () => {
     expect(await head('battery-gauge', {}, EV)).toBe('Battery level')
-    const fuel = { ...EV, state: { ...EV.state!, metrics: { 'fuel.level': 48 } } } as unknown as Vehicle
+    const fuel = { ...EV, state: { ...EV.state!, readings: readings({ 'fuel.level': 48 }) } } as unknown as Vehicle
     expect(await head('battery-gauge', {}, fuel)).toBe('Fuel level')
-    const bare = { ...EV, state: { ...EV.state!, metrics: {} } } as unknown as Vehicle
+    const bare = { ...EV, state: { ...EV.state!, readings: {} } } as unknown as Vehicle
     expect(await head('battery-gauge', {}, bare)).toBe('Energy level')
   })
 

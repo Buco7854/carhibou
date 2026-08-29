@@ -3,6 +3,7 @@ package model
 import (
 	"crypto/rand"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -18,20 +19,91 @@ type PositionFix struct {
 	Satellites *int       `json:"-"`
 }
 
-type Sample struct {
-	ID         string         `json:"id"`
-	Sequence   int64          `json:"sequence"`
-	RecordedAt time.Time      `json:"recorded_at"`
-	Position   *PositionFix   `json:"position"`
-	Metrics    map[string]any `json:"metrics"`
-	Agent      map[string]any `json:"agent"`
+const (
+	ChannelCAN     = "can"
+	ChannelOBD     = "obd"
+	ChannelGNSS    = "gnss"
+	ChannelMQTT    = "mqtt"
+	ChannelDerived = "derived"
+	MethodDirect   = "direct"
+	MethodDerived  = "derived"
+)
+
+type ObservationMetadata struct {
+	ObservedAt time.Time `json:"observed_at"`
+	Channel    string    `json:"channel"`
+	Method     string    `json:"method"`
 }
 
-func NewSample(sequence int64, position *PositionFix, metrics, agent map[string]any) Sample {
+type MetricObservation struct {
+	Value    any
+	Metadata ObservationMetadata
+}
+
+type MetricObservations map[string]MetricObservation
+
+type Observation struct {
+	Key        string    `json:"key"`
+	Value      any       `json:"value"`
+	ObservedAt time.Time `json:"observed_at"`
+	Channel    string    `json:"channel"`
+	Method     string    `json:"method"`
+}
+
+type PositionObservation struct {
+	Value      PositionFix `json:"value"`
+	ObservedAt time.Time   `json:"observed_at"`
+	Channel    string      `json:"channel"`
+	Method     string      `json:"method"`
+}
+
+func (observations MetricObservations) List() []Observation {
+	result := make([]Observation, 0, len(observations))
+	for key, observation := range observations {
+		result = append(result, Observation{
+			Key:        key,
+			Value:      observation.Value,
+			ObservedAt: observation.Metadata.ObservedAt,
+			Channel:    observation.Metadata.Channel,
+			Method:     observation.Metadata.Method,
+		})
+	}
+	sort.Slice(result, func(left, right int) bool {
+		if result[left].Key == result[right].Key {
+			return result[left].Channel < result[right].Channel
+		}
+		return result[left].Key < result[right].Key
+	})
+	return result
+}
+
+type Sample struct {
+	ID                string               `json:"id"`
+	Sequence          int64                `json:"sequence"`
+	RecordedAt        time.Time            `json:"recorded_at"`
+	Position          *PositionObservation `json:"position,omitempty"`
+	Observations      []Observation        `json:"observations"`
+	Agent             map[string]any       `json:"agent"`
+	ReportingInterval *int                 `json:"reporting_interval,omitempty"`
+	EventDriven       bool                 `json:"event_driven,omitempty"`
+}
+
+func NewSample(sequence int64, position *PositionObservation, observations []Observation, agent map[string]any) Sample {
+	if observations == nil {
+		observations = []Observation{}
+	}
 	return Sample{
 		ID: NewUUID(), Sequence: sequence, RecordedAt: time.Now().UTC(), Position: position,
-		Metrics: nonNilMap(metrics), Agent: nonNilMap(agent),
+		Observations: observations, Agent: nonNilMap(agent),
 	}
+}
+
+func (sample Sample) MetricValues() map[string]any {
+	values := map[string]any{}
+	for _, observation := range sample.Observations {
+		values[observation.Key] = observation.Value
+	}
+	return values
 }
 
 func nonNilMap(value map[string]any) map[string]any {

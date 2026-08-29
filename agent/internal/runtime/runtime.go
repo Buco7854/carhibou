@@ -25,7 +25,7 @@ type AgedPosition interface {
 	Age() time.Duration
 }
 type VehicleProvider interface {
-	ReadMetrics() (map[string]any, error)
+	ReadObservations() (model.MetricObservations, error)
 	Close()
 }
 
@@ -38,14 +38,20 @@ type VehicleStatus interface {
 	Status() string
 }
 
+type VehicleLiveness interface {
+	Live() bool
+}
+
 type EmptyPosition struct{}
 
 func (EmptyPosition) Read() (*model.PositionFix, error) { return nil, nil }
 
 type EmptyVehicle struct{}
 
-func (EmptyVehicle) ReadMetrics() (map[string]any, error) { return map[string]any{}, nil }
-func (EmptyVehicle) Close()                               {}
+func (EmptyVehicle) ReadObservations() (model.MetricObservations, error) {
+	return model.MetricObservations{}, nil
+}
+func (EmptyVehicle) Close() {}
 
 type Agent struct {
 	Queue    *store.Queue
@@ -57,12 +63,47 @@ type Agent struct {
 	Activity ActivityDetector
 	// InUse is what the last Collect decided, so the caller can choose the
 	// interval it waits before the next one.
-	InUse bool
+	InUse                    bool
+	DrivingReportingInterval int
+	ParkedReportingInterval  int
+	vehicleKeys              map[string]map[string]string
 }
 
 func (agent *Agent) Collect() (model.Sample, error) {
 	position, _ := agent.Position.Read()
-	metrics, _ := agent.Vehicle.ReadMetrics()
+	observations, _ := agent.Vehicle.ReadObservations()
+	if agent.vehicleKeys == nil {
+		agent.vehicleKeys = map[string]map[string]string{}
+	}
+	channelDead := false
+	if live, ok := agent.Vehicle.(VehicleLiveness); ok && !live.Live() {
+		channelDead = true
+	}
+	if reporter, ok := agent.Vehicle.(VehicleStatus); ok && reporter.Status() != "" {
+		channelDead = true
+	}
+	if channelDead {
+		now := time.Now().UTC()
+		for channel, keys := range agent.vehicleKeys {
+			for key, method := range keys {
+				observations[key] = model.MetricObservation{
+					Value: nil,
+					Metadata: model.ObservationMetadata{
+						ObservedAt: now, Channel: channel, Method: method,
+					},
+				}
+			}
+		}
+		agent.vehicleKeys = map[string]map[string]string{}
+	} else {
+		for key, observation := range observations {
+			channel := observation.Metadata.Channel
+			if agent.vehicleKeys[channel] == nil {
+				agent.vehicleKeys[channel] = map[string]string{}
+			}
+			agent.vehicleKeys[channel][key] = observation.Metadata.Method
+		}
+	}
 	depth, _ := agent.Queue.Depth()
 	health := SystemHealth(depth)
 	// A sample is stamped when it is taken, but a streaming receiver may have
@@ -78,9 +119,31 @@ func (agent *Agent) Collect() (model.Sample, error) {
 			health["vehicle_source_error"] = status
 		}
 	}
-	sample := model.NewSample(agent.Sequence+1, position, metrics, health)
+	var positionObservation *model.PositionObservation
+	if position != nil {
+		observedAt := time.Now().UTC()
+		if position.RecordedAt != nil {
+			observedAt = position.RecordedAt.UTC()
+		} else if aged, ok := agent.Position.(AgedPosition); ok {
+			observedAt = observedAt.Add(-aged.Age())
+		}
+		positionObservation = &model.PositionObservation{
+			Value:      *position,
+			ObservedAt: observedAt,
+			Channel:    model.ChannelGNSS,
+			Method:     model.MethodDirect,
+		}
+	}
+	sample := model.NewSample(agent.Sequence+1, positionObservation, observations.List(), health)
 	inUse, source := agent.Activity.Observe(sample, time.Now())
 	agent.InUse = inUse
+	reportingInterval := agent.ParkedReportingInterval
+	if inUse {
+		reportingInterval = agent.DrivingReportingInterval
+	}
+	if reportingInterval > 0 {
+		sample.ReportingInterval = &reportingInterval
+	}
 	// Published because an agent that has dropped to its parked cadence is
 	// otherwise indistinguishable from one whose hardware stopped answering.
 	sample.Agent["vehicle_in_use"] = inUse

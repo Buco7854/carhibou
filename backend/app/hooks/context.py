@@ -1,17 +1,40 @@
 import io
 import math
-from collections.abc import Iterator, MutableMapping
+from collections.abc import Iterator, MutableMapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from types import MappingProxyType, SimpleNamespace
+from types import MappingProxyType
 from typing import Any
 
 import httpx
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.orm import Session
+
+
+class ReadOnlyObject:
+    __slots__ = ("_values",)
+
+    def __init__(self, values: dict[str, Any]):
+        object.__setattr__(self, "_values", MappingProxyType(values))
+
+    def __getattr__(self, key: str) -> Any:
+        try:
+            return self._values[key]
+        except KeyError as exc:
+            raise AttributeError(key) from exc
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        del key, value
+        raise TypeError("hook telemetry values are read-only")
+
+    def __repr__(self) -> str:
+        return f"ReadOnlyObject({dict(self._values)!r})"
 
 
 def _object(value: Any) -> Any:
     if isinstance(value, dict):
-        return SimpleNamespace(**{key: _object(item) for key, item in value.items()})
+        return ReadOnlyObject({key: _object(item) for key, item in value.items()})
     if isinstance(value, list):
         return tuple(_object(item) for item in value)
     return value
@@ -184,12 +207,144 @@ class CappedWriter(io.TextIOBase):
         return True
 
 
-def _sample(raw: dict[str, Any]) -> Any:
-    sample = dict(raw)
-    sample["recorded_at"] = _datetime(sample.get("recorded_at"))
-    sample["metrics"] = MappingProxyType(sample.get("metrics", {}))
-    sample["agent"] = MappingProxyType(sample.get("agent", {}))
-    return _object(sample)
+def _state(raw: dict[str, Any]) -> Any:
+    readings = {
+        key: _object({**value, "observed_at": _datetime(value.get("observed_at"))})
+        for key, value in raw.get("readings", {}).items()
+    }
+    position = raw.get("position")
+    if position:
+        position = _object({**position, "observed_at": _datetime(position.get("observed_at"))})
+    return ReadOnlyObject(
+        {
+            "updated_at": _datetime(raw.get("updated_at")),
+            "online": raw.get("online"),
+            "readings": MappingProxyType(readings),
+            "position": position,
+            "agent": MappingProxyType(dict(raw.get("agent", {}))),
+        }
+    )
+
+
+class HookTelemetry:
+    def __init__(self, data: dict[str, Any], database_url: str):
+        self.vehicle_id = str(data["vehicle_id"])
+        self.triggering = tuple(
+            _object({**row, "observed_at": _datetime(row.get("observed_at"))})
+            for row in data.get("triggering", [])
+        )
+        self.current = _state(data.get("current", {}))
+        self._engine = create_engine(database_url)
+
+    @contextmanager
+    def _read_session(self) -> Iterator[Session]:
+        with Session(self._engine) as db:
+            dialect = db.get_bind().dialect.name
+            if dialect == "postgresql":
+                db.execute(text("SET TRANSACTION READ ONLY"))
+            elif dialect == "sqlite":
+                db.execute(text("PRAGMA query_only = ON"))
+            yield db
+            db.rollback()
+
+    def state_at(self, at: datetime) -> Any:
+        from backend.app.history.reconstruction import state_at_time
+
+        if at.tzinfo is None:
+            raise ValueError("state_at requires a timezone-aware timestamp")
+        with self._read_session() as db:
+            return _state(state_at_time(db, self.vehicle_id, at))
+
+    def history(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        keys: Sequence[str] | None = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> tuple[Any, ...]:
+        from backend.app.connectors.models import Connector
+        from backend.app.telemetry.models import (
+            TelemetryObservation,
+            TelemetryPositionObservation,
+        )
+
+        if start.tzinfo is None or end.tzinfo is None or start >= end:
+            raise ValueError("history requires an ordered timezone-aware range")
+        if limit < 1 or limit > 1000 or offset < 0:
+            raise ValueError("history limit must be 1..1000 and offset must be non-negative")
+        with self._read_session() as db:
+            metric_query = select(TelemetryObservation).where(
+                TelemetryObservation.vehicle_id == self.vehicle_id,
+                TelemetryObservation.observed_at >= start,
+                TelemetryObservation.observed_at < end,
+            )
+            selected_keys = set(keys or ())
+            if selected_keys:
+                metric_query = metric_query.where(
+                    TelemetryObservation.metric_key.in_(selected_keys - {"position"})
+                )
+            metric_rows = list(
+                db.scalars(
+                    metric_query.order_by(
+                        TelemetryObservation.observed_at,
+                        TelemetryObservation.id,
+                    ).limit(limit + offset)
+                )
+            )
+            position_rows = []
+            if not selected_keys or "position" in selected_keys:
+                position_rows = list(
+                    db.scalars(
+                        select(TelemetryPositionObservation)
+                        .where(
+                            TelemetryPositionObservation.vehicle_id == self.vehicle_id,
+                            TelemetryPositionObservation.observed_at >= start,
+                            TelemetryPositionObservation.observed_at < end,
+                        )
+                        .order_by(TelemetryPositionObservation.observed_at)
+                        .limit(limit + offset)
+                    )
+                )
+            connector_ids = set(
+                db.scalars(
+                    select(Connector.id).where(
+                        Connector.id.in_(
+                            {row.source_id for row in metric_rows}
+                            | {row.source_id for row in position_rows}
+                        )
+                    )
+                )
+            )
+            values = [
+                {
+                    "telemetry_id": row.telemetry_id,
+                    "key": row.metric_key,
+                    "value": row.payload.get("value"),
+                    "observed_at": row.observed_at,
+                    "source_id": row.source_id,
+                    "source_kind": "connector" if row.source_id in connector_ids else "agent",
+                    "channel": row.channel,
+                    "method": row.method,
+                }
+                for row in metric_rows
+            ]
+            values.extend(
+                {
+                    "telemetry_id": row.telemetry_id,
+                    "key": "position",
+                    "value": row.value,
+                    "observed_at": row.observed_at,
+                    "source_id": row.source_id,
+                    "source_kind": "connector" if row.source_id in connector_ids else "agent",
+                    "channel": row.channel,
+                    "method": row.method,
+                }
+                for row in position_rows
+            )
+            values.sort(key=lambda row: (row["observed_at"], row["telemetry_id"], row["key"]))
+            return tuple(_object(row) for row in values[offset : offset + limit])
 
 
 class HookContext:
@@ -199,17 +354,8 @@ class HookContext:
         event["payload"] = MappingProxyType(event.get("payload", {}))
         event["occurred_at"] = _datetime(event.get("occurred_at"))
         self.event = _object(event)
-        raw_batch = data.get("telemetry_batch") or [data["telemetry"]]
-        # Oldest first, so the batch reads like a timeline and [-1] is the newest sample.
-        self.telemetry_batch = tuple(_sample(row) for row in raw_batch)
-        self.telemetry = self.telemetry_batch[-1]
-        vehicle = dict(data["vehicle"])
-        vehicle_state = dict(vehicle.get("state", {}))
-        vehicle_state["metrics"] = MappingProxyType(vehicle_state.get("metrics", {}))
-        vehicle_state["agent"] = MappingProxyType(vehicle_state.get("agent", {}))
-        vehicle_state["updated_at"] = _datetime(vehicle_state.get("updated_at"))
-        vehicle["state"] = vehicle_state
-        self.vehicle = _object(vehicle)
+        self.telemetry = HookTelemetry(data["telemetry_context"], data["database_url"])
+        self.vehicle = _object(data["vehicle"])
         self.agent = _object(data["agent"])
         self.state = HookStateMapping(data.get("state", {}))
         self.secrets = MappingProxyType(data.get("secrets", {}))

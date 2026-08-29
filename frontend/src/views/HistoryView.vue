@@ -5,9 +5,10 @@ import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../api/client'
 import { loadHistory } from '../api/segments'
 import { useLiveRefresh, useLiveVehicles } from '../api/live'
-import type { History, Position, Vehicle } from '../api/types'
+import type { History, PositionFix, Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import AppSelect from '../components/AppSelect.vue'
+import HistoryTable from '../components/HistoryTable.vue'
 import TelemetryTable from '../components/TelemetryTable.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import VehicleMap from '../components/VehicleMap.vue'
@@ -29,12 +30,21 @@ watch(live.vehicles, (next) => {
 })
 const history = ref<History | null>(null)
 const metric = ref('')
+/**
+ * The two ways of reading the same history.
+ *
+ * Observations are what the car actually sent, sparse and irregular. The table
+ * is the server's reconstruction: every metric carried forward to a fixed grid,
+ * so a row is the whole car at an instant rather than whatever happened to
+ * arrive then. They answer different questions, so neither replaces the other.
+ */
+const mode = ref<'observations' | 'table'>('observations')
 const days = ref(1)
 const error = ref('')
 const vehicleId = String(route.params.id)
 const vehicleDetails = computed(() => [vehicle.value?.manufacturer, vehicle.value?.model, vehicle.value?.year].filter(Boolean).join(' · '))
 const routePoints = computed<Array<[number, number]>>(() => (history.value?.points ?? []).flatMap((point) => point.latitude !== null && point.longitude !== null ? [[point.latitude, point.longitude]] : []))
-const lastPosition = computed<Position | null>(() => {
+const lastPosition = computed<PositionFix | null>(() => {
   const point = [...(history.value?.points ?? [])].reverse().find((row) => row.latitude !== null && row.longitude !== null)
   return point ? { latitude: point.latitude!, longitude: point.longitude!, altitude: null, speed: point.speed, heading: point.heading, accuracy: null } : null
 })
@@ -89,8 +99,14 @@ onMounted(load)
 
     <p v-if="error" class="error">{{ error }}</p>
 
+    <div class="history-modes" role="group" :aria-label="t('history.mode')">
+      <button v-for="option in (['observations','table'] as const)" :key="option" type="button" :class="{ active: mode === option }" :aria-pressed="mode === option" @click="mode = option">
+        {{ t(`history.modes.${option}`) }}
+      </button>
+    </div>
+
     <div class="history-controls">
-      <label class="field inline-field"><span>{{ t('history.metric') }}</span>
+      <label v-if="mode === 'observations'" class="field inline-field"><span>{{ t('history.metric') }}</span>
         <!-- With nothing recorded there is no metric to pick, so the control says
              so and stands down rather than offering an empty list. -->
         <AppSelect v-model="metric" :disabled="!metricOptions.length" :aria-label="t('history.metric')">
@@ -100,12 +116,13 @@ onMounted(load)
       </label>
       <label class="field inline-field range-field"><span>{{ t('history.range') }}</span><AppSelect v-model="days"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></AppSelect></label>
       <dl class="history-summary">
-        <div class="history-stat"><dt>{{ t('history.latest') }}</dt><dd>{{ latestDisplay }}<small v-if="latestValue !== undefined && selectedMetric.unit">{{ selectedMetric.unit }}</small></dd></div>
-        <div v-if="history" class="history-stat"><dt>{{ t('history.sourceSamples') }}</dt><dd>{{ history.original_count }}</dd></div>
+        <div v-if="mode === 'observations'" class="history-stat"><dt>{{ t('history.latest') }}</dt><dd>{{ latestDisplay }}<small v-if="latestValue !== undefined && selectedMetric.unit">{{ selectedMetric.unit }}</small></dd></div>
+        <div v-if="history && mode === 'observations'" class="history-stat"><dt>{{ t('history.sourceSamples') }}</dt><dd>{{ history.original_count }}</dd></div>
         <div class="history-stat"><dt>{{ t('common.status') }}</dt><dd><span :class="['status',{online:vehicle?.state?.online}]">{{ vehicle?.state?.online ? t('common.online') : t('common.stale') }}</span></dd></div>
       </dl>
     </div>
 
+    <template v-if="mode === 'observations'">
     <div v-if="history?.points.length" class="history-grid">
       <section class="panel history-chart">
         <header><h2>{{ metricLabel(selectedMetric, t) }}</h2><span class="mono panel-meta">{{ metric }}</span></header>
@@ -119,10 +136,17 @@ onMounted(load)
     <div v-else class="panel empty">{{ t('history.noData') }}</div>
 
     <TelemetryTable class="entries-section" :vehicle-id="vehicleId" :days="days" />
+    </template>
+
+    <HistoryTable v-else class="entries-section" :vehicle-id="vehicleId" :days="days" />
   </div>
 </template>
 
 <style scoped>
+.history-modes{display:inline-flex;gap:3px;margin-bottom:14px;padding:3px;background:var(--panel-2);border-radius:var(--radius)}
+.history-modes button{padding:6px 12px;color:var(--muted);background:transparent;border:0;border-radius:var(--radius-sm);font-size:var(--font-body);font-weight:500;cursor:pointer;transition:color .12s,background-color .12s}
+.history-modes button:hover{color:var(--text)}
+.history-modes button.active{color:var(--accent);background:var(--panel);box-shadow:var(--shadow-soft)}
 .history-controls{display:flex;align-items:flex-end;flex-wrap:wrap;gap:14px 20px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--line)}
 .inline-field{width:min(320px,100%)}
 .range-field{width:150px}

@@ -51,7 +51,7 @@ const primaryNav = computed<NavEntry[]>(() => [
 const secondaryNav = computed<NavEntry[]>(() => [
   ...(isAdmin.value ? [{ to: '/hooks', icon: 'hooks', label: t('nav.hooks') }] : []),
   { to: '/settings', icon: 'settings', label: t('nav.settings') },
-  ...(isAdmin.value ? [{ to: '/admin', icon: 'profile', label: t('admin.title') }] : []),
+  ...(isAdmin.value ? [{ to: '/admin', icon: 'shield', label: t('admin.title') }] : []),
 ])
 
 const moreOpen = ref(false)

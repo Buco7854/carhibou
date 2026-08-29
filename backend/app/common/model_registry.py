@@ -8,7 +8,15 @@ from backend.app.dashboards.models import Dashboard
 from backend.app.hooks.models import Hook, HookExecution, HookRevision, HookState, Trigger
 from backend.app.jobs.models import Job, WorkerHeartbeat
 from backend.app.secrets.models import Secret
-from backend.app.telemetry.models import Telemetry
+from backend.app.telemetry.models import (
+    MetricCandidate,
+    PositionCandidate,
+    SourceContact,
+    SourceContactPeriod,
+    Telemetry,
+    TelemetryObservation,
+    TelemetryPositionObservation,
+)
 from backend.app.users.models import User
 from backend.app.vehicle_profiles.models import VehicleProfile
 from backend.app.vehicle_state.models import VehicleState
@@ -29,6 +37,12 @@ __all__ = [
     "Job",
     "Secret",
     "Telemetry",
+    "TelemetryObservation",
+    "TelemetryPositionObservation",
+    "MetricCandidate",
+    "PositionCandidate",
+    "SourceContact",
+    "SourceContactPeriod",
     "Trigger",
     "User",
     "VehicleAccessGrant",

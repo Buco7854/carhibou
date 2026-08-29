@@ -4,20 +4,24 @@ import i18n from '../src/i18n'
 import { auth } from '../src/api/auth'
 import type { DashboardWidget, Vehicle } from '../src/api/types'
 import AppSelect from '../src/components/AppSelect.vue'
-import { historyValue, metricNumber, reportedChartMetrics, speedReading } from '../src/vehicleDisplay'
+import { historyValue, metricNumber, reportedChartMetrics } from '../src/vehicleDisplay'
 import DashboardsView from '../src/views/DashboardsView.vue'
 import { STANDARD_METRICS, isGeneralChoice, needsSpecificData, widgetRegistry } from '../src/widgets/registry'
-import { adminUser, jsonResponse, vehicle } from './helpers'
+import { adminUser, jsonResponse, readings, resolvedPosition, vehicle } from './helpers'
 
-function speedy(metrics: Record<string, unknown>, positionSpeed: number | null): Vehicle {
+function speedy(values: Record<string, unknown>, positionSpeed: number | null): Vehicle {
   return {
     ...vehicle,
-    state: { ...vehicle.state!, metrics, position: positionSpeed === null ? null : { latitude: 48, longitude: 2, altitude: null, speed: positionSpeed, heading: null, accuracy: null } },
+    state: {
+      ...vehicle.state!,
+      readings: readings(values),
+      position: positionSpeed === null ? null : resolvedPosition({ speed: positionSpeed }),
+    },
   } as unknown as Vehicle
 }
 
-function withMetrics(metrics: Record<string, unknown>, position: unknown = null): Vehicle {
-  return { ...vehicle, state: { ...vehicle.state!, position, metrics } } as unknown as Vehicle
+function withMetrics(values: Record<string, unknown>, position: unknown = null): Vehicle {
+  return { ...vehicle, state: { ...vehicle.state!, position, readings: readings(values) } } as unknown as Vehicle
 }
 
 const dashboard = {
@@ -184,17 +188,22 @@ describe('generic chart axis defaults', () => {
 
 
 describe('speed as standard, source-flexible data', () => {
-  it('prefers the measured reading and falls back to the fix', () => {
-    expect(speedReading(speedy({ 'vehicle.speed': 54 }, 47))).toBe(54)
-    expect(speedReading(speedy({}, 47))).toBe(47)
-    expect(speedReading(speedy({ 'vehicle.speed': 54 }, null))).toBe(54)
-    expect(speedReading(speedy({}, null))).toBe(null)
-    expect(speedReading(null)).toBe(null)
+  it('reads the resolved speed and never picks between sources itself', () => {
+    // The server chose among the CAN and GNSS candidates before this arrived, so
+    // there is one value to read and no preference left to express here.
+    expect(metricNumber(speedy({ 'vehicle.speed': 54 }, 47), 'vehicle.speed')).toBe(54)
+    expect(metricNumber(speedy({ 'vehicle.speed': 47 }, 47), 'vehicle.speed')).toBe(47)
+    expect(metricNumber(null, 'vehicle.speed')).toBe(null)
   })
 
-  it('resolves the same way for any caller asking by key', () => {
-    expect(metricNumber(speedy({}, 47), 'vehicle.speed')).toBe(47)
-    // Only speed is special; every other key still reads the metric map alone.
+  it('does not mine the fix for a speed the server did not resolve', () => {
+    // A fix carrying speed is a candidate, not a reading. If the server resolved
+    // no vehicle.speed, the client has nothing to show and says so.
+    expect(metricNumber(speedy({}, 47), 'vehicle.speed')).toBe(null)
+    expect(reportedChartMetrics(speedy({}, 47))).not.toContain('vehicle.speed')
+  })
+
+  it('reads every other key straight from its resolved reading', () => {
     expect(metricNumber(speedy({ 'battery.soc': 61 }, 47), 'battery.soc')).toBe(61)
     expect(metricNumber(speedy({}, 47), 'battery.soc')).toBe(null)
   })

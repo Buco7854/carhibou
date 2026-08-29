@@ -122,15 +122,18 @@ session cannot authorize agent routes.
 
 ## Telemetry transaction
 
-`POST /api/v1/agent/telemetry/batch` accepts at most 500 samples, each with a stable
-UUID, boot-local sequence, UTC timestamp, optional position, canonical metrics and
-agent health. A unique sample UUID makes retries idempotent without changing history or
-rerunning hooks.
+`POST /api/v1/agent/telemetry/batch` accepts at most 500 protocol-v2 samples, each with
+a stable UUID, boot-local sequence, UTC timestamp, optional atomic position observation,
+independent metric observations and agent health. Source identity comes from the agent
+credential; channel and observation time travel with each value. A unique sample UUID
+makes retries idempotent without changing history or rerunning hooks.
 
-One transaction stores accepted history, advances `vehicle_state` only for a newer
-sample, creates a generic trigger and queues matching hook jobs. Position and common
-query dimensions are relational columns; variable metrics remain JSONB. PostgreSQL is
-the time-series store at the intended scale.
+One transaction stores immutable observations, advances newer per-source candidates,
+resolves the vehicle's live readings, creates a generic trigger and queues matching hook
+jobs. A delayed observation can update one metric without overwriting a newer unrelated
+one. Candidate freshness follows the source cadence recorded with the observation;
+safety-sensitive values expire to unknown while persistent values remain visibly stale.
+PostgreSQL is the time-series store at the intended scale.
 
 The bounded history endpoint downsamples route and chart points. The entries endpoint
 returns paginated raw rows; numeric sorting and filtering of JSON metrics leaves
@@ -157,11 +160,12 @@ worker claims jobs with `FOR UPDATE SKIP LOCKED` and starts a fresh child proces
 and CPU time, memory, file output and result size are bounded for reliability; privileged
 Python is not treated as hostile-code-safe.
 
-SDK v2 exposes immutable `ctx.event`, newest `ctx.telemetry`, oldest-first
-`ctx.telemetry_batch`, vehicle and agent projections, durable JSON state, encrypted
-secrets, HTTP and geometry helpers, structured logging, and `ctx.dry_run`. ORM entities
-never cross the boundary. State serializes only on success and executions for one hook
-are serialized.
+SDK v3 exposes immutable `ctx.event`, resolved `ctx.telemetry.current`, the observations
+that caused the run in `ctx.telemetry.triggering`, state-at-time reconstruction and
+bounded raw history queries. Vehicle and agent projections, durable JSON state,
+encrypted secrets, HTTP and geometry helpers, structured logging, and `ctx.dry_run`
+remain available. ORM entities never cross the boundary. State serializes only on
+success and executions for one hook are serialized.
 
 Failures, timeouts and recovered crashes are visible but not automatically retried,
 because arbitrary external side effects may not be idempotent. A manual dry run remains

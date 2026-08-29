@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Vehicle } from '../src/api/types'
-import { CHARGING_POWER_FLOOR_KW, chargingState, defaultDashboardMetrics, energySummary, headlineReading, preferredHistoryMetric, secondaryReadings } from '../src/vehicleDisplay'
-import { vehicle } from './helpers'
+import { chargingState, defaultDashboardMetrics, energySummary, headlineReading, isFresh, metricReading, preferredHistoryMetric, reportedKeys, secondaryReadings, vehicleActivity } from '../src/vehicleDisplay'
+import { readings, vehicle } from './helpers'
 
-function withMetrics(metrics: Record<string, unknown>): Vehicle {
-  return { ...vehicle, state: { ...vehicle.state!, position: null, metrics } }
+function withMetrics(values: Record<string, unknown>): Vehicle {
+  return { ...vehicle, state: { ...vehicle.state!, position: null, readings: readings(values) } }
+}
+
+/** The same vehicle, with one reading the server has marked past its freshness. */
+function stale(values: Record<string, unknown>): Vehicle {
+  return { ...vehicle, state: { ...vehicle.state!, position: null, readings: readings(values, { fresh: false }) } }
 }
 
 describe('telemetry-driven vehicle display', () => {
@@ -56,46 +61,85 @@ describe('telemetry-driven vehicle display', () => {
     expect(headlineReading(withMetrics({}))).toBeNull()
   })
 
-  it('derives charging from battery power when the vehicle does not report it', () => {
-    // Convention: battery power is negative while the pack absorbs energy.
-    expect(chargingState(withMetrics({ 'battery.power': -11.2 }))).toEqual({ active: true, power: 11.2 })
-    expect(chargingState(withMetrics({ 'battery.power': 8.4 }))).toEqual({ active: false, power: null })
+  it('reads the resolved charging flag and never derives one', () => {
+    // The server owns the derivation, including the power floor that keeps a
+    // resting pack from reading as a charge. A widget deriving it separately is
+    // how the same car came to be charging on one card and parked on another.
+    expect(chargingState(withMetrics({ 'charging.active': true, 'charging.power': 6.6 })))
+      .toEqual({ active: true, power: 6.6 })
+    expect(chargingState(withMetrics({ 'charging.active': false, 'charging.power': 6.6 })))
+      .toEqual({ active: false, power: null })
   })
 
-  it('prefers an explicitly reported charging flag and rate', () => {
-    expect(chargingState(withMetrics({ 'charging.active': true, 'charging.power': 6.6, 'battery.power': 2 })))
-      .toEqual({ active: true, power: 6.6 })
-    expect(chargingState(withMetrics({ 'charging.active': false, 'battery.power': -3 })))
-      .toEqual({ active: false, power: null })
+  it('treats power on its own as no evidence at all', () => {
+    // Whatever battery.power says, and however large, it is not a charging flag.
+    for (const power of [-11.2, -1.4, -0.5, -0.2, 0, 8.4]) {
+      expect(chargingState(withMetrics({ 'battery.power': power })), `${power} kW`)
+        .toEqual({ active: null, power: null })
+    }
+  })
+
+  it('reports charging as unknown once its evidence has gone stale', () => {
+    // Charging is safety-sensitive: an expired reading is not a charge that is
+    // probably still running, it is a charge nobody can vouch for.
+    expect(chargingState(stale({ 'charging.active': true, 'charging.power': 6.6 })))
+      .toEqual({ active: null, power: null })
+    expect(chargingState(stale({ 'charging.active': false }))).toEqual({ active: null, power: null })
+  })
+
+  it('says charging without a rate when the rate was not resolved', () => {
+    expect(chargingState(withMetrics({ 'charging.active': true }))).toEqual({ active: true, power: null })
   })
 
   it('reports unknown charging rather than guessing for a vehicle without battery data', () => {
     expect(chargingState(withMetrics({ 'engine.rpm': 1500 }))).toEqual({ active: null, power: null })
   })
 
-  it('does not read a parked pack\u2019s own drain as charging', () => {
-    // A pack at rest leaves a couple of hundred watts on the meter and its sign
-    // wanders, which is what put an unplugged C-Zero at "charging, 0.2 kW". The
-    // floor is a magnitude, so it holds whichever way the noise falls.
-    for (const power of [0, -0.2, 0.2, -0.49, 0.49]) {
-      expect(chargingState(withMetrics({ 'battery.power': power })), `${power} kW`)
-        .toEqual({ active: false, power: null })
-    }
-    // And it opens exactly at the floor, well under the slowest real charge.
-    expect(chargingState(withMetrics({ 'battery.power': -CHARGING_POWER_FLOOR_KW })))
-      .toEqual({ active: true, power: CHARGING_POWER_FLOOR_KW })
-    expect(chargingState(withMetrics({ 'battery.power': -1.4 }))).toEqual({ active: true, power: 1.4 })
-    // A granny cable is the slowest thing that really charges, and it clears the
-    // floor with room to spare, so nothing real is being excluded.
-    expect(CHARGING_POWER_FLOOR_KW).toBeLessThan(1.3)
+  it('carries the server\u2019s provenance through to whatever renders the value', () => {
+    const current = withMetrics({ 'battery.soc': 61 })
+    const soc = metricReading(current, 'battery.soc')
+    expect(soc.value).toBe(61)
+    expect(soc.provenance).toMatchObject({ source_id: 'agent-1', source_kind: 'agent', channel: 'can', method: 'direct', fresh: true })
+    expect(isFresh(current, 'battery.soc')).toBe(true)
+    expect(isFresh(stale({ 'battery.soc': 61 }), 'battery.soc')).toBe(false)
+    // A key with no reading has no provenance to show, and no value either.
+    const absent = metricReading(current, 'engine.rpm')
+    expect(absent.value).toBeNull()
+    expect(absent.provenance).toBeNull()
   })
 
-  it('lets a reported charging flag overrule the power reading in both directions', () => {
-    // Below the floor but declared charging: the declaration wins.
-    expect(chargingState(withMetrics({ 'charging.active': true, 'battery.power': -0.2 })))
-      .toEqual({ active: true, power: 0.2 })
-    // Far past the floor but declared not charging: the declaration still wins.
-    expect(chargingState(withMetrics({ 'charging.active': false, 'battery.power': -11.2 })))
-      .toEqual({ active: false, power: null })
+  it('renders a missing reading as absent rather than as zero or false', () => {
+    const bare = withMetrics({})
+    // A number nobody reported is not 0, and a flag nobody reported is not false.
+    expect(metricReading(bare, 'battery.soc').value).toBeNull()
+    expect(metricReading(bare, 'vehicle.handbrake').value).toBeNull()
+    expect(energySummary(bare).value).toBeNull()
+    expect(headlineReading(bare)).toBeNull()
+  })
+
+  it('keeps namespaced extension keys as ordinary readings', () => {
+    // A connector passes through whatever its broker publishes. Those keys are
+    // readings like any other, so generic cards can see the vehicle reports them.
+    const current = withMetrics({ 'battery.soc': 61, 'teslamate.inside_temp': 21.5 })
+    expect(reportedKeys(current)).toContain('teslamate.inside_temp')
+    expect(metricReading(current, 'teslamate.inside_temp').value).toBe(21.5)
+    expect(secondaryReadings(current).map((row) => row.key)).toContain('teslamate.inside_temp')
+  })
+
+  it('calls the vehicle parked only on evidence that it is at rest', () => {
+    const online = (values: Record<string, unknown>, agent: Record<string, unknown> = {}) =>
+      ({ ...vehicle, state: { ...vehicle.state!, online: true, position: null, readings: readings(values), agent } }) as Vehicle
+    // Positive evidence of rest.
+    expect(vehicleActivity(online({ 'vehicle.speed': 0 }))).toBe('parked')
+    expect(vehicleActivity(online({}, { vehicle_in_use: false }))).toBe('parked')
+    // Positive evidence of motion.
+    expect(vehicleActivity(online({ 'vehicle.speed': 42 }))).toBe('driving')
+    expect(vehicleActivity(online({ 'charging.active': true }))).toBe('charging')
+    // No evidence either way. A car nobody can hear from is not a parked car,
+    // and an unknown charging flag must not settle into "not charging".
+    expect(vehicleActivity(online({}))).toBe('unknown')
+    expect(vehicleActivity(online({ 'battery.power': -11.2 }))).toBe('unknown')
+    // An agent that has stopped reporting says nothing about the vehicle at all.
+    expect(vehicleActivity({ ...vehicle, state: { ...vehicle.state!, online: false } } as Vehicle)).toBe('unknown')
   })
 })

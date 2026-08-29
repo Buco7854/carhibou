@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -19,8 +20,14 @@ from backend.app.common.time import utcnow
 from backend.app.connectors.models import Connector
 from backend.app.connectors.schemas import MqttConfig
 from backend.app.connectors.services import connector_password
-from backend.app.telemetry.schemas import Position, TelemetryBatch, TelemetrySample
-from backend.app.telemetry.services import ingest_batch
+from backend.app.telemetry.schemas import (
+    Observation,
+    Position,
+    PositionObservation,
+    TelemetryBatch,
+    TelemetrySample,
+)
+from backend.app.telemetry.services import ingest_batch, touch_source_contact
 from backend.app.vehicle_profiles.mapping import MappingEngine
 from backend.app.vehicle_profiles.schemas import MappingProfileDefinition
 from backend.app.vehicle_profiles.services import mapping_profile_definition
@@ -76,7 +83,9 @@ class MqttConnectorSession:
         self._boot_id = uuid4()
         self._sequence = 0
         self._metrics: dict[str, float | int | bool | str | None] = {}
+        self._metric_observed_at: dict[str, datetime] = {}
         self._position: dict[str, float] = {}
+        self._position_observed_at: datetime | None = None
         self._window_started: float | None = None
         self._last_status_write = float("-inf")
         self._mapping_errors = 0
@@ -130,6 +139,11 @@ class MqttConnectorSession:
                 connector.last_connected_at = now
             if message:
                 connector.last_message_at = now
+            if status == "connected" or connected or message:
+                agent = db.get(Agent, self.definition.id)
+                if agent:
+                    agent.last_seen_at = now
+                touch_source_contact(db, self.definition.id, now, 15)
             db.commit()
         self._last_status_write = now_mono
 
@@ -140,8 +154,12 @@ class MqttConnectorSession:
         if not key or "/" in key:
             return
         mapped = self._mapping.map(key, payload)
+        observed_at = utcnow()
         self._metrics.update(mapped.metrics)
+        self._metric_observed_at.update({name: observed_at for name in mapped.metrics})
         self._position.update(mapped.position)
+        if mapped.position:
+            self._position_observed_at = observed_at
         if (mapped.metrics or mapped.position) and self._window_started is None:
             self._window_started = self._monotonic()
         self._record_mapping_notes(mapped.errors)
@@ -178,7 +196,12 @@ class MqttConnectorSession:
         position = None
         if "latitude" in self._position and "longitude" in self._position:
             try:
-                position = Position(**self._position)
+                position = PositionObservation(
+                    value=Position(**self._position),
+                    observed_at=self._position_observed_at or utcnow(),
+                    channel="mqtt",
+                    method="direct",
+                )
             except ValidationError:
                 self._record_mapping_notes(["buffered position failed validation"])
         sample = TelemetrySample(
@@ -186,14 +209,26 @@ class MqttConnectorSession:
             sequence=self._sequence,
             recorded_at=utcnow(),
             position=position,
-            metrics=self._metrics,
+            observations=[
+                Observation(
+                    key=key,
+                    value=value,
+                    observed_at=self._metric_observed_at.get(key) or utcnow(),
+                    channel="mqtt",
+                    method="direct",
+                )
+                for key, value in sorted(self._metrics.items())
+            ],
+            event_driven=True,
         )
         with self._session_factory() as db:
             agent = db.get(Agent, self.definition.id)
             connector = db.get(Connector, self.definition.id)
             if not agent or not connector or not connector.enabled:
                 self._metrics.clear()
+                self._metric_observed_at.clear()
                 self._position.clear()
+                self._position_observed_at = None
                 self._window_started = None
                 return False
             ingest_batch(db, agent, TelemetryBatch(boot_id=self._boot_id, samples=[sample]))
@@ -201,7 +236,9 @@ class MqttConnectorSession:
             db.commit()
         self._sequence += 1
         self._metrics = {}
+        self._metric_observed_at = {}
         self._position = {}
+        self._position_observed_at = None
         self._window_started = None
         return True
 
@@ -224,9 +261,9 @@ class MqttConnectorSession:
             self._disconnected.set()
             return
         self._disconnected.clear()
-        self._connected.set()
         client.subscribe(f"{self.topic_prefix}+", qos=1)
         self._write_status(status="connected", error="", connected=True, force=True)
+        self._connected.set()
 
     def _on_disconnect(
         self,
@@ -265,6 +302,8 @@ class MqttConnectorSession:
                         backoff = 1.0
                     self.flush()
                     self.flush_status()
+                    if self._connected.is_set():
+                        self._write_status(status="connected")
                     if result != mqtt.MQTT_ERR_SUCCESS:
                         raise ConnectionError(f"MQTT loop stopped with code {result}")
                 if self._stop.is_set():

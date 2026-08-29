@@ -1,6 +1,6 @@
 # Current project state
 
-Updated: 2026-08-25
+Updated: 2026-08-29
 
 ## Works
 
@@ -48,11 +48,43 @@ Updated: 2026-08-25
   one is reported and otherwise promotes the most conventional reading the vehicle
   actually sends, so a standard OBD-II car no longer shows a permanently empty gauge.
   No surface offers a reading the vehicle has not reported.
-- Charging is derived rather than assumed: an explicit `charging.active` from a profile
-  wins, otherwise it follows `battery.power`, which the application treats as positive
-  while the pack delivers energy and negative while it absorbs it. Standard OBD PID `5B`
-  is sampled as a last-resort hybrid/EV pack charge, recorded in the validation ledger as
-  unverified with unconfirmed semantics.
+- Telemetry is normalized (protocol v2, clean break, contract in
+  `.agent/NORMALIZED_TELEMETRY_SPEC.md`): a sample is a transport envelope of
+  independent observations (`key`, `value`, `observed_at`, `channel`, `method`),
+  position is one atomic observation, and source identity comes only from
+  authentication. Observations persist as indexed rows; per-(source, channel,
+  metric) candidates feed a central resolver that alone selects live readings —
+  validity, freshness, direct-over-derived, metric preferences (CAN/OBD speed
+  over GNSS), then recency. The live API and SSE (envelope still version 1)
+  return resolved reading objects with provenance and a `fresh` flag; widgets
+  render, they never resolve. Freshness is cadence-aware: uploads declare a
+  `reporting_interval` delivery promise (or `event_driven`, where silence means
+  unchanged while the source stays in contact), candidates are judged by the
+  promise they arrived under with registry windows as floors, and producers
+  send null retractions when a channel dies rather than letting values age out.
+  Retained metrics (SOC, odometer, tyres…) degrade to visibly stale; transient
+  or safety-sensitive ones (speed, charging) become unknown — absence is never
+  false. Charging resolution lives server-side: fresh explicit
+  `charging.active` is authoritative, otherwise derived from fresh power
+  evidence over the shared floor, otherwise unknown; a derived `charging.power`
+  is emitted when only `battery.power` evidence exists. Standard OBD PID `5B`
+  is still sampled as a last-resort hybrid/EV pack charge, recorded in the
+  validation ledger as unverified with unconfirmed semantics.
+- History is dual-mode: the classic values/chart/route/entries experience over
+  raw observations, plus a snapshot table (`/history/table?step_seconds=…`,
+  steps 1 s–1 day) whose rows recreate the complete known car state newest to
+  oldest, with forward-filled cells dimmed and age-labelled and quiet spans
+  collapsed server-side. `/history/observations` exposes full per-observation
+  provenance and is not yet consumed by the frontend. Hooks receive
+  `ctx.telemetry.current`, `.triggering`, `.state_at(t)` (shared
+  reconstruction with the table), and bounded `.history(...)`; the v1
+  `ctx.telemetry.metrics`/`ctx.telemetry_batch` are gone and
+  `docs/user-guide/hooks.md` documents the v2 context and its unknown-versus-false
+  guards. The frontend uses
+  bundled lucide icons behind a semantic `AppIcon` facade, and vehicle card
+  actions are two icon+label controls with the destructive pair in the shared
+  row menu. Verified: `./scripts/check.sh` exit 0 and Playwright browser e2e
+  against the migrated v2 stack.
 - Profile computed metrics accept a `scale`, so the bundled C-Zero definition publishes
   `battery.power` in kilowatts. Agent, simulator and SPA now agree on that unit; they
   previously disagreed by a factor of a thousand.
@@ -87,11 +119,11 @@ Updated: 2026-08-25
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,
   HTTP/geometry helpers, manual dry-run and execution history.
-- Ingestion queues one hook execution per accepted batch, not per sample. SDK version 2
-  exposes `ctx.telemetry` (newest sample) alongside `ctx.telemetry_batch` (all samples,
-  oldest first), so a buffered ten-row upload costs one child process and the author
-  chooses whether to iterate. Batch identifiers ride in the existing trigger payload, so
-  no schema change was required.
+- Ingestion queues one hook execution per accepted batch, not per sample. SDK version 3
+  exposes the triggering observations, the current resolved state, shared state-at-time
+  reconstruction and bounded raw history queries, so a buffered upload still costs one
+  child process without pretending each sparse sample is a complete vehicle snapshot.
+  Batch identifiers ride in the trigger payload.
 - The deployed vehicle agent is a standalone CGO-free Go executable. Versioned Linux
   builds cover ARMv6, ARMv7, ARM64 and AMD64; the bootstrap downloads the matching
   checksum-verified artifact without running `apt`, Python or a compiler on the tracker.
@@ -168,8 +200,9 @@ Updated: 2026-08-25
   the local SQLite migration smoke database.
 - The committed lockfiles install from a fresh checkout and `scripts/check.sh` resolves
   the checkout directly; no prior editable installation is required for validation.
-- The production image builds on Docker Desktop. Compose is running against PostgreSQL
-  with migration `91c5e8a3f204` at head; app/PostgreSQL are healthy and the worker uses
+- The production image builds on Docker Desktop. Fresh installations run the single
+  initial migration `3ce9a4d05b74`, which contains the final normalized v2 schema;
+  app/PostgreSQL are healthy and the worker uses
   its role-appropriate no-HTTP health policy. The packaged image serves the bootstrap and
   all four standalone agent targets; lifecycle operations live in the executable. The
   browser suite passes against a disposable Linux image/SQLite app and worker. GitHub

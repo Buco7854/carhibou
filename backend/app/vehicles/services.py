@@ -1,18 +1,15 @@
-from datetime import timedelta
-
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, object_session, selectinload
 
 from backend.app.access.constants import VehicleAccessLevel
 from backend.app.access.services import visible_vehicle_ids
 from backend.app.common.settings import get_settings
-from backend.app.common.time import as_utc, utcnow
 from backend.app.dashboards.models import Dashboard
+from backend.app.telemetry.resolution import resolve_vehicle, vehicle_source_online
 from backend.app.users.models import User
 from backend.app.vehicle_state.models import VehicleState
 from backend.app.vehicles.models import Vehicle, VehiclePhoto
 from backend.app.vehicles.schemas import (
-    PositionResponse,
     StateResponse,
     VehicleCreate,
     VehicleResponse,
@@ -123,24 +120,22 @@ def serialize_vehicle(vehicle: Vehicle, level: VehicleAccessLevel) -> VehicleRes
     state: VehicleState | None = vehicle.state
     if not state:
         return response
-    position = None
-    if state.latitude is not None and state.longitude is not None:
-        position = PositionResponse(
-            latitude=state.latitude,
-            longitude=state.longitude,
-            altitude=state.altitude,
-            speed=state.gps_speed,
-            heading=state.heading,
-            accuracy=state.accuracy,
-        )
-    online = as_utc(state.updated_at) >= utcnow() - timedelta(
-        seconds=get_settings().default_online_threshold_seconds
+    session = object_session(vehicle)
+    readings, position = (
+        resolve_vehicle(session, vehicle.id)
+        if session is not None
+        else (state.readings, state.position)
+    )
+    online = session is not None and vehicle_source_online(
+        session,
+        vehicle.id,
+        get_settings().default_online_threshold_seconds,
     )
     response.state = StateResponse(
         updated_at=state.updated_at,
         online=online,
         position=position,
-        metrics=state.latest_metrics,
+        readings=readings,
         agent=state.agent_state,
     )
     return response

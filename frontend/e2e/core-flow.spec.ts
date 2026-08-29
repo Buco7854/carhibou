@@ -16,6 +16,45 @@ const ONE_PIXEL_PNG = Buffer.from(
   'base64',
 )
 
+interface SampleInput {
+  sequence: number
+  recordedAt: string
+  position: { latitude: number; longitude: number; altitude: number; speed: number; heading: number; accuracy: number }
+  metrics: Record<string, number | boolean>
+  agent: Record<string, number>
+}
+
+/**
+ * One telemetry sample in the v2 observation wire model.
+ *
+ * A sample is an envelope of independent observations rather than a snapshot, so
+ * every metric carries its own timestamp and the channel it came from, and the
+ * fix travels whole with its own provenance. `(key, channel)` is unique within a
+ * sample, so the CAN speed here and the GNSS speed on the fix are two candidates
+ * the server resolves between rather than a conflict.
+ */
+function sample(input: SampleInput): Record<string, unknown> {
+  return {
+    id: randomUUID(),
+    sequence: input.sequence,
+    recorded_at: input.recordedAt,
+    position: {
+      value: input.position,
+      observed_at: input.recordedAt,
+      channel: 'gnss',
+      method: 'direct',
+    },
+    observations: Object.entries(input.metrics).map(([key, value]) => ({
+      key,
+      value,
+      observed_at: input.recordedAt,
+      channel: 'can',
+      method: 'direct',
+    })),
+    agent: input.agent,
+  }
+}
+
 async function csrfToken(page: Page): Promise<string> {
   const cookies = await page.context().cookies()
   const csrf = cookies.find((cookie) => cookie.name === 'carhibou_csrf')?.value
@@ -149,7 +188,7 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByRole('dialog', { name:'Enroll an agent' }).getByRole('button', { name:'Close' }).first().click()
 
   const enrolledResponse = await request.post('/api/v1/agent/enroll', {
-    data: { token: enrollment.token, implementation_id: 'carhibou.go', protocol_version: 1, agent_version: 'e2e-1.0.0', hostname: 'browser-simulator', hardware: { model: 'simulated-pi-zero' } },
+    data: { token: enrollment.token, implementation_id: 'carhibou.go', protocol_version: 2, agent_version: 'e2e-1.0.0', hostname: 'browser-simulator', hardware: { model: 'simulated-pi-zero' } },
   })
   expect(enrolledResponse.status()).toBe(201)
   const enrolled = await enrolledResponse.json() as EnrolledAgent
@@ -164,10 +203,9 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(config.vehicle_profile).toBe(profile.id)
   expect(config.vehicle_profile_definition?.signals?.[0]?.name).toBe('battery.soc')
 
-  const samples = Array.from({ length: 6 }, (_, index) => ({
-    id: randomUUID(),
+  const samples = Array.from({ length: 6 }, (_, index) => sample({
     sequence: index,
-    recorded_at: new Date(Date.now() - (5 - index) * 5_000).toISOString(),
+    recordedAt: new Date(Date.now() - (5 - index) * 5_000).toISOString(),
     position: { latitude: 48.8566 + index * 0.002, longitude: 2.3522 + index * 0.003, speed: 24 + index * 7, heading: 35 + index * 8, altitude: 42, accuracy: 4.5 },
     metrics: { 'battery.soc': 82 - index, 'battery.pack_voltage': 330.5, 'battery.power': -11.8, 'charging.active': false, 'vehicle.speed': 24 + index * 7 },
     agent: { mobile_signal: -76, queue_depth: 0 },
@@ -226,14 +264,13 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await expect(page.locator('[data-widget-type="vehicle-media"]')).toHaveCount(0)
   await expect(page.locator('.grid-stack-item')).toHaveCount(12)
 
-  const liveSample = {
-    id: randomUUID(),
+  const liveSample = sample({
     sequence: 6,
-    recorded_at: new Date().toISOString(),
+    recordedAt: new Date().toISOString(),
     position: { latitude: 48.87, longitude: 2.37, speed: 18, heading: 102, altitude: 43, accuracy: 3.8 },
     metrics: { 'battery.soc': 61, 'battery.pack_voltage': 329.1, 'battery.power': -4.2, 'charging.active': false, 'vehicle.speed': 18 },
     agent: { mobile_signal: -73, queue_depth: 0 },
-  }
+  })
   const liveBatch = await request.post('/api/v1/agent/telemetry/batch', {
     headers: { Authorization: `Agent ${enrolled.credential}` },
     data: { boot_id: bootId, samples: [liveSample] },
@@ -265,6 +302,24 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(menuBounds).not.toBeNull()
   expect(menuBounds!.x + menuBounds!.width).toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth))
   await page.keyboard.press('Escape')
+
+  // The snapshot table is served by the reconstruction endpoint, so this is the
+  // only check that the rows the server computes are the rows the page can read.
+  await page.getByRole('button', { name: 'Snapshot table' }).click()
+  await expect(page.getByRole('heading', { name: 'Snapshot table' })).toBeVisible()
+  const snapshotRows = page.locator('.snapshot tbody tr')
+  await expect(snapshotRows.first()).toBeVisible()
+  // Newest first, and every row carries the whole car rather than one sample.
+  await expect(page.locator('.snapshot thead th')).toContainText(['Time', 'Position'])
+  await expect(snapshotRows.first()).toContainText('61')
+  // Coarsening the step is a different question, and the server answers it.
+  await page.getByRole('combobox', { name: 'Resolution' }).click()
+  await page.getByRole('option', { name: '1 hour' }).click()
+  await expect(snapshotRows.first()).toBeVisible()
+  const tableAccessibility = await new AxeBuilder({ page }).analyze()
+  expect(tableAccessibility.violations).toEqual([])
+  await page.getByRole('button', { name: 'Observations' }).click()
+  await expect(page.locator('.history-chart')).toBeVisible()
 
   await page.locator('.sidebar').getByRole('link', { name: 'Dashboards', exact: true }).click()
   await page.getByRole('button', { name: 'Dashboard actions' }).click()

@@ -52,7 +52,7 @@ def test_agent_cadence_is_chosen_at_enrollment_and_editable_afterwards(
         json={
             "token": enrollment.json()["token"],
             "implementation_id": "custom",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "agent_version": "test",
             "hostname": "pi",
         },
@@ -156,12 +156,13 @@ def test_a_agent_can_be_deleted_and_a_vehicle_emptied(
         json={
             "token": token,
             "implementation_id": "custom",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "agent_version": "test",
             "hostname": "pi",
         },
     ).json()
     credential = {"Authorization": f"Agent {enrolled['credential']}"}
+    observed_at = datetime.now(UTC).isoformat()
     sent = client.post(
         "/api/v1/agent/telemetry/batch",
         headers=credential,
@@ -171,9 +172,22 @@ def test_a_agent_can_be_deleted_and_a_vehicle_emptied(
                 {
                     "id": str(uuid4()),
                     "sequence": 1,
-                    "recorded_at": datetime.now(UTC).isoformat(),
-                    "position": {"latitude": 48.0, "longitude": 2.0},
-                    "metrics": {"battery.soc": 80},
+                    "recorded_at": observed_at,
+                    "position": {
+                        "value": {"latitude": 48.0, "longitude": 2.0},
+                        "observed_at": observed_at,
+                        "channel": "gnss",
+                        "method": "direct",
+                    },
+                    "observations": [
+                        {
+                            "key": "battery.soc",
+                            "value": 80,
+                            "observed_at": observed_at,
+                            "channel": "can",
+                            "method": "direct",
+                        }
+                    ],
                     "agent": {},
                 }
             ],

@@ -8,10 +8,10 @@ import { energyTone } from '../src/vehicleDisplay'
 import VehiclesView from '../src/views/VehiclesView.vue'
 import BatteryGaugeWidget from '../src/widgets/BatteryGaugeWidget.vue'
 import { dashboardRuntimeKey } from '../src/widgets/dashboardContext'
-import { adminUser, jsonResponse, vehicle } from './helpers'
+import { adminUser, jsonResponse, readings, vehicle } from './helpers'
 
 function withMetrics(metrics: Record<string, unknown>, overrides: Record<string, unknown> = {}): Vehicle {
-  return { ...vehicle, ...overrides, state: { ...vehicle.state!, position: null, metrics } } as unknown as Vehicle
+  return { ...vehicle, ...overrides, state: { ...vehicle.state!, position: null, readings: readings(metrics) } } as unknown as Vehicle
 }
 
 function mountCatalog(vehicles: Vehicle[]) {

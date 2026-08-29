@@ -13,12 +13,13 @@ from sqlalchemy.orm import Session
 from backend.app.agents.models import Agent
 from backend.app.branding import HOOK_SDK_VERSION
 from backend.app.common.settings import get_settings
+from backend.app.connectors.models import Connector
 from backend.app.hooks.child import RESULT_MARKER
 from backend.app.hooks.models import Hook, HookExecution, HookState, Trigger
 from backend.app.secrets.crypto import decrypt_secret, redact_text
 from backend.app.secrets.models import Secret
 from backend.app.telemetry.models import Telemetry
-from backend.app.vehicle_state.models import VehicleState
+from backend.app.telemetry.resolution import resolve_vehicle, vehicle_source_online
 from backend.app.vehicles.models import Vehicle
 
 
@@ -30,36 +31,7 @@ class RuntimeResult:
     error: str | None
 
 
-def _position(row: Telemetry | VehicleState) -> dict[str, object] | None:
-    if row.latitude is None or row.longitude is None:
-        return None
-    return {
-        "latitude": row.latitude,
-        "longitude": row.longitude,
-        "altitude": row.altitude,
-        "speed": row.gps_speed,
-        "heading": row.heading,
-        "accuracy": row.accuracy,
-    }
-
-
-def _sample(telemetry: Telemetry) -> dict[str, Any]:
-    return {
-        "id": telemetry.id,
-        "recorded_at": telemetry.recorded_at.isoformat(),
-        "sequence": telemetry.sequence,
-        "position": _position(telemetry),
-        "metrics": telemetry.metrics,
-        "agent": telemetry.agent_data,
-    }
-
-
 def _batch(db: Session, trigger: Trigger, latest: Telemetry) -> list[Telemetry]:
-    """Every sample the triggering upload stored, oldest first.
-
-    Rows deleted since the trigger fired are simply absent; the batch always ends with
-    the sample the execution is pinned to.
-    """
     payload = trigger.payload if isinstance(trigger.payload, dict) else {}
     identifiers = payload.get("telemetry_ids")
     if not isinstance(identifiers, list) or not identifiers:
@@ -72,6 +44,43 @@ def _batch(db: Session, trigger: Trigger, latest: Telemetry) -> list[Telemetry]:
         )
     )
     return rows or [latest]
+
+
+def _triggering(db: Session, rows: list[Telemetry]) -> list[dict[str, Any]]:
+    connector_ids = set(
+        db.scalars(select(Connector.id).where(Connector.id.in_({row.agent_id for row in rows})))
+    )
+    result: list[dict[str, Any]] = []
+    for sample in rows:
+        source_kind = "connector" if sample.agent_id in connector_ids else "agent"
+        for observation in sample.observation_rows:
+            result.append(
+                {
+                    "telemetry_id": sample.id,
+                    "key": observation.metric_key,
+                    "value": observation.payload.get("value"),
+                    "observed_at": observation.observed_at.isoformat(),
+                    "source_id": sample.agent_id,
+                    "source_kind": source_kind,
+                    "channel": observation.channel,
+                    "method": observation.method,
+                }
+            )
+        position = sample.position_observation
+        if position:
+            result.append(
+                {
+                    "telemetry_id": sample.id,
+                    "key": "position",
+                    "value": position.value,
+                    "observed_at": position.observed_at.isoformat(),
+                    "source_id": sample.agent_id,
+                    "source_kind": source_kind,
+                    "channel": position.channel,
+                    "method": position.method,
+                }
+            )
+    return result
 
 
 def build_runtime_input(
@@ -87,15 +96,23 @@ def build_runtime_input(
     agent = db.get(Agent, telemetry.agent_id)
     if not vehicle or not agent:
         raise LookupError("vehicle or agent no longer exists")
-    current = db.get(VehicleState, vehicle.id)
     state = db.get(HookState, hook.id)
     secret_rows = list(db.scalars(select(Secret)))
     secrets = {row.name: decrypt_secret(row.encrypted_value) for row in secret_rows}
+    readings, position = resolve_vehicle(db, vehicle.id)
+    vehicle_state = vehicle.state
+    updated_at = vehicle_state.updated_at.isoformat() if vehicle_state else None
+    online = vehicle_source_online(
+        db,
+        vehicle.id,
+        get_settings().default_online_threshold_seconds,
+    )
     data = {
         "sdk_version": HOOK_SDK_VERSION,
         "source": hook.source,
         "dry_run": execution.dry_run,
         "log_limit": get_settings().hook_log_bytes,
+        "database_url": get_settings().database_url,
         "event": {
             "id": trigger.id,
             "type": trigger.type,
@@ -105,19 +122,22 @@ def build_runtime_input(
             "agent_id": trigger.agent_id,
             "payload": trigger.payload,
         },
-        "telemetry": _sample(telemetry),
-        "telemetry_batch": [_sample(row) for row in batch],
+        "telemetry_context": {
+            "vehicle_id": vehicle.id,
+            "triggering": _triggering(db, batch),
+            "current": {
+                "updated_at": updated_at,
+                "online": online,
+                "readings": readings,
+                "position": position,
+                "agent": dict(vehicle_state.agent_state) if vehicle_state else {},
+            },
+        },
         "vehicle": {
             "id": vehicle.id,
             "name": vehicle.name,
             "manufacturer": vehicle.manufacturer,
             "model": vehicle.model,
-            "state": {
-                "updated_at": current.updated_at.isoformat() if current else None,
-                "position": _position(current) if current else None,
-                "metrics": current.latest_metrics if current else {},
-                "agent": current.agent_state if current else {},
-            },
         },
         "agent": {
             "id": agent.id,
