@@ -118,6 +118,33 @@ func (provider *RetryingVehicleProvider) Live() bool {
 	return !ok || live.Live()
 }
 
+// Attached forwards the current source's own answer. A provider that cannot tell
+// hardware loss from vehicle sleep is assumed attached while it has no failure to
+// report, because retracting on a guess is what this distinction exists to stop.
+func (provider *RetryingVehicleProvider) Attached() bool {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	if provider.current == nil || provider.failure != "" {
+		return false
+	}
+	attachment, ok := provider.current.(VehicleAttachment)
+	return !ok || attachment.Attached()
+}
+
+// TakeEvent forwards a state change noticed by the current source.
+func (provider *RetryingVehicleProvider) TakeEvent() string {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	if provider.current == nil || provider.failure != "" {
+		return ""
+	}
+	events, ok := provider.current.(VehicleEvents)
+	if !ok {
+		return ""
+	}
+	return events.TakeEvent()
+}
+
 func (provider *RetryingVehicleProvider) Reset() {
 	provider.mutex.Lock()
 	provider.closeCurrentLocked()

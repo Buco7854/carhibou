@@ -96,13 +96,15 @@ func (v failingVehicle) Status() string { return v.reason }
 type switchingVehicle struct {
 	observations model.MetricObservations
 	live         bool
+	detached     bool
 }
 
 func (vehicle *switchingVehicle) ReadObservations() (model.MetricObservations, error) {
 	return vehicle.observations, nil
 }
-func (vehicle *switchingVehicle) Close()     {}
-func (vehicle *switchingVehicle) Live() bool { return vehicle.live }
+func (vehicle *switchingVehicle) Close()         {}
+func (vehicle *switchingVehicle) Live() bool     { return vehicle.live }
+func (vehicle *switchingVehicle) Attached() bool { return !vehicle.detached }
 
 // An agent whose adapter never connects still reports position and health, so
 // without this the only evidence of a dead OBD path was the absence of metrics.
@@ -258,6 +260,184 @@ func TestFreshAgentResendsAProvidersCurrentSnapshot(t *testing.T) {
 	}
 }
 
+// A sleeping vehicle stops broadcasting while its adapter keeps answering. The
+// values it last reported are still true of it, so nothing is retracted and the
+// server is left to age them under its own freshness rules. Retracting here is
+// what made a parked car's odometer and state of charge vanish overnight.
+type eventingVehicle struct {
+	observations model.MetricObservations
+	event        string
+}
+
+func (vehicle *eventingVehicle) ReadObservations() (model.MetricObservations, error) {
+	return vehicle.observations, nil
+}
+func (vehicle *eventingVehicle) Close() {}
+func (vehicle *eventingVehicle) TakeEvent() string {
+	reason := vehicle.event
+	vehicle.event = ""
+	return reason
+}
+
+// An event sample is a bonus delivery. It says why it arrived early and leaves
+// the declared cadence alone, because the promise the server judges freshness
+// against is about the next ordinary delivery, not this one.
+// A vehicle with no OBD hardware at all is still a vehicle worth tracking. The
+// position path must not depend on a vehicle source existing.
+func TestGNSSOnlyVehicleStillProducesCompleteSamples(t *testing.T) {
+	fix := &model.PositionFix{Latitude: 48.85, Longitude: 2.35}
+	agent := newAgent(t, freshPosition{fix: fix})
+	agent.Vehicle = EmptyVehicle{}
+	sample, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sample.Position == nil {
+		t.Fatal("a GNSS-only agent must still report position")
+	}
+	if len(sample.Observations) != 0 {
+		t.Fatalf("no vehicle source, yet observations=%#v", sample.Observations)
+	}
+	if _, reported := sample.Agent["vehicle_source_error"]; reported {
+		t.Fatal("having no vehicle source is not an error to report")
+	}
+	if _, present := sample.Agent["hostname"]; !present {
+		t.Fatal("health must travel with every sample")
+	}
+}
+
+// A profile assigned to a car that is asleep: the adapter is attached, the bus
+// says nothing, and the agent keeps reporting honestly rather than falling
+// silent or retracting.
+func TestSleepingProfiledVehicleKeepsHeartbeatingWithAnHonestStatus(t *testing.T) {
+	vehicle := &statefulVehicle{
+		state: "monitoring, bus quiet for 8h0m0s",
+		observations: model.MetricObservations{
+			"battery.aux_voltage": observation(12.4, time.Now().UTC()),
+		},
+	}
+	agent := newAgent(t, EmptyPosition{})
+	agent.Vehicle = vehicle
+	first, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Observations) != 1 || first.Observations[0].Key != "battery.aux_voltage" {
+		t.Fatalf("observations=%#v, want the supply reading", first.Observations)
+	}
+	if first.Agent["vehicle_source_state"] != vehicle.state {
+		t.Fatalf("vehicle_source_state=%v, want %q", first.Agent["vehicle_source_state"], vehicle.state)
+	}
+	if _, reported := first.Agent["vehicle_source_error"]; reported {
+		t.Fatal("a sleeping bus is not an error")
+	}
+	second, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Observations) != 0 {
+		t.Fatalf("unchanged supply reading was republished: %#v", second.Observations)
+	}
+	if second.Agent["vehicle_source_state"] != vehicle.state {
+		t.Fatal("the heartbeat stopped explaining itself")
+	}
+}
+
+type statefulVehicle struct {
+	observations model.MetricObservations
+	state        string
+}
+
+func (vehicle *statefulVehicle) ReadObservations() (model.MetricObservations, error) {
+	return vehicle.observations, nil
+}
+func (vehicle *statefulVehicle) Close()         {}
+func (vehicle *statefulVehicle) State() string  { return vehicle.state }
+func (vehicle *statefulVehicle) Attached() bool { return true }
+
+func TestEventSampleIsStampedWithoutChangingTheCadencePromise(t *testing.T) {
+	vehicle := &eventingVehicle{observations: model.MetricObservations{}}
+	agent := newAgent(t, EmptyPosition{})
+	agent.Vehicle = vehicle
+	agent.DrivingReportingInterval = 30
+	agent.ParkedReportingInterval = 600
+
+	if reason := agent.PendingEvent(); reason != "" {
+		t.Fatalf("unprompted event: %q", reason)
+	}
+	ordinary, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stamped := ordinary.Agent["sample_trigger"]; stamped {
+		t.Fatal("a cadence sample must not claim a trigger")
+	}
+
+	vehicle.event = "charging.active changed to true"
+	reason := agent.PendingEvent()
+	if reason == "" {
+		t.Fatal("expected the transition to be reported")
+	}
+	triggered, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if triggered.Agent["sample_trigger"] != reason {
+		t.Fatalf("sample_trigger=%v, want %q", triggered.Agent["sample_trigger"], reason)
+	}
+	if triggered.ReportingInterval == nil || *triggered.ReportingInterval != 600 {
+		t.Fatalf("reporting interval=%v, want the parked cadence unchanged", triggered.ReportingInterval)
+	}
+	next, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stamped := next.Agent["sample_trigger"]; stamped {
+		t.Fatal("the trigger outlived the sample it explained")
+	}
+}
+
+func TestQuietBusRetractsNothingAndStaysSilent(t *testing.T) {
+	vehicle := &switchingVehicle{
+		live: true,
+		observations: model.MetricObservations{
+			"vehicle.odometer": observation(48211.0, time.Now().UTC()),
+		},
+	}
+	agent := newAgent(t, EmptyPosition{})
+	agent.Vehicle = vehicle
+	first, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Observations) != 1 {
+		t.Fatalf("first sample=%#v, want the odometer", first.Observations)
+	}
+
+	// The bus goes quiet: no new frames, so no advancing timestamps, but the
+	// adapter is still there.
+	vehicle.live = false
+	for round := 0; round < 3; round++ {
+		quiet, err := agent.Collect()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(quiet.Observations) != 0 {
+			t.Fatalf("quiet bus published %#v, want silence", quiet.Observations)
+		}
+	}
+
+	// And when it wakes, the same cached value is not resent until it advances.
+	vehicle.live = true
+	woken, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(woken.Observations) != 0 {
+		t.Fatalf("waking republished an unchanged value: %#v", woken.Observations)
+	}
+}
+
 func TestCollectRetractsCachedChannelValuesOnceAndResumesAfterRevival(t *testing.T) {
 	now := time.Now().UTC()
 	vehicle := &switchingVehicle{
@@ -289,7 +469,7 @@ func TestCollectRetractsCachedChannelValuesOnceAndResumesAfterRevival(t *testing
 	if len(suppressed.Observations) != 0 {
 		t.Fatalf("cached observation was republished: %#v", suppressed.Observations)
 	}
-	vehicle.live = false
+	vehicle.detached = true
 	retracted, err := agent.Collect()
 	if err != nil {
 		t.Fatal(err)
@@ -308,7 +488,7 @@ func TestCollectRetractsCachedChannelValuesOnceAndResumesAfterRevival(t *testing
 		t.Fatalf("dead provider republished its cache: %#v", dead.Observations)
 	}
 
-	vehicle.live = true
+	vehicle.detached = false
 	revived, err := agent.Collect()
 	if err != nil {
 		t.Fatal(err)

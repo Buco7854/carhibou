@@ -134,6 +134,15 @@ CANONICAL_METRICS = {
             minimum=0,
         ),
         _number(
+            "battery.aux_voltage",
+            "V",
+            "auxiliary twelve-volt battery voltage measured at the adapter",
+            kind="state",
+            retain_stale=True,
+            minimum=0,
+            maximum=30,
+        ),
+        _number(
             "battery.power",
             "kW",
             "positive while discharging and negative while absorbing energy",

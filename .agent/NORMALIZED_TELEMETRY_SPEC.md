@@ -185,10 +185,16 @@ taste".
   last contact time using the registry window. Retained metrics degrade to
   stale as usual; non-retained ones go unknown.
 - Explicit retraction beats timeout: when a producer knows a channel died
-  (OBD unplugged, CAN silent after ignition off), it sends the null
-  retraction from the observation contract instead of letting values age
-  out. Timeout expiry is the fallback for sources that vanish without
+  (OBD unplugged, adapter errored, provider stopped, clean shutdown), it sends
+  the null retraction from the observation contract instead of letting values
+  age out. Timeout expiry is the fallback for sources that vanish without
   saying so.
+- A quiet channel is not a dead one. A vehicle whose bus stops broadcasting
+  while its adapter still answers is asleep, not gone: the producer sends
+  nothing, reports the silence in its source state, and lets the values age
+  under the rules above. Retraction is reserved for hardware that is no longer
+  there, because retracting on silence makes retained metrics vanish every
+  night the vehicle sleeps.
 - Sources that declare nothing keep plain registry-window behavior. The
   server tracks last contact per source; widgets still only ever see the
   resolved `fresh` flag.

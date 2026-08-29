@@ -53,6 +53,27 @@ type VehicleLiveness interface {
 	Live() bool
 }
 
+// VehicleAttachment separates hardware that has gone away from a vehicle that
+// has gone to sleep.
+//
+// Both stop producing frames and neither can be told from the other by the
+// decoded values, but they mean opposite things. An adapter that is gone can no
+// longer vouch for anything it reported, so those values stop being
+// observations. A vehicle asleep on the driveway is still the vehicle the last
+// reading described: its odometer did not become unknown because its CAN bus
+// stopped broadcasting overnight.
+type VehicleAttachment interface {
+	Attached() bool
+}
+
+// VehicleEvents is implemented by a source that notices a state change between
+// samples. Waiting out a parked cadence to report that a charge started is how a
+// plug-in at 02:00 first appears at 02:10; the source sees the transition when
+// it decodes it, so it says so and the caller takes a sample early.
+type VehicleEvents interface {
+	TakeEvent() string
+}
+
 type EmptyPosition struct{}
 
 func (EmptyPosition) Read() (*model.PositionFix, error) { return nil, nil }
@@ -84,6 +105,21 @@ type Agent struct {
 	ParkedReportingInterval  int
 	vehicleKeys              map[string]map[string]rememberedVehicleKey
 	positionObservedAt       *time.Time
+	eventReason              string
+}
+
+// PendingEvent reports a state change that deserves a sample before the next
+// cadence deadline, consuming it so one transition causes one sample.
+func (agent *Agent) PendingEvent() string {
+	events, ok := agent.Vehicle.(VehicleEvents)
+	if !ok {
+		return ""
+	}
+	reason := events.TakeEvent()
+	if reason != "" {
+		agent.eventReason = reason
+	}
+	return reason
 }
 
 func (agent *Agent) Collect() (model.Sample, error) {
@@ -92,11 +128,16 @@ func (agent *Agent) Collect() (model.Sample, error) {
 	if agent.vehicleKeys == nil {
 		agent.vehicleKeys = map[string]map[string]rememberedVehicleKey{}
 	}
+	// Only the death of the channel retracts. Frame silence does not: a bus that
+	// sleeps every night would otherwise retract the vehicle's odometer and state
+	// of charge at the same time every night, and the server would forget values
+	// it is supposed to keep and mark stale. Silence is left to age out under the
+	// freshness rules; a channel that has actually gone says so.
 	channelDead := false
-	if live, ok := agent.Vehicle.(VehicleLiveness); ok && !live.Live() {
+	if reporter, ok := agent.Vehicle.(VehicleStatus); ok && reporter.Status() != "" {
 		channelDead = true
 	}
-	if reporter, ok := agent.Vehicle.(VehicleStatus); ok && reporter.Status() != "" {
+	if attachment, ok := agent.Vehicle.(VehicleAttachment); ok && !attachment.Attached() {
 		channelDead = true
 	}
 	if channelDead {
@@ -186,6 +227,13 @@ func (agent *Agent) Collect() (model.Sample, error) {
 	// otherwise indistinguishable from one whose hardware stopped answering.
 	sample.Agent["vehicle_in_use"] = inUse
 	sample.Agent["activity_source"] = string(source)
+	// An event sample is a bonus delivery, not a new promise: the declared
+	// interval above still describes the cadence, and this only says why one
+	// sample arrived early.
+	if agent.eventReason != "" {
+		sample.Agent["sample_trigger"] = agent.eventReason
+		agent.eventReason = ""
+	}
 	agent.Sequence++
 	return sample, agent.Queue.Enqueue(sample)
 }

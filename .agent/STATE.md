@@ -62,6 +62,9 @@ Updated: 2026-08-29
   unchanged while the source stays in contact), candidates are judged by the
   promise they arrived under with registry windows as floors, and producers
   send null retractions when a channel dies rather than letting values age out.
+  A quiet channel is not a dead one: a vehicle whose bus stops broadcasting while
+  its adapter still answers is asleep, so the agent sends nothing and lets the
+  values age, and retraction is reserved for hardware that has actually gone.
   Retained metrics (SOC, odometer, tyres…) degrade to visibly stale; transient
   or safety-sensitive ones (speed, charging) become unknown — absence is never
   false. Charging resolution lives server-side: fresh explicit
@@ -129,7 +132,13 @@ Updated: 2026-08-29
   checksum-verified artifact without running `apt`, Python or a compiler on the tracker.
   It implements enrollment, a compiled-in offline SQLite outbox, remote last-known-good
   configuration, SIM7600 NMEA parsing, OBDLink/OBD support, safe profiles, CAN
-  capture/replay, diagnostics, installation and systemd integration.
+  capture/replay, diagnostics, installation and systemd integration. Sampling is
+  cadence-driven with event-triggered extras: a change in readiness, charging or
+  reported state takes a debounced sample immediately and flushes the upload,
+  stamped `sample_trigger` and leaving the declared cadence promise unchanged.
+  The adapter's own supply reading is polled slowly as canonical
+  `battery.aux_voltage` (channel obd), interleaved with CAN monitoring, and
+  doubles as the probe that separates a sleeping bus from a missing adapter.
   Host-local hardware selection persists GPS, OBD and the cellular control port as
   `auto`, `off`, or a stable `/dev/serial/by-id` path. `auto` now probes: each candidate
   is opened and classified by what it answers (NMEA stream, ELM identity, AT modem),

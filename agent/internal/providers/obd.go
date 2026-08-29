@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Buco7854/carhibou/agent/internal/model"
@@ -23,6 +24,8 @@ const (
 	baudSwitchTimeout  = 500 * time.Millisecond
 	baudVerifyRounds   = 3
 	baudVerifyPause    = 20 * time.Millisecond
+	// adapterResetSettle lets a reset reach the adapter before the port drops.
+	adapterResetSettle = 200 * time.Millisecond
 )
 
 var highSpeedBaudRates = []int{2000000, 1000000, 921600, 500000, 460800, 230400}
@@ -40,12 +43,24 @@ type OBDAdapter struct {
 	CommandWindow    time.Duration
 	BaudSwitchWindow time.Duration
 	baudRate         int
+	// requests carries work for the monitor goroutine to run on its own port.
+	// Monitoring streams continuously, so anything else that needs the adapter
+	// has to be served between frames by whoever already owns it.
+	requests   chan monitorRequest
+	monitoring atomic.Bool
+}
+
+// monitorRequest is one command run interleaved with monitoring.
+type monitorRequest struct {
+	run  func(*OBDAdapter)
+	done chan struct{}
 }
 
 func NewOBDAdapter(device string) *OBDAdapter {
 	return &OBDAdapter{
 		device: device, buffer: make([]byte, 512), CommandWindow: obdCommandWindow,
 		BaudSwitchWindow: baudSwitchTimeout, baudRate: defaultOBDBaudRate,
+		requests: make(chan monitorRequest),
 	}
 }
 
@@ -77,11 +92,29 @@ func (adapter *OBDAdapter) Connect() error {
 func (adapter *OBDAdapter) Close() {
 	if adapter.port != nil {
 		adapter.restoreDefaultBaud()
+		adapter.releaseAdapter()
 		adapter.port.Close()
 	}
 	adapter.port = nil
 	adapter.pending = ""
 	adapter.baudRate = defaultOBDBaudRate
+}
+
+// releaseAdapter returns the adapter to its power-on state before the port is
+// dropped.
+//
+// Connect leaves echo off, headers on, and CAN formatting disabled, and a profile
+// monitor leaves pass filters installed. None of that survives being useful to
+// the next program to open the port: a probe that opened a dirty adapter read it
+// as an unknown device. The reply is not waited for, because a shutdown must not
+// depend on hardware that may already be gone.
+func (adapter *OBDAdapter) releaseAdapter() {
+	if adapter.port == nil {
+		return
+	}
+	_, _ = adapter.port.Write([]byte("ATZ\r"))
+	_ = adapter.port.Drain()
+	time.Sleep(adapterResetSettle)
 }
 
 func (adapter *OBDAdapter) BaudRate() int { return adapter.baudRate }
@@ -352,6 +385,21 @@ func (adapter *OBDAdapter) Voltage() (string, error) {
 	return strings.TrimSpace(lines[0]), nil
 }
 
+// ParseSupplyVoltage turns an ATRV reply such as "12.4V" into a number.
+func ParseSupplyVoltage(reading string) (float64, bool) {
+	trimmed := strings.TrimSpace(reading)
+	trimmed = strings.TrimSuffix(strings.TrimSuffix(trimmed, "V"), "v")
+	trimmed = strings.TrimSpace(trimmed)
+	if trimmed == "" {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil || value < 0 || value > 30 {
+		return 0, false
+	}
+	return value, true
+}
+
 // Protocol describes the link the adapter has settled on with the vehicle.
 func (adapter *OBDAdapter) Protocol() (string, error) {
 	lines, err := adapter.Command("ATDP", 0)
@@ -523,11 +571,7 @@ func (adapter *OBDAdapter) monitorUntil(
 	if _, err := adapter.Command("ATCAF0", 0); err != nil {
 		return trace, err
 	}
-	if err := adapter.port.ResetInputBuffer(); err != nil {
-		return trace, err
-	}
-	adapter.pending = ""
-	if _, err := adapter.port.Write([]byte(command + "\r")); err != nil {
+	if err := adapter.enterStream(command); err != nil {
 		return trace, err
 	}
 	observe := func(line string) {
@@ -541,21 +585,30 @@ func (adapter *OBDAdapter) monitorUntil(
 			onReport(trace.Report)
 		}
 	}
+	adapter.monitoring.Store(true)
+	defer adapter.monitoring.Store(false)
 	for {
 		select {
 		case <-stop:
-			_, err := adapter.port.Write([]byte("\r"))
-			if err == nil {
-				var response string
-				response, err = adapter.readUntil('>', adapter.CommandWindow)
-				for _, line := range strings.FieldsFunc(response, func(r rune) bool { return r == '\r' || r == '\n' }) {
-					observe(line)
-				}
-			}
+			err := adapter.leaveStream(observe)
 			if onReport != nil {
 				onReport(trace.Report)
 			}
 			return trace, err
+		case request := <-adapter.requests:
+			// The stream has to end before the adapter will answer anything else,
+			// so the request is served between frames by the goroutine that owns
+			// the port rather than racing it from the caller's.
+			err := adapter.leaveStream(observe)
+			request.run(adapter)
+			close(request.done)
+			if err != nil {
+				return trace, err
+			}
+			if err := adapter.enterStream(command); err != nil {
+				return trace, err
+			}
+			continue
 		default:
 		}
 		// A short read window keeps the stop signal responsive on a quiet bus
@@ -565,6 +618,54 @@ func (adapter *OBDAdapter) monitorUntil(
 			continue
 		}
 		observe(line)
+	}
+}
+
+// leaveStream returns the adapter from monitoring to its command prompt. Any
+// frames still in flight arrive before the prompt does, so they are observed
+// rather than discarded.
+func (adapter *OBDAdapter) leaveStream(observe func(string)) error {
+	if _, err := adapter.port.Write([]byte("\r")); err != nil {
+		return err
+	}
+	response, err := adapter.readUntil('>', adapter.CommandWindow)
+	for _, line := range strings.FieldsFunc(response, func(r rune) bool { return r == '\r' || r == '\n' }) {
+		observe(line)
+	}
+	return err
+}
+
+func (adapter *OBDAdapter) enterStream(command string) error {
+	if err := adapter.port.ResetInputBuffer(); err != nil {
+		return err
+	}
+	adapter.pending = ""
+	_, err := adapter.port.Write([]byte(command + "\r"))
+	return err
+}
+
+// DuringMonitor runs work on the adapter from inside a running monitor loop.
+//
+// It reports whether the work ran. A caller that owns the port itself does not
+// need it; one that has handed the port to a monitor goroutine cannot touch the
+// adapter any other way without interleaving its bytes with the frame stream.
+func (adapter *OBDAdapter) DuringMonitor(work func(*OBDAdapter), timeout time.Duration) bool {
+	if !adapter.monitoring.Load() {
+		return false
+	}
+	request := monitorRequest{run: work, done: make(chan struct{})}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case adapter.requests <- request:
+	case <-timer.C:
+		return false
+	}
+	select {
+	case <-request.done:
+		return true
+	case <-timer.C:
+		return false
 	}
 }
 
@@ -845,6 +946,20 @@ func (provider *StandardOBDProvider) ReadObservations() (model.MetricObservation
 		return model.MetricObservations{}, nil
 	}
 	observations := model.MetricObservations{}
+	// The adapter's own supply first. It answers with the vehicle asleep, so a car
+	// that supports no PID this agent knows still reports something true.
+	if reading, err := provider.adapter.Voltage(); err == nil {
+		if value, ok := ParseSupplyVoltage(reading); ok {
+			observations[AuxVoltageMetric] = model.MetricObservation{
+				Value: value,
+				Metadata: model.ObservationMetadata{
+					ObservedAt: time.Now().UTC(),
+					Channel:    model.ChannelOBD,
+					Method:     model.MethodDirect,
+				},
+			}
+		}
+	}
 	for pid, definition := range StandardPIDs {
 		lines, err := provider.adapter.Query(1, pid)
 		if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -515,11 +517,15 @@ func commandOBDSelfTest(locations paths, arguments []string) error {
 	flags := flag.NewFlagSet("obd-selftest", flag.ContinueOnError)
 	device := flags.String("device", "", "serial device")
 	seconds := flags.Int("seconds", defaultCANSurveySeconds, "duration of each CAN verification in seconds")
+	deadlineSeconds := flags.Int("deadline-seconds", 0, "overall limit in seconds; 0 derives one from --seconds")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
 	if *seconds <= 0 {
 		return fmt.Errorf("--seconds must be greater than zero")
+	}
+	if *deadlineSeconds < 0 {
+		return fmt.Errorf("--deadline-seconds cannot be negative")
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("obd-selftest accepts flags only")
@@ -552,8 +558,20 @@ func commandOBDSelfTest(locations paths, arguments []string) error {
 	}
 	defer adapter.Close()
 	window := time.Duration(*seconds) * time.Second
+	// Worst case is every protocol tried, a baud fallback that tries them all
+	// again, then the filtered and unfiltered verifications.
+	overall := time.Duration(*deadlineSeconds) * time.Second
+	if overall == 0 {
+		overall = window*time.Duration(2*providers.CANProtocolCount()+2) + 30*time.Second
+	}
+	started := time.Now()
+	fmt.Fprintf(os.Stderr, "Self-test on %s, up to %s. Each stage listens for %s.\n", *device, overall.Round(time.Second), window)
+	progress := func(stage string) {
+		fmt.Fprintf(os.Stderr, "[%4.0fs] %s\n", time.Since(started).Seconds(), stage)
+	}
 	preparation, prepareErr := providers.PrepareProfileMonitor(
 		adapter, decoder.CANIDs(), window, 10, true, func(model.CANFrame) {},
+		progress, started.Add(overall),
 	)
 	result := map[string]any{
 		"device":         *device,
@@ -565,12 +583,17 @@ func commandOBDSelfTest(locations paths, arguments []string) error {
 		result["adapter"] = identity["adapter"]
 		result["firmware"] = identity["firmware"]
 	}
+	result["elapsed_seconds"] = float64(int(time.Since(started).Seconds()*10)) / 10
 	if prepareErr != nil {
 		result["error"] = prepareErr.Error()
 	} else {
 		result["conclusion"] = profileSelfTestConclusion(preparation)
 	}
 	printJSON(result)
+	if errors.Is(prepareErr, providers.ErrPreparationDeadline) {
+		fmt.Fprintf(os.Stderr, "Stopped at the %s limit. The stages above are what completed.\n", overall.Round(time.Second))
+		return prepareErr
+	}
 	if prepareErr != nil {
 		return prepareErr
 	}
@@ -935,12 +958,16 @@ func reprobeVehicleDevice(locations paths, gpsDevice string) (string, error) {
 		fmt.Fprintf(os.Stderr, "vehicle probe %s -> %s\n", report.Device, describePort(report))
 	})
 	_, obdDevice, _ := providers.SelectRoles(reports)
+	previous, _ := detectionStore(locations).Load()
+	if obdDevice == "" && previous.OBD != "" {
+		obdDevice = retryKnownVehicleDevice(previous.OBD, candidates, reports)
+	}
 	if obdDevice == "" {
 		return "", fmt.Errorf(
 			"no OBD device found while probing /dev/serial/by-id/*, /dev/ttyUSB*, /dev/ttyACM*",
 		)
 	}
-	detection, _ := detectionStore(locations).Load()
+	detection := previous
 	detection.At = time.Now().UTC().Format(time.RFC3339)
 	detection.OBD = obdDevice
 	detection.Candidates = allCandidates
@@ -952,6 +979,28 @@ func reprobeVehicleDevice(locations paths, gpsDevice string) (string, error) {
 		fmt.Fprintln(os.Stderr, "Could not record recovered vehicle device:", err)
 	}
 	return obdDevice, nil
+}
+
+// retryKnownVehicleDevice gives the port that used to be the adapter one more
+// chance before the sweep is declared a failure. An adapter reset by the service
+// that just stopped needs a moment before it answers again, and calling that a
+// missing device sends the agent looking for hardware that never moved.
+func retryKnownVehicleDevice(known string, candidates []string, reports []providers.PortReport) string {
+	if !slices.Contains(candidates, known) {
+		return ""
+	}
+	for _, report := range reports {
+		if report.Device == known && report.Role != providers.RoleUnknown {
+			return ""
+		}
+	}
+	fmt.Fprintf(os.Stderr, "vehicle probe %s read as unknown; retrying the port it used last\n", known)
+	report := providers.ProbeKnownDevice(known)
+	fmt.Fprintf(os.Stderr, "vehicle probe %s -> %s\n", report.Device, describePort(report))
+	if report.Role == providers.RoleELM {
+		return known
+	}
+	return ""
 }
 
 // fromDetection rebuilds a selection from the stored answer. An explicit choice in
@@ -1247,11 +1296,18 @@ func commandRun(locations paths, arguments []string) error {
 			}
 			nextSync = now.Add(time.Duration(*syncSeconds) * time.Second)
 		}
-		if !now.Before(nextSample) {
+		// A meaningful transition is reported when it happens rather than at the
+		// next cadence deadline, and the upload that carries it is flushed with
+		// it: a charge that started at 02:00 is of no use first seen at 02:10.
+		event := agent.PendingEvent()
+		if event != "" || !now.Before(nextSample) {
 			var collectErr error
 			nextSample, nextUpload, collectErr = collectAtCadence(agent, configuration, now, nextUpload)
 			if collectErr != nil {
 				fmt.Fprintln(os.Stderr, "Collection failed:", collectErr)
+			}
+			if event != "" {
+				nextUpload = now
 			}
 		}
 		if !now.Before(nextUpload) {

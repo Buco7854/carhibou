@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -30,8 +31,22 @@ type ProfileMonitorPreparation struct {
 	HardwareFilterGood bool                  `json:"hardware_filters_effective"`
 }
 
+// CANProtocolCount is how many protocols a full verification tries, so a caller
+// can derive a sensible overall limit from its per-stage window.
+func CANProtocolCount() int { return len(canProtocols) }
+
+// ErrPreparationDeadline reports that preparation stopped between stages because
+// the caller's overall deadline passed. What ran is still returned.
+var ErrPreparationDeadline = errors.New("monitor preparation exceeded its deadline")
+
 // PrepareProfileMonitor is shared by the service and obd-selftest so the
 // diagnostic exercises the exact command order that production uses.
+//
+// progress may be nil. It names each stage as it starts, because every stage is
+// several seconds of listening and the whole sequence is over a minute: without
+// it the diagnostic is indistinguishable from a hang. deadline may be zero for
+// no limit; it is checked between stages, so the overshoot is bounded by one
+// verification window rather than by the remaining stages.
 func PrepareProfileMonitor(
 	adapter *OBDAdapter,
 	canIDs []int,
@@ -39,7 +54,15 @@ func PrepareProfileMonitor(
 	rawLineLimit int,
 	inspectUnfiltered bool,
 	onFrame func(model.CANFrame),
+	progress func(string),
+	deadline time.Time,
 ) (ProfileMonitorPreparation, error) {
+	announce := func(stage string) {
+		if progress != nil {
+			progress(stage)
+		}
+	}
+	expired := func() bool { return !deadline.IsZero() && time.Now().After(deadline) }
 	result := ProfileMonitorPreparation{InitialBaud: adapter.BaudRate()}
 	allowed := make(map[int]struct{}, len(canIDs))
 	for _, canID := range canIDs {
@@ -52,7 +75,7 @@ func PrepareProfileMonitor(
 	}
 
 	trials, protocolCode, protocolDescription, err := inspectProtocols(
-		adapter, verificationWindow, rawLineLimit, profileFrame,
+		adapter, verificationWindow, rawLineLimit, profileFrame, announce, expired,
 	)
 	result.ProtocolTrials = append(result.ProtocolTrials, trials...)
 	if err != nil {
@@ -62,11 +85,12 @@ func PrepareProfileMonitor(
 
 	if result.InitialBaud != defaultOBDBaudRate && !sustainedCleanTraffic(trials) {
 		result.BaudFallbackReason = "negotiated baud did not carry at least three clean CAN frames during protocol verification"
+		announce(fmt.Sprintf("returning to %d baud and retrying protocol verification", defaultOBDBaudRate))
 		if err := adapter.PreferDefaultBaud(); err != nil {
 			return result, err
 		}
 		trials, protocolCode, protocolDescription, err = inspectProtocols(
-			adapter, verificationWindow, rawLineLimit, profileFrame,
+			adapter, verificationWindow, rawLineLimit, profileFrame, announce, expired,
 		)
 		result.ProtocolTrials = append(result.ProtocolTrials, trials...)
 		if err != nil {
@@ -76,11 +100,16 @@ func PrepareProfileMonitor(
 	}
 	result.FinalBaud = adapter.BaudRate()
 
+	if expired() {
+		return result, ErrPreparationDeadline
+	}
+	announce(fmt.Sprintf("applying %d CAN filters", len(canIDs)))
 	filterCommands, err := adapter.PassFiltersReport(canIDs)
 	result.FilterCommands = filterCommands
 	if err != nil {
 		return result, fmt.Errorf("adapter rejected the CAN filters: %w", err)
 	}
+	announce(fmt.Sprintf("verifying hardware-filtered monitoring for %s", verificationWindow))
 	result.Filtered, err = adapter.InspectMonitor(verificationWindow, false, rawLineLimit, profileFrame)
 	if err != nil {
 		return result, fmt.Errorf("filtered CAN verification stopped: %w", err)
@@ -90,6 +119,10 @@ func PrepareProfileMonitor(
 		return result, nil
 	}
 
+	if expired() {
+		return result, ErrPreparationDeadline
+	}
+	announce(fmt.Sprintf("verifying unfiltered monitoring for %s", verificationWindow))
 	unfiltered, err := adapter.InspectMonitor(verificationWindow, true, rawLineLimit, profileFrame)
 	result.Unfiltered = &unfiltered
 	if err != nil {
@@ -107,6 +140,7 @@ func PrepareProfileMonitor(
 	// STMA is documented as temporary, but reapplying the profile filters makes
 	// the quiet-bus path independent of whether a particular firmware restores
 	// them after the monitor stops.
+	announce("restoring CAN filters")
 	result.RestoredFilters, err = adapter.PassFiltersReport(canIDs)
 	if err != nil {
 		return result, fmt.Errorf("adapter did not restore the CAN filters: %w", err)
@@ -119,9 +153,15 @@ func inspectProtocols(
 	window time.Duration,
 	rawLineLimit int,
 	onFrame func(model.CANFrame),
+	announce func(string),
+	expired func() bool,
 ) ([]ProtocolTrialResult, string, string, error) {
 	trials := []ProtocolTrialResult{}
 	for _, protocol := range canProtocols {
+		if expired() {
+			return trials, "", "", ErrPreparationDeadline
+		}
+		announce(fmt.Sprintf("listening %s on %s (protocol %s)", window, protocol.description, protocol.code))
 		trial := ProtocolTrialResult{
 			Code: protocol.code, Description: protocol.description, BaudRate: adapter.BaudRate(),
 		}

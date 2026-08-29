@@ -275,7 +275,10 @@ func TestHighSpeedNegotiationFallsBackAndRestoresDefaultOnClose(t *testing.T) {
 	}
 	adapter.Close()
 
-	wantWrites := "STBRT 500\rSTBR 2000000\rSTI\rSTBRT 500\rSTBR 1000000\r\rSTI\rSTI\rSTI\rSTBRT 500\rSTBR 115200\r\r"
+	// The trailing reset is what leaves the adapter usable to whatever opens the
+	// port next: Connect turns echo off and headers on, and a monitor installs
+	// pass filters, none of which a later probe expects to find.
+	wantWrites := "STBRT 500\rSTBR 2000000\rSTI\rSTBRT 500\rSTBR 1000000\r\rSTI\rSTI\rSTI\rSTBRT 500\rSTBR 115200\r\rATZ\r"
 	if port.written != wantWrites {
 		t.Fatalf("wrote %q, want %q", port.written, wantWrites)
 	}

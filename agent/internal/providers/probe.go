@@ -219,6 +219,25 @@ func ProbeDevice(device string) PortReport {
 	}
 }
 
+// ProbeKnownDevice classifies a port that was an OBD adapter last time.
+//
+// An adapter that has just been reset, or was released by a process that stopped
+// a moment ago, answers nothing for a short while and classifies as unknown. One
+// retry after a settle delay is the difference between recovering the device and
+// starting a full sweep for hardware that never moved.
+func ProbeKnownDevice(device string) PortReport {
+	report := ProbeDevice(device)
+	if report.Role != RoleUnknown {
+		return report
+	}
+	time.Sleep(knownDeviceSettle)
+	return ProbeDevice(device)
+}
+
+// knownDeviceSettle is how long a formerly-known port is given to finish coming
+// back before its second and final chance.
+const knownDeviceSettle = 2 * time.Second
+
 func probeDevice(open func(string) (serial.Port, error), device string) PortReport {
 	port, err := open(device)
 	if err != nil {

@@ -1,7 +1,9 @@
 package providers
 
 import (
+	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -121,13 +123,14 @@ func TestProfileFallsBackWhenFilteredSTMIsSilentButSTMAWorks(t *testing.T) {
 		t.Fatalf("battery.soc=%v, want the STMA frame decoded", got)
 	}
 
-	protocolIndex := commandIndex(port.commands, "ATSP6", 0)
-	filterIndex := commandIndex(port.commands, "STFAP 374,FFF", 0)
-	firstSTM := commandIndex(port.commands, "STM", 0)
-	filteredSTM := commandIndex(port.commands, "STM", firstSTM+1)
-	stma := commandIndex(port.commands, "STMA", 0)
+	recorded := port.recordedCommands()
+	protocolIndex := commandIndex(recorded, "ATSP6", 0)
+	filterIndex := commandIndex(recorded, "STFAP 374,FFF", 0)
+	firstSTM := commandIndex(recorded, "STM", 0)
+	filteredSTM := commandIndex(recorded, "STM", firstSTM+1)
+	stma := commandIndex(recorded, "STMA", 0)
 	if protocolIndex < 0 || filterIndex < 0 || firstSTM < protocolIndex || filterIndex < firstSTM || filteredSTM < filterIndex || stma < filteredSTM {
-		t.Fatalf("command order=%v, want protocol trial before filters, then filtered STM, then STMA", port.commands)
+		t.Fatalf("command order=%v, want protocol trial before filters, then filtered STM, then STMA", recorded)
 	}
 }
 
@@ -137,11 +140,16 @@ func TestProfileMonitorPreparationReportsTheServicePipeline(t *testing.T) {
 	adapter.port = port
 	adapter.CommandWindow = time.Second
 
+	stages := []string{}
 	preparation, err := PrepareProfileMonitor(
 		adapter, []int{0x374}, 15*time.Millisecond, 10, true, func(model.CANFrame) {},
+		func(stage string) { stages = append(stages, stage) }, time.Time{},
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(stages) == 0 {
+		t.Fatal("preparation reported no progress; the diagnostic reads as a hang")
 	}
 	if len(preparation.ProtocolTrials) != 1 || preparation.ProtocolTrials[0].Trace.Report.ParsedFrames != 1 {
 		t.Fatalf("protocol trials=%+v", preparation.ProtocolTrials)
@@ -155,6 +163,33 @@ func TestProfileMonitorPreparationReportsTheServicePipeline(t *testing.T) {
 	}
 	if preparation.Unfiltered == nil || preparation.Unfiltered.Report.ParsedFrames != 1 || len(preparation.Unfiltered.RawLines) != 2 {
 		t.Fatalf("unfiltered trace=%+v", preparation.Unfiltered)
+	}
+}
+
+// A diagnostic that cannot finish must say what it managed rather than run on
+// past any useful bound.
+func TestPreparationStopsAtItsDeadlineAndKeepsWhatItRan(t *testing.T) {
+	port := &profilePipelinePort{}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+
+	adapter := NewOBDAdapter("scripted")
+	if err := adapter.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer adapter.Close()
+	adapter.CommandWindow = time.Second
+
+	preparation, err := PrepareProfileMonitor(
+		adapter, []int{0x374}, 15*time.Millisecond, 10, true, func(model.CANFrame) {},
+		nil, time.Now().Add(-time.Second),
+	)
+	if !errors.Is(err, ErrPreparationDeadline) {
+		t.Fatalf("err=%v, want %v", err, ErrPreparationDeadline)
+	}
+	if preparation.InitialBaud == 0 {
+		t.Fatal("partial preparation should still carry what it observed")
 	}
 }
 
@@ -182,8 +217,108 @@ func TestProfileNamesAQuietMonitorInEveryStateReading(t *testing.T) {
 	provider.trial = 10 * time.Millisecond
 	defer provider.Close()
 	provider.Start()
-	if state := provider.State(); !strings.Contains(state, "0 profile frames decoded") {
+	if state := provider.State(); !strings.Contains(state, "bus quiet") {
 		t.Fatalf("quiet monitor state=%q", state)
+	}
+}
+
+// A bus that has gone quiet is the ordinary overnight case, not a fault: the
+// adapter is still answering and the vehicle is simply asleep. Reporting that as
+// a dead channel is what retracted a parked car's odometer every night.
+func TestQuietBusKeepsTheProviderAttachedAndFailureFree(t *testing.T) {
+	port := &profilePipelinePort{}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 10 * time.Millisecond
+	defer provider.Close()
+	provider.Start()
+
+	if provider.Live() {
+		t.Fatal("a silent bus should not read as live")
+	}
+	if !provider.Attached() {
+		t.Fatal("a silent bus must leave the adapter attached")
+	}
+	if status := provider.Status(); status != "" {
+		t.Fatalf("quiet bus reported a failure: %q", status)
+	}
+}
+
+// The adapter refusing to answer its own supply reading is the other case: the
+// hardware is gone, so the values it decoded stop being observations.
+func TestUnansweredSupplyReadingsDetachTheProvider(t *testing.T) {
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	for attempt := 0; attempt < auxVoltageFailureLimit-1; attempt++ {
+		provider.recordVoltageFailure()
+		if !provider.Attached() {
+			t.Fatalf("detached after %d failures, want %d", attempt+1, auxVoltageFailureLimit)
+		}
+	}
+	provider.recordVoltageFailure()
+	if provider.Attached() {
+		t.Fatal("adapter that stopped answering must read as detached")
+	}
+	if status := provider.Status(); status == "" {
+		t.Fatal("a detached adapter must say why it published nothing")
+	}
+}
+
+// The supply is the one reading available with the vehicle asleep, so it is
+// published as an ordinary observation on the adapter's own channel.
+func TestSupplyReadingIsPublishedAsAnAuxVoltageObservation(t *testing.T) {
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.storeVoltage(12.4)
+	observations, err := provider.ReadObservations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, present := observations[AuxVoltageMetric]
+	if !present {
+		t.Fatalf("no %s in %#v", AuxVoltageMetric, observations)
+	}
+	if observation.Value != 12.4 {
+		t.Fatalf("value=%v, want 12.4", observation.Value)
+	}
+	if observation.Metadata.Channel != model.ChannelOBD {
+		t.Fatalf("channel=%q, want %q", observation.Metadata.Channel, model.ChannelOBD)
+	}
+	if observation.Metadata.Method != model.MethodDirect {
+		t.Fatalf("method=%q, want %q", observation.Metadata.Method, model.MethodDirect)
+	}
+}
+
+// A state flip is news the cadence should not sit on, but a signal that chatters
+// at frame rate must cost one extra sample rather than thousands.
+func TestStateChangesRaiseOneDebouncedEvent(t *testing.T) {
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	at := time.Now().UTC()
+	charging := func(value any) model.MetricObservations {
+		return model.MetricObservations{
+			"charging.active": {Value: value, Metadata: model.ObservationMetadata{ObservedAt: at}},
+		}
+	}
+	provider.noteEvents(charging(false), at)
+	if reason := provider.TakeEvent(); reason != "" {
+		t.Fatalf("first sighting raised an event: %q", reason)
+	}
+	provider.noteEvents(charging(true), at)
+	reason := provider.TakeEvent()
+	if !strings.Contains(reason, "charging.active") {
+		t.Fatalf("reason=%q, want the changed metric named", reason)
+	}
+	if second := provider.TakeEvent(); second != "" {
+		t.Fatalf("event survived being taken: %q", second)
+	}
+	provider.noteEvents(charging(false), at.Add(time.Second))
+	if reason := provider.TakeEvent(); reason != "" {
+		t.Fatalf("a chattering signal raised a second event inside the debounce: %q", reason)
+	}
+	provider.noteEvents(charging(true), at.Add(2*eventDebounce))
+	if reason := provider.TakeEvent(); reason == "" {
+		t.Fatal("a change after the debounce window should raise an event")
 	}
 }
 
@@ -242,6 +377,10 @@ func TestClosingIsSafeWithoutAMonitor(t *testing.T) {
 
 type profilePipelinePort struct {
 	scriptedPort
+	// The monitor writes from its own goroutine while the test reads the command
+	// log, so the log is guarded. Without this the race detector fails the whole
+	// package on a fixture rather than on anything the agent does.
+	mutex           sync.Mutex
 	commands        []string
 	stmCount        int
 	protocolFrame   bool
@@ -249,9 +388,18 @@ type profilePipelinePort struct {
 	unfilteredFrame bool
 }
 
+// recordedCommands is the only safe way to read the log while a monitor runs.
+func (port *profilePipelinePort) recordedCommands() []string {
+	port.mutex.Lock()
+	defer port.mutex.Unlock()
+	return append([]string(nil), port.commands...)
+}
+
 func (port *profilePipelinePort) Write(payload []byte) (int, error) {
 	command := strings.TrimSuffix(string(payload), "\r")
+	port.mutex.Lock()
 	port.commands = append(port.commands, command)
+	port.mutex.Unlock()
 	switch {
 	case command == "STBRT 500":
 		port.pending = "?\r>"
