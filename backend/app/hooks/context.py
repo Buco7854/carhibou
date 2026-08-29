@@ -317,11 +317,11 @@ class HookTelemetry:
                     )
                 )
             )
-            values = [
+            values: list[dict[str, Any]] = [
                 {
                     "telemetry_id": row.telemetry_id,
                     "key": row.metric_key,
-                    "value": row.payload.get("value"),
+                    "value": row.value,
                     "observed_at": row.observed_at,
                     "source_id": row.source_id,
                     "source_kind": "connector" if row.source_id in connector_ids else "agent",

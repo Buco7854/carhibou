@@ -469,7 +469,7 @@ def upgrade() -> None:
         sa.Column("source_id", sa.String(length=36), nullable=False),
         sa.Column("metric_key", sa.String(length=120), nullable=False),
         sa.Column(
-            "payload",
+            "value",
             sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
             nullable=False,
         ),
@@ -534,7 +534,7 @@ def upgrade() -> None:
         sa.Column("channel", sa.String(length=16), nullable=False),
         sa.Column("metric_key", sa.String(length=120), nullable=False),
         sa.Column(
-            "payload",
+            "value",
             sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
             nullable=False,
         ),
@@ -562,19 +562,6 @@ def upgrade() -> None:
         op.f("ix_telemetry_metric_candidates_telemetry_id"),
         "telemetry_metric_candidates",
         ["telemetry_id"],
-    )
-    op.create_table(
-        "telemetry_source_contacts",
-        sa.Column("source_id", sa.String(length=36), nullable=False),
-        sa.Column("last_contact_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("liveness_window_seconds", sa.Integer(), nullable=False),
-        sa.ForeignKeyConstraint(["source_id"], ["agents.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("source_id"),
-    )
-    op.create_index(
-        op.f("ix_telemetry_source_contacts_last_contact_at"),
-        "telemetry_source_contacts",
-        ["last_contact_at"],
     )
     op.create_table(
         "telemetry_source_contact_periods",
@@ -785,11 +772,6 @@ def downgrade() -> None:
         table_name="telemetry_source_contact_periods",
     )
     op.drop_table("telemetry_source_contact_periods")
-    op.drop_index(
-        op.f("ix_telemetry_source_contacts_last_contact_at"),
-        table_name="telemetry_source_contacts",
-    )
-    op.drop_table("telemetry_source_contacts")
     op.drop_index(
         op.f("ix_telemetry_metric_candidates_telemetry_id"),
         table_name="telemetry_metric_candidates",

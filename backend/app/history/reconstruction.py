@@ -8,9 +8,8 @@ from sqlalchemy.orm import Session
 
 from backend.app.common.time import as_utc
 from backend.app.connectors.models import Connector
+from backend.app.telemetry.contacts import latest_contact_periods
 from backend.app.telemetry.models import (
-    SourceContact,
-    SourceContactPeriod,
     Telemetry,
     TelemetryObservation,
     TelemetryPositionObservation,
@@ -50,29 +49,13 @@ def _source_context(
     if not source_ids:
         return set(), {}
     connectors = set(db.scalars(select(Connector.id).where(Connector.id.in_(source_ids))))
-    contacts: dict[str, tuple[datetime, int]] = {}
-    for source_id in source_ids:
-        period = db.scalar(
-            select(SourceContactPeriod)
-            .where(
-                SourceContactPeriod.source_id == source_id,
-                SourceContactPeriod.started_at <= at,
-            )
-            .order_by(SourceContactPeriod.started_at.desc(), SourceContactPeriod.id.desc())
-            .limit(1)
+    contacts = {
+        source_id: (
+            min(as_utc(period.last_contact_at), as_utc(at)),
+            period.liveness_window_seconds,
         )
-        if period:
-            contacts[source_id] = (
-                min(as_utc(period.last_contact_at), as_utc(at)),
-                period.liveness_window_seconds,
-            )
-            continue
-        current = db.get(SourceContact, source_id)
-        if current and as_utc(current.last_contact_at) <= as_utc(at):
-            contacts[source_id] = (
-                as_utc(current.last_contact_at),
-                current.liveness_window_seconds,
-            )
+        for source_id, period in latest_contact_periods(db, source_ids, at=at).items()
+    }
     return connectors, contacts
 
 
@@ -95,7 +78,7 @@ def _metric_candidate(
     last_contact, liveness = _contact(row.source_id, contacts)
     return Candidate(
         key=row.metric_key,
-        value=row.payload.get("value"),
+        value=row.value,
         observed_at=row.observed_at,
         source_id=row.source_id,
         source_kind=_kind(row.source_id, connectors),

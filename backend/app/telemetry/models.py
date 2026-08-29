@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.app.common.models import Base
 from backend.app.common.time import utcnow
 from backend.app.common.types import JSONType, JSONValue
+from backend.app.telemetry.values import MetricValue
 
 
 class Telemetry(Base):
@@ -36,7 +37,7 @@ class Telemetry(Base):
 
     @property
     def metrics(self) -> dict[str, object]:
-        return {row.metric_key: row.payload.get("value") for row in self.observation_rows}
+        return {row.metric_key: row.value for row in self.observation_rows}
 
     def _position_value(self, key: str) -> float | None:
         if not self.position_observation:
@@ -99,7 +100,7 @@ class TelemetryObservation(Base):
     )
     source_id: Mapped[str] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
     metric_key: Mapped[str] = mapped_column(String(120))
-    payload: Mapped[JSONValue] = mapped_column(JSONType)
+    value: Mapped[MetricValue] = mapped_column(JSONType, nullable=False)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     channel: Mapped[str] = mapped_column(String(16))
     method: Mapped[str] = mapped_column(String(16))
@@ -140,7 +141,7 @@ class MetricCandidate(Base):
     )
     channel: Mapped[str] = mapped_column(String(16), primary_key=True)
     metric_key: Mapped[str] = mapped_column(String(120), primary_key=True)
-    payload: Mapped[JSONValue] = mapped_column(JSONType)
+    value: Mapped[MetricValue] = mapped_column(JSONType, nullable=False)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     method: Mapped[str] = mapped_column(String(16))
     reporting_interval: Mapped[int | None] = mapped_column(Integer)
@@ -168,16 +169,6 @@ class PositionCandidate(Base):
     telemetry_id: Mapped[str] = mapped_column(
         ForeignKey("telemetry.id", ondelete="CASCADE"), index=True
     )
-
-
-class SourceContact(Base):
-    __tablename__ = "telemetry_source_contacts"
-
-    source_id: Mapped[str] = mapped_column(
-        ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True
-    )
-    last_contact_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    liveness_window_seconds: Mapped[int] = mapped_column(Integer, default=15)
 
 
 class SourceContactPeriod(Base):

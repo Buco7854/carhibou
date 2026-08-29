@@ -8,10 +8,10 @@ from backend.app.agents.models import Agent
 from backend.app.common.time import as_utc, utcnow
 from backend.app.hooks.models import Hook, HookExecution, Trigger
 from backend.app.jobs.models import Job
+from backend.app.telemetry.contacts import latest_contact_period
 from backend.app.telemetry.models import (
     MetricCandidate,
     PositionCandidate,
-    SourceContact,
     SourceContactPeriod,
     Telemetry,
     TelemetryObservation,
@@ -37,15 +37,9 @@ def touch_source_contact(
     liveness_window_seconds: int,
 ) -> None:
     contacted_at = as_utc(contacted_at)
-    contact = db.get(SourceContact, source_id)
-    if contact and as_utc(contact.last_contact_at) > contacted_at:
+    latest_period = latest_contact_period(db, source_id)
+    if latest_period and as_utc(latest_period.last_contact_at) > contacted_at:
         return
-    latest_period = db.scalar(
-        select(SourceContactPeriod)
-        .where(SourceContactPeriod.source_id == source_id)
-        .order_by(SourceContactPeriod.started_at.desc(), SourceContactPeriod.id.desc())
-        .limit(1)
-    )
     if latest_period is None or contacted_at > as_utc(latest_period.last_contact_at) + timedelta(
         seconds=latest_period.liveness_window_seconds
     ):
@@ -60,17 +54,6 @@ def touch_source_contact(
     else:
         latest_period.last_contact_at = contacted_at
         latest_period.liveness_window_seconds = liveness_window_seconds
-    if contact:
-        contact.last_contact_at = contacted_at
-        contact.liveness_window_seconds = liveness_window_seconds
-    else:
-        db.add(
-            SourceContact(
-                source_id=source_id,
-                last_contact_at=contacted_at,
-                liveness_window_seconds=liveness_window_seconds,
-            )
-        )
 
 
 def _accepted_observations(sample: TelemetrySample) -> list[Observation]:
@@ -117,7 +100,7 @@ def _apply_metric_candidate(
     if row and as_utc(row.observed_at) >= observed_at:
         return
     values = {
-        "payload": {"value": observation.value},
+        "value": observation.value,
         "observed_at": observed_at,
         "method": observation.method,
         "reporting_interval": telemetry.reporting_interval,
@@ -267,7 +250,7 @@ def ingest_batch(db: Session, agent: Agent, batch: TelemetryBatch) -> IngestionR
                     vehicle_id=telemetry.vehicle_id,
                     source_id=telemetry.agent_id,
                     metric_key=observation.key,
-                    payload={"value": observation.value},
+                    value=observation.value,
                     observed_at=as_utc(observation.observed_at),
                     channel=observation.channel,
                     method=observation.method,

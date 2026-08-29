@@ -11,7 +11,6 @@ from backend.app.secrets.models import Secret
 from backend.app.telemetry.models import (
     MetricCandidate,
     PositionCandidate,
-    SourceContact,
     SourceContactPeriod,
     Telemetry,
     TelemetryObservation,
@@ -41,7 +40,6 @@ __all__ = [
     "TelemetryPositionObservation",
     "MetricCandidate",
     "PositionCandidate",
-    "SourceContact",
     "SourceContactPeriod",
     "Trigger",
     "User",

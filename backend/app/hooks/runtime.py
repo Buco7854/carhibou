@@ -58,7 +58,7 @@ def _triggering(db: Session, rows: list[Telemetry]) -> list[dict[str, Any]]:
                 {
                     "telemetry_id": sample.id,
                     "key": observation.metric_key,
-                    "value": observation.payload.get("value"),
+                    "value": observation.value,
                     "observed_at": observation.observed_at.isoformat(),
                     "source_id": sample.agent_id,
                     "source_kind": source_kind,

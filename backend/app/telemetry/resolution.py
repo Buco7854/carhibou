@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from backend.app.agents.models import Agent
 from backend.app.common.time import as_utc, utcnow
 from backend.app.connectors.models import Connector
-from backend.app.telemetry.models import MetricCandidate, PositionCandidate, SourceContact
+from backend.app.telemetry.contacts import latest_contact_periods
+from backend.app.telemetry.models import MetricCandidate, PositionCandidate
 from backend.app.telemetry.registry import (
     CHARGING_POWER_FLOOR_KW,
     FRESHNESS_INTERVAL_MULTIPLIER,
@@ -209,16 +210,7 @@ def load_candidates(
         if source_ids
         else set()
     )
-    contacts = (
-        {
-            row.source_id: row
-            for row in db.scalars(
-                select(SourceContact).where(SourceContact.source_id.in_(source_ids))
-            )
-        }
-        if source_ids
-        else {}
-    )
+    contacts = latest_contact_periods(db, source_ids)
 
     def kind(source_id: str) -> SourceKind:
         return "connector" if source_id in connector_ids else "agent"
@@ -233,7 +225,7 @@ def load_candidates(
         metrics.append(
             Candidate(
                 key=metric_row.metric_key,
-                value=metric_row.payload.get("value"),
+                value=metric_row.value,
                 observed_at=metric_row.observed_at,
                 source_id=metric_row.source_id,
                 source_kind=kind(metric_row.source_id),
@@ -279,19 +271,16 @@ def vehicle_source_online(
     now: datetime | None = None,
 ) -> bool:
     resolved_at = as_utc(now or utcnow())
-    contacts = db.execute(
-        select(SourceContact.last_contact_at, SourceContact.liveness_window_seconds)
-        .join(Agent, Agent.id == SourceContact.source_id)
-        .where(Agent.vehicle_id == vehicle_id)
-    )
+    source_ids = set(db.scalars(select(Agent.id).where(Agent.vehicle_id == vehicle_id)))
+    contacts = latest_contact_periods(db, source_ids).values()
     return any(
-        as_utc(last_contact_at)
+        as_utc(contact.last_contact_at)
         >= resolved_at
         - timedelta(
             seconds=max(
                 default_threshold_seconds,
-                FRESHNESS_INTERVAL_MULTIPLIER * liveness_window_seconds,
+                FRESHNESS_INTERVAL_MULTIPLIER * contact.liveness_window_seconds,
             )
         )
-        for last_contact_at, liveness_window_seconds in contacts
+        for contact in contacts
     )

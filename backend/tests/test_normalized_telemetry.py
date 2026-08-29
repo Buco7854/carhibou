@@ -7,9 +7,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app.telemetry.models import MetricCandidate, Telemetry, TelemetryObservation
-from backend.app.telemetry.resolution import Candidate, resolve_readings
+from backend.app.telemetry.contacts import latest_contact_periods
+from backend.app.telemetry.models import (
+    MetricCandidate,
+    SourceContactPeriod,
+    Telemetry,
+    TelemetryObservation,
+)
+from backend.app.telemetry.resolution import Candidate, resolve_readings, vehicle_source_online
 from backend.app.telemetry.schemas import TelemetryBatch
+from backend.app.telemetry.services import touch_source_contact
 from backend.app.vehicle_state.models import VehicleState
 
 
@@ -130,8 +137,8 @@ def test_delayed_samples_update_only_their_exact_candidate(
     with db_factory() as db:
         speed = db.get(MetricCandidate, (vehicle_id, agent_id, "can", "vehicle.speed"))
         soc = db.get(MetricCandidate, (vehicle_id, agent_id, "can", "battery.soc"))
-        assert speed and speed.payload["value"] == 30
-        assert soc and soc.payload["value"] == 60
+        assert speed and speed.value == 30
+        assert soc and soc.value == 60
     state = client.get(f"/api/v1/vehicles/{vehicle_id}").json()["state"]
     assert state["readings"]["vehicle.speed"]["value"] == 30
     assert state["readings"]["battery.soc"]["value"] == 60
@@ -188,6 +195,37 @@ def test_cadence_and_event_contact_control_freshness() -> None:
     assert current["battery.soc"]["fresh"] is True
     expired = resolve_readings([event_state], now + timedelta(minutes=16))
     assert expired["battery.soc"]["fresh"] is False
+
+
+def test_latest_contact_period_is_the_only_current_contact(
+    registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
+) -> None:
+    client, csrf = registered
+    vehicle_id, agent_id, _credential = _source(client, csrf)
+    first = datetime.now(UTC) - timedelta(hours=1)
+    latest = datetime.now(UTC)
+    with db_factory() as db:
+        touch_source_contact(db, agent_id, first, 15)
+        db.flush()
+        touch_source_contact(db, agent_id, latest, 30)
+        db.commit()
+
+    with db_factory() as db:
+        periods = list(
+            db.scalars(
+                select(SourceContactPeriod)
+                .where(SourceContactPeriod.source_id == agent_id)
+                .order_by(SourceContactPeriod.started_at)
+            )
+        )
+        assert len(periods) == 2
+        assert latest_contact_periods(db, {agent_id})[agent_id].id == periods[1].id
+        assert (
+            latest_contact_periods(db, {agent_id}, at=first + timedelta(seconds=10))[agent_id].id
+            == periods[0].id
+        )
+        assert vehicle_source_online(db, vehicle_id, 10, now=latest + timedelta(seconds=89))
+        assert not vehicle_source_online(db, vehicle_id, 10, now=latest + timedelta(seconds=91))
 
 
 def test_charging_resolution_is_explicit_first_and_synthesizes_rate() -> None:

@@ -46,7 +46,7 @@ def _row(
                 vehicle_id="vehicle",
                 source_id="agent",
                 metric_key=key,
-                payload={"value": value},
+                value=value,
                 observed_at=observed_at,
                 channel="can",
                 method="direct",

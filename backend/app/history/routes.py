@@ -70,7 +70,7 @@ def _children(
 
 
 def _metric_values(items: list[TelemetryObservation]) -> dict[str, object]:
-    return {item.metric_key: item.payload.get("value") for item in items}
+    return {item.metric_key: item.value for item in items}
 
 
 def _position_values(
@@ -375,7 +375,7 @@ def history_observations(
                 observations=[
                     RecordedObservation(
                         key=item.metric_key,
-                        value=item.payload.get("value"),
+                        value=item.value,
                         observed_at=item.observed_at,
                         source_id=item.source_id,
                         source_kind=source_kind,
