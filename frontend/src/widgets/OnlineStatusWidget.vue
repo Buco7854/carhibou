@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget } from '../api/types'
+import AppHelp from '../components/AppHelp.vue'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import { formatInstant, agentStatus, vehicleActivity } from '../vehicleDisplay'
 import { useDashboardVehicle } from './dashboardContext'
@@ -24,7 +25,10 @@ const reportedAt = computed(() => {
 
 <template>
   <article class="widget-card status-widget">
-    <div class="widget-head"><h2>{{ widget.title||t('dashboard.connection') }}</h2><small>{{ vehicle?.name }}</small></div>
+    <div class="widget-head">
+      <h2>{{ widget.title||t('dashboard.connection') }}<AppHelp :label="t('dashboard.freshnessHelpLabel')"><span>{{ t('dashboard.freshnessHelp') }}</span></AppHelp></h2>
+      <small>{{ vehicle?.name }}</small>
+    </div>
     <template v-if="vehicle?.state">
       <dl class="states">
         <div>
@@ -47,5 +51,6 @@ const reportedAt = computed(() => {
 .states>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 .states dt{color:var(--muted);font-size:var(--font-caption)}
 .states dd{margin:0}
+.widget-head h2{display:flex;align-items:center;gap:4px}
 .status-time{margin-top:10px;color:var(--muted-2);font-size:var(--font-caption)}
 </style>

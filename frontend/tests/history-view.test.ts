@@ -41,6 +41,14 @@ function mountHistory(history: unknown) {
   return mount(HistoryView, { global: { plugins: [i18n], stubs: { Teleport: true } } })
 }
 
+
+/** History opens on the timeline now; these cases are about the raw reports. */
+async function openRawReports(wrapper: ReturnType<typeof mountHistory>) {
+  await wrapper.findAll('.history-modes button')[1]!.trigger('click')
+  await flushPromises()
+  return wrapper
+}
+
 describe('history view with no telemetry', () => {
   beforeEach(() => {
     i18n.global.locale.value = 'en'
@@ -48,9 +56,7 @@ describe('history view with no telemetry', () => {
   })
 
   it('stands the metric picker down instead of offering an empty list', async () => {
-    const wrapper = mountHistory(emptyHistory)
-    await flushPromises()
-
+    const wrapper = await openRawReports(mountHistory(emptyHistory))
     const metricSelect = wrapper.findAllComponents(AppSelect)[0]!
     const trigger = metricSelect.get('.app-select-trigger')
     // The defect: an empty label on a control that looks usable but cannot open.
@@ -63,18 +69,14 @@ describe('history view with no telemetry', () => {
   })
 
   it('keeps the range picker usable so the reader can look further back', async () => {
-    const wrapper = mountHistory(emptyHistory)
-    await flushPromises()
-
+    const wrapper = await openRawReports(mountHistory(emptyHistory))
     const rangeSelect = wrapper.findAllComponents(AppSelect)[1]!
     expect(rangeSelect.get('.app-select-trigger').attributes('disabled')).toBeUndefined()
     expect(rangeSelect.get('.app-select-trigger').text()).toBe('24 hours')
   })
 
   it('offers the recorded metrics once there is data', async () => {
-    const wrapper = mountHistory(populatedHistory)
-    await flushPromises()
-
+    const wrapper = await openRawReports(mountHistory(populatedHistory))
     const metricSelect = wrapper.findAllComponents(AppSelect)[0]!
     const trigger = metricSelect.get('.app-select-trigger')
     expect(trigger.attributes('disabled')).toBeUndefined()

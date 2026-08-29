@@ -33,12 +33,20 @@ const metric = ref('')
 /**
  * The two ways of reading the same history.
  *
- * Observations are what the car actually sent, sparse and irregular. The table
- * is the server's reconstruction: every metric carried forward to a fixed grid,
- * so a row is the whole car at an instant rather than whatever happened to
- * arrive then. They answer different questions, so neither replaces the other.
+ * The timeline is what somebody means by history without being told: the state
+ * of the car at each moment, on a regular clock. Raw reports are what the car
+ * actually sent, which is sparse, irregular, and the thing you want only once
+ * you are asking why a number looks wrong. So the timeline opens first, and the
+ * choice is remembered because whichever one somebody wants, they want it again.
  */
-const mode = ref<'observations' | 'table'>('observations')
+type HistoryMode = 'timeline' | 'reports'
+const MODE_KEY = 'carhibou.history-mode'
+const mode = ref<HistoryMode>(readMode())
+
+function readMode(): HistoryMode {
+  return localStorage.getItem(MODE_KEY) === 'reports' ? 'reports' : 'timeline'
+}
+watch(mode, (next) => localStorage.setItem(MODE_KEY, next))
 const days = ref(1)
 const error = ref('')
 const vehicleId = String(route.params.id)
@@ -100,13 +108,13 @@ onMounted(load)
     <p v-if="error" class="error">{{ error }}</p>
 
     <div class="history-modes" role="group" :aria-label="t('history.mode')">
-      <button v-for="option in (['observations','table'] as const)" :key="option" type="button" :class="{ active: mode === option }" :aria-pressed="mode === option" @click="mode = option">
+      <button v-for="option in (['timeline','reports'] as const)" :key="option" type="button" :class="{ active: mode === option }" :aria-pressed="mode === option" @click="mode = option">
         {{ t(`history.modes.${option}`) }}
       </button>
     </div>
 
     <div class="history-controls">
-      <label v-if="mode === 'observations'" class="field inline-field"><span>{{ t('history.metric') }}</span>
+      <label v-if="mode === 'reports'" class="field inline-field"><span>{{ t('history.metric') }}</span>
         <!-- With nothing recorded there is no metric to pick, so the control says
              so and stands down rather than offering an empty list. -->
         <AppSelect v-model="metric" :disabled="!metricOptions.length" :aria-label="t('history.metric')">
@@ -116,13 +124,13 @@ onMounted(load)
       </label>
       <label class="field inline-field range-field"><span>{{ t('history.range') }}</span><AppSelect v-model="days"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></AppSelect></label>
       <dl class="history-summary">
-        <div v-if="mode === 'observations'" class="history-stat"><dt>{{ t('history.latest') }}</dt><dd>{{ latestDisplay }}<small v-if="latestValue !== undefined && selectedMetric.unit">{{ selectedMetric.unit }}</small></dd></div>
-        <div v-if="history && mode === 'observations'" class="history-stat"><dt>{{ t('history.sourceSamples') }}</dt><dd>{{ history.original_count }}</dd></div>
+        <div v-if="mode === 'reports'" class="history-stat"><dt>{{ t('history.latest') }}</dt><dd>{{ latestDisplay }}<small v-if="latestValue !== undefined && selectedMetric.unit">{{ selectedMetric.unit }}</small></dd></div>
+        <div v-if="history && mode === 'reports'" class="history-stat"><dt>{{ t('history.reportCount') }}</dt><dd>{{ history.original_count }}</dd></div>
         <div class="history-stat"><dt>{{ t('common.status') }}</dt><dd><span :class="['status',{online:vehicle?.state?.online}]">{{ vehicle?.state?.online ? t('common.online') : t('common.stale') }}</span></dd></div>
       </dl>
     </div>
 
-    <template v-if="mode === 'observations'">
+    <template v-if="mode === 'reports'">
     <div v-if="history?.points.length" class="history-grid">
       <section class="panel history-chart">
         <header><h2>{{ metricLabel(selectedMetric, t) }}</h2><span class="mono panel-meta">{{ metric }}</span></header>

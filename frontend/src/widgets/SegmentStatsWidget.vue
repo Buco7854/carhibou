@@ -2,11 +2,10 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget, Segments } from '../api/types'
-import { formatDuration } from '../agentCadence'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { EMPTY_SEGMENTS, loadSegments } from '../api/segments'
-import { formatInstant } from '../vehicleDisplay'
+import { formatInstant, formatSpan } from '../vehicleDisplay'
 import { followSelection, mergeSegments } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
@@ -32,14 +31,14 @@ const stats = computed<Stat[]>(() => {
   if (current.kind === 'drive' && current.drive) {
     const drive = current.drive
     rows.push(['distance', t('insights.distance'), number(drive.distance_km, 1, 'km')])
-    rows.push(['duration', t('insights.duration'), formatDuration(drive.duration_seconds, locale.value)])
+    rows.push(['duration', t('insights.duration'), formatSpan(drive.duration_seconds, locale.value)])
     rows.push(['avgSpeed', t('insights.avgSpeed'), number(drive.avg_speed, 0, 'km/h')])
     rows.push(['maxSpeed', t('insights.maxSpeed'), number(drive.max_speed, 0, 'km/h')])
     rows.push(['energy', t('insights.energyUsed'), number(drive.energy_kwh, 1, 'kWh')])
   } else if (current.charge) {
     const charge = current.charge
     rows.push(['energy', t('insights.energyAdded'), number(charge.energy_kwh, 1, 'kWh')])
-    rows.push(['duration', t('insights.duration'), formatDuration(charge.duration_seconds, locale.value)])
+    rows.push(['duration', t('insights.duration'), formatSpan(charge.duration_seconds, locale.value)])
     rows.push(['soc', t('insights.socSpan'), charge.soc_start === undefined || charge.soc_end === undefined ? null : `${Math.round(charge.soc_start)}% → ${Math.round(charge.soc_end)}%`])
     rows.push(['peak', t('insights.peakPower'), number(charge.peak_power, 1, 'kW')])
   }

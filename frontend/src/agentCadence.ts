@@ -110,11 +110,3 @@ export function drivingDelaySeconds(cadence: Cadence): number {
   return Math.max(0, cadence.sampling_seconds) + Math.max(0, cadence.upload_seconds - cadence.sampling_seconds)
 }
 
-export function formatDuration(seconds: number, locale: string): string {
-  const format = (value: number, unit: Intl.RelativeTimeFormatUnit) =>
-    new Intl.NumberFormat(locale, { maximumFractionDigits: value < 10 ? 1 : 0 }).format(value) +
-    ' ' + new Intl.DisplayNames([locale], { type: 'dateTimeField' }).of(unit)
-  if (seconds >= 3600) return format(seconds / 3600, 'hour')
-  if (seconds >= 60) return format(seconds / 60, 'minute')
-  return format(seconds, 'second')
-}

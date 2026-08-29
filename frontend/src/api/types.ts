@@ -228,6 +228,48 @@ export interface HistoryEntries {
   entries: HistoryEntry[]
 }
 
+/** One observation exactly as a source reported it, with where it came from. */
+export interface RecordedObservation extends Omit<Provenance, 'fresh'> {
+  key: string
+  value: unknown
+}
+
+export interface RecordedPosition extends Omit<Provenance, 'fresh'> {
+  value: PositionFix
+}
+
+/**
+ * One uploaded sample, unresolved.
+ *
+ * `recorded_at` is when the source says it took the reading and `received_at` is
+ * when the server got it, so the two together are the upload lag. A sample is an
+ * envelope: its observations each carry their own channel and instant, which is
+ * how a Pi reading CAN and a broker relaying MQTT stay distinguishable.
+ */
+export interface HistoryObservationSample {
+  id: string
+  sequence: number
+  recorded_at: string
+  received_at: string
+  source_id: string
+  source_kind: SourceKind
+  reporting_interval: number | null
+  event_driven: boolean
+  position: RecordedPosition | null
+  observations: RecordedObservation[]
+  agent: Record<string, unknown>
+}
+
+export interface HistoryObservations {
+  vehicle_id: string
+  start: string
+  end: string
+  total: number
+  limit: number
+  offset: number
+  samples: HistoryObservationSample[]
+}
+
 /**
  * One row of the snapshot table: the whole car as of `bucket_end`.
  *

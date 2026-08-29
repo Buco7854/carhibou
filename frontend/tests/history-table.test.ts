@@ -68,9 +68,9 @@ describe('history snapshot table', () => {
     await flushPromises()
     const query = lastQuery(fetchMock)
     expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain('/history/table')
-    // The route rejects any step outside its own list with a 400, so the picker
-    // must only ever send one of them.
-    expect(query.get('step_seconds')).toBe('60')
+    // Chosen from the range rather than typed by the reader: a day of history
+    // asks for five-minute rows, which the route accepts from its own list.
+    expect(query.get('step_seconds')).toBe('300')
     expect(query.get('limit')).toBe('100')
     expect(query.get('offset')).toBe('0')
   })

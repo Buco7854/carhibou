@@ -2,9 +2,11 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errorMessage } from '../api/client'
+import { loadSampleProvenance } from '../api/segments'
 import { useLiveRefresh } from '../api/live'
-import type { HistoryEntries, HistoryEntry } from '../api/types'
-import { formatInstant, metricDefinition, metricLabel } from '../vehicleDisplay'
+import type { HistoryEntries, HistoryEntry, HistoryObservationSample } from '../api/types'
+import { formatAge, formatInstant, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
+import AppHelp from './AppHelp.vue'
 import AppIcon from './AppIcon.vue'
 import AppSelect from './AppSelect.vue'
 
@@ -26,7 +28,7 @@ interface ColumnPreference {
 }
 
 const props = defineProps<{ vehicleId: string; days: number }>()
-const { t, te } = useI18n()
+const { t, te, locale } = useI18n()
 
 const FIXED: Array<{ key: string; labelKey: string; unit: string; decimals: number }> = [
   { key: 'recorded_at', labelKey: 'history.columns.recordedAt', unit: '', decimals: 0 },
@@ -215,6 +217,59 @@ function clearFilters(): void {
   offset.value = 0
 }
 
+/**
+ * Where one row's values came from.
+ *
+ * The grid is served by /entries, the only endpoint that can sort and filter,
+ * and that endpoint carries values without provenance. Rather than trade the
+ * grid's abilities away, provenance is fetched per row from /observations when a
+ * reader opens one, which is also the only time it is worth a request.
+ */
+const openSample = ref('')
+const provenance = ref<HistoryObservationSample | null>(null)
+const provenanceError = ref('')
+const provenanceLoading = ref(false)
+let provenanceRequest = 0
+
+async function toggleSample(entry: HistoryEntry): Promise<void> {
+  if (openSample.value === entry.id) {
+    openSample.value = ''
+    return
+  }
+  const current = ++provenanceRequest
+  openSample.value = entry.id
+  provenance.value = null
+  provenanceError.value = ''
+  provenanceLoading.value = true
+  try {
+    const found = await loadSampleProvenance(props.vehicleId, entry)
+    if (current === provenanceRequest) provenance.value = found
+  } catch (reason) {
+    if (current === provenanceRequest) provenanceError.value = errorMessage(reason, t('common.error'))
+  } finally {
+    if (current === provenanceRequest) provenanceLoading.value = false
+  }
+}
+
+/** How long the sample spent in flight, when that is worth saying. */
+const uploadLag = computed(() => {
+  if (!provenance.value) return ''
+  const seconds = Math.round(
+    (new Date(provenance.value.received_at).getTime() - new Date(provenance.value.recorded_at).getTime()) / 1000,
+  )
+  return seconds > 0 ? formatSpan(seconds, locale.value) : ''
+})
+
+function observationValue(value: unknown): string {
+  if (typeof value === 'boolean') return t(value ? 'metrics.active' : 'metrics.inactive')
+  if (typeof value === 'number') return String(value)
+  return value === null || value === undefined ? '—' : String(value)
+}
+
+function sourceLabel(sample: HistoryObservationSample): string {
+  return `${t(`history.sourceKind.${sample.source_kind}`)} · ${sample.source_id}`
+}
+
 async function load(): Promise<void> {
   const current = ++request
   loading.value = true
@@ -359,6 +414,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
       <table class="table entries-table">
         <thead>
           <tr>
+            <th class="expand-cell"><span class="sr-only">{{ t('history.provenance') }}</span></th>
             <th v-for="column in visibleColumns" :key="column.key" :aria-sort="sort === column.key ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'">
               <button type="button" :title="columnHint(column)" @click="sortBy(column.key)">
                 <span>{{ column.label }}<em v-if="column.unit"> ({{ column.unit }})</em></span>
@@ -368,9 +424,78 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
           </tr>
         </thead>
         <tbody>
-          <tr v-for="entry in data.entries" :key="entry.id">
-            <td v-for="column in visibleColumns" :key="column.key" :class="{ numeric: column.numeric }">{{ cell(entry, column) }}</td>
-          </tr>
+          <template v-for="entry in data.entries" :key="entry.id">
+            <tr :class="{ 'is-open': openSample === entry.id }">
+              <td class="expand-cell">
+                <button class="icon-button" type="button" :aria-expanded="openSample === entry.id" :aria-label="t('history.provenanceFor', { time: formatInstant(entry.recorded_at) })" @click="toggleSample(entry)">
+                  <AppIcon :name="openSample === entry.id ? 'chevron-up' : 'chevron-down'" :size="15" />
+                </button>
+              </td>
+              <td v-for="column in visibleColumns" :key="column.key" :class="{ numeric: column.numeric }">{{ cell(entry, column) }}</td>
+            </tr>
+            <tr v-if="openSample === entry.id" class="provenance-row">
+              <td :colspan="visibleColumns.length + 1">
+                <p v-if="provenanceError" class="error" role="alert">{{ provenanceError }}</p>
+                <p v-else-if="provenanceLoading" class="muted">{{ t('common.loading') }}</p>
+                <div v-else-if="provenance" class="provenance">
+                  <dl class="provenance-facts">
+                    <div><dt>{{ t('history.source') }}</dt><dd>{{ sourceLabel(provenance) }}</dd></div>
+                    <div><dt>{{ t('history.observedAt') }}</dt><dd>{{ formatInstant(provenance.recorded_at) }}</dd></div>
+                    <div><dt>{{ t('history.receivedAt') }}</dt><dd>{{ formatInstant(provenance.received_at) }}<small v-if="uploadLag">{{ t('history.uploadLag', { lag: uploadLag }) }}</small></dd></div>
+                    <div><dt>{{ t('history.cadence') }}</dt><dd>{{ provenance.event_driven ? t('history.eventDriven') : provenance.reporting_interval ? formatSpan(provenance.reporting_interval, locale) : '—' }}</dd></div>
+                  </dl>
+                  <table class="table provenance-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">{{ t('history.metric') }}</th>
+                        <th scope="col">{{ t('history.value') }}</th>
+                        <th scope="col">
+                          {{ t('history.channel') }}
+                          <AppHelp :label="t('history.channelHelpLabel')">
+                            <dl>
+                              <div v-for="channel in (['can','obd','gnss','mqtt','derived'] as const)" :key="channel">
+                                <dt>{{ t(`history.channels.${channel}`) }}</dt>
+                                <dd>{{ t(`history.channelHelp.${channel}`) }}</dd>
+                              </div>
+                            </dl>
+                          </AppHelp>
+                        </th>
+                        <th scope="col">
+                          {{ t('history.method') }}
+                          <AppHelp :label="t('history.methodHelpLabel')">
+                            <dl>
+                              <div v-for="method in (['direct','derived'] as const)" :key="method">
+                                <dt>{{ t(`history.methods.${method}`) }}</dt>
+                                <dd>{{ t(`history.methodHelp.${method}`) }}</dd>
+                              </div>
+                            </dl>
+                          </AppHelp>
+                        </th>
+                        <th scope="col">{{ t('history.observedAt') }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-if="provenance.position">
+                        <td>{{ t('history.columns.position') }}</td>
+                        <td class="mono">{{ provenance.position.value.latitude.toFixed(5) }}, {{ provenance.position.value.longitude.toFixed(5) }}</td>
+                        <td>{{ t(`history.channels.${provenance.position.channel}`) }}</td>
+                        <td>{{ t(`history.methods.${provenance.position.method}`) }}</td>
+                        <td>{{ formatInstant(provenance.position.observed_at) }}<small class="observed-age">{{ formatAge(Math.max(0, Math.round((new Date(provenance.recorded_at).getTime() - new Date(provenance.position.observed_at).getTime()) / 1000)), locale) }}</small></td>
+                      </tr>
+                      <tr v-for="observation in provenance.observations" :key="`${observation.key}-${observation.channel}`">
+                        <td>{{ metricLabel(metricDefinition(observation.key), t) }}<small class="mono">{{ observation.key }}</small></td>
+                        <td class="mono">{{ observationValue(observation.value) }}</td>
+                        <td>{{ t(`history.channels.${observation.channel}`) }}</td>
+                        <td>{{ t(`history.methods.${observation.method}`) }}</td>
+                        <td>{{ formatInstant(observation.observed_at) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p v-else class="muted">{{ t('history.noProvenance') }}</p>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -391,6 +516,25 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeColumns, 
 </template>
 
 <style scoped>
+/* The disclosure column is chrome, not data, so it takes only what it needs and
+   never enters the sort or the column preference. */
+.expand-cell{width:34px;padding-right:0}
+.expand-cell .icon-button{width:26px;height:26px}
+tr.is-open>td{border-bottom-color:transparent}
+.provenance-row>td{padding:0 14px 14px;background:var(--panel-2)}
+.provenance{display:grid;gap:12px;padding-top:12px}
+.provenance-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 18px;margin:0}
+.provenance-facts dt{color:var(--muted);font-size:var(--font-caption)}
+.provenance-facts dd{margin:2px 0 0;font-size:var(--font-caption)}
+.provenance-facts dd small{margin-left:6px;color:var(--muted)}
+.provenance-table{background:var(--panel);border-radius:var(--radius)}
+.provenance-table th,.provenance-table td{padding:7px 11px}
+.provenance-table th{white-space:nowrap}
+.provenance-table th .app-help{margin-left:4px}
+.provenance-table td small{display:block;margin-top:1px;color:var(--muted-2);font-size:var(--font-micro)}
+.observed-age{color:var(--muted-2)}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
 .entries{display:grid;overflow:hidden}
 .entries-fresh{display:flex;align-items:center;justify-content:center;gap:8px;margin:0;padding:8px 16px;color:var(--muted);background:var(--panel-2);font-size:var(--font-caption);border-bottom:1px solid var(--line)}
 .entries-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:14px 16px;border-bottom:1px solid var(--line)}

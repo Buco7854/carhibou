@@ -5,13 +5,27 @@ import { errorMessage } from '../api/client'
 import { TABLE_STEP_SECONDS, loadHistoryTable } from '../api/segments'
 import type { HistoryTable, HistoryTableRow, Reading } from '../api/types'
 import { formatAge, formatMetricNumber, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
+import AppHelp from './AppHelp.vue'
 import AppSelect from './AppSelect.vue'
 
 const props = defineProps<{ vehicleId: string; days: number }>()
 const { t, locale } = useI18n()
 
+/**
+ * A step chosen from the range, so nobody has to know what a step is.
+ *
+ * Each range gets the coarsest step that still keeps a few hundred rows: fine
+ * enough to see a drive, coarse enough that the server is not asked to build a
+ * bucket per second across a month.
+ */
+function stepForRange(days: number): number {
+  if (days <= 1) return 300
+  if (days <= 7) return 3600
+  return 21600
+}
+
 const table = ref<HistoryTable | null>(null)
-const stepSeconds = ref(60)
+const stepSeconds = ref(stepForRange(props.days))
 const offset = ref(0)
 const limit = ref(100)
 const loading = ref(false)
@@ -91,7 +105,15 @@ async function load(): Promise<void> {
 
 // A coarser step means fewer, wider rows, so the page the reader was on no
 // longer means anything; the same is true of a different range or vehicle.
-watch([stepSeconds, () => props.days, () => props.vehicleId], () => { offset.value = 0; void load() })
+watch([stepSeconds, () => props.vehicleId], () => { offset.value = 0; void load() })
+// A step chosen for one day is wrong for a month, and a one-second step across
+// thirty days asks the server for millions of buckets, so the range re-picks it.
+watch(() => props.days, (days) => {
+  offset.value = 0
+  const next = stepForRange(days)
+  if (next === stepSeconds.value) void load()
+  else stepSeconds.value = next
+})
 watch(offset, load)
 void load()
 </script>
@@ -100,11 +122,11 @@ void load()
   <section class="panel history-table">
     <header class="table-head">
       <div>
-        <h2>{{ t('history.tableTitle') }}</h2>
+        <h2>{{ t('history.tableTitle') }}<AppHelp :label="t('history.agedHelpLabel')"><span>{{ t('history.agedHelp') }}</span></AppHelp></h2>
         <p>{{ t('history.tableHint') }}</p>
       </div>
-      <label class="field inline-field"><span>{{ t('history.resolution') }}</span>
-        <AppSelect v-model="stepSeconds" :aria-label="t('history.resolution')">
+      <label class="field inline-field"><span>{{ t('history.rowEvery') }}</span>
+        <AppSelect v-model="stepSeconds" :aria-label="t('history.rowEvery')">
           <option v-for="option in stepOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
         </AppSelect>
       </label>
@@ -130,7 +152,7 @@ void load()
               {{ instant(row.bucket_end) }}
               <!-- One row can stand for many identical buckets. Saying how many
                    is what stops a quiet night reading as a single moment. -->
-              <small v-if="row.collapsed_buckets > 1">{{ t('history.unchangedFor', { count: row.collapsed_buckets }) }}</small>
+              <small v-if="row.collapsed_buckets > 1">{{ t('history.unchangedFor', { span: formatSpan(row.collapsed_buckets * stepSeconds, locale) }) }}</small>
             </td>
             <td class="mono">{{ position(row) }}</td>
             <td v-for="definition in columns" :key="definition.key">

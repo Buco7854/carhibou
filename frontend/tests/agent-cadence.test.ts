@@ -3,7 +3,6 @@ import {
   CADENCE_PRESETS,
   drivingDelaySeconds,
   formatDataVolume,
-  formatDuration,
   monthlyUploadBytes,
 } from '../src/agentCadence'
 
@@ -67,8 +66,6 @@ describe('agent cadence', () => {
     expect(drivingDelaySeconds(matched)).toBe(30)
     // Holding samples back adds their wait on top of the sampling floor.
     expect(drivingDelaySeconds({ ...matched, upload_seconds: 900 })).toBe(900)
-    expect(formatDuration(900, 'en')).toContain('15')
-    expect(formatDuration(45, 'en')).toContain('45')
   })
 
   it('charges for signals and for requests', () => {

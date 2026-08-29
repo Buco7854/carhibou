@@ -2,13 +2,12 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget, History, Segments } from '../api/types'
-import { formatDuration } from '../agentCadence'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import VehicleMap, { type TrailPoint } from '../components/VehicleMap.vue'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { EMPTY_SEGMENTS, loadHistory, loadSegments, rangeStart } from '../api/segments'
 import { pathLengthKm } from '../geo'
-import { formatInstant } from '../vehicleDisplay'
+import { formatInstant, formatSpan } from '../vehicleDisplay'
 import { followSelection, mergeSegments, metricNumber } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
@@ -56,7 +55,7 @@ const readout = computed(() => {
   return {
     estimated: scale === null,
     distance: distance.toFixed(1),
-    duration: formatDuration(Math.max(seconds, 0), locale.value),
+    duration: formatSpan(Math.max(seconds, 0), locale.value),
     soc: socDelta === null ? null : `${socDelta.toFixed(0)}%`,
     energy: socDelta === null || capacity === null ? null : `${((socDelta / 100) * capacity).toFixed(1)} kWh`,
   }

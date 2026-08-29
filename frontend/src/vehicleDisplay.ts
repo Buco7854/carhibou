@@ -367,10 +367,9 @@ export function formatMetricNumber(value: number, definition: MetricDefinition):
 /**
  * A span of seconds in words, pluralized by the locale rather than by us.
  *
- * `formatDuration` in agentCadence names the unit through DisplayNames, which
- * yields the field name and so reads "5 minute". These two go through Intl's
- * unit and relative-time formatters, which know that English wants "minutes"
- * and French wants "il y a 20 minutes".
+ * Intl's unit and relative-time formatters know that English wants "20 minutes"
+ * and French "il y a 20 minutes". Naming the unit through DisplayNames instead
+ * yields the field name, which reads "20 minute" in both.
  */
 export function formatSpan(seconds: number, locale: string): string {
   const unit = seconds >= 86_400 ? 'day' : seconds >= 3_600 ? 'hour' : seconds >= 60 ? 'minute' : 'second'

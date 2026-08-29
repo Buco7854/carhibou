@@ -292,7 +292,26 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByRole('link', { name: 'Vehicles', exact: true }).click()
   await page.locator('.vehicle-card', { hasText:'Éclair' }).getByRole('link', { name:'History' }).click()
   await expect(page.getByRole('heading', { name: 'Éclair · History' })).toBeVisible()
-  await expect(page.locator('.history-stat', { hasText:'Source samples' })).toContainText('7')
+
+  // History opens on the timeline, which is what somebody means by history
+  // before anyone explains how the data is stored.
+  await expect(page.getByRole('button', { name: 'Timeline' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.snapshot tbody tr').first()).toBeVisible()
+  // The step is chosen from the range, so nothing has to be understood first.
+  await expect(page.locator('.history-table .app-select-trigger')).toContainText('5 minutes')
+  // The help is a real button reachable and operable by keyboard, not a hover tip.
+  const aged = page.locator('.history-table .app-help-button').first()
+  await aged.focus()
+  await expect(aged).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.app-help-bubble')).toContainText('dimmed')
+  const helpAccessibility = await new AxeBuilder({ page }).analyze()
+  expect(helpAccessibility.violations).toEqual([])
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.app-help-bubble')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Raw reports' }).click()
+  await expect(page.locator('.history-stat', { hasText:'Reports' })).toContainText('7')
   await expect(page.locator('.route-count')).toContainText('7')
   expect(await page.locator('select').count()).toBe(0)
   await page.getByRole('combobox', { name:'Metric' }).click()
@@ -303,22 +322,38 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(menuBounds!.x + menuBounds!.width).toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth))
   await page.keyboard.press('Escape')
 
+  // Provenance comes from /observations, a different endpoint from the grid's, so
+  // this is the only check that a row's detail resolves against the real one.
+  await page.locator('.entries-section tbody .expand-cell button').first().click()
+  await expect(page.locator('.provenance')).toBeVisible()
+  await expect(page.locator('.provenance-facts')).toContainText('Agent')
+  await expect(page.locator('.provenance-table')).toContainText('CAN')
+  await expect(page.locator('.provenance-table')).toContainText('GNSS')
+  const provenanceAccessibility = await new AxeBuilder({ page }).analyze()
+  expect(provenanceAccessibility.violations).toEqual([])
+  await page.locator('.entries-section tbody .expand-cell button').first().click()
+  await expect(page.locator('.provenance')).toHaveCount(0)
+
   // The snapshot table is served by the reconstruction endpoint, so this is the
   // only check that the rows the server computes are the rows the page can read.
-  await page.getByRole('button', { name: 'Snapshot table' }).click()
-  await expect(page.getByRole('heading', { name: 'Snapshot table' })).toBeVisible()
+  await page.getByRole('button', { name: 'Timeline' }).click()
+  await expect(page.getByRole('heading', { name: 'Timeline' })).toBeVisible()
   const snapshotRows = page.locator('.snapshot tbody tr')
   await expect(snapshotRows.first()).toBeVisible()
   // Newest first, and every row carries the whole car rather than one sample.
   await expect(page.locator('.snapshot thead th')).toContainText(['Time', 'Position'])
   await expect(snapshotRows.first()).toContainText('61')
   // Coarsening the step is a different question, and the server answers it.
-  await page.getByRole('combobox', { name: 'Resolution' }).click()
+  await page.getByRole('combobox', { name: 'One row per' }).click()
   await page.getByRole('option', { name: '1 hour' }).click()
   await expect(snapshotRows.first()).toBeVisible()
   const tableAccessibility = await new AxeBuilder({ page }).analyze()
   expect(tableAccessibility.violations).toEqual([])
-  await page.getByRole('button', { name: 'Observations' }).click()
+  // The choice is remembered, so a reader who prefers the raw reports keeps them.
+  await page.getByRole('button', { name: 'Raw reports' }).click()
+  await expect(page.locator('.history-chart')).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Raw reports' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.history-chart')).toBeVisible()
 
   await page.locator('.sidebar').getByRole('link', { name: 'Dashboards', exact: true }).click()

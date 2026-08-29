@@ -199,4 +199,64 @@ describe('telemetry table', () => {
     await flushPromises()
     expect(wrapper.findAll('thead th').some((cell) => cell.text().includes('Longitude'))).toBe(true)
   })
+
+  it('shows where one row\u2019s values came from, without giving up the grid', async () => {
+    // /entries is the only endpoint that sorts and filters, and it carries no
+    // provenance, so provenance is fetched per row rather than by swapping the
+    // grid onto /observations and losing both.
+    const sample = {
+      id: 'e2', sequence: 2, recorded_at: '2026-01-01T10:01:00Z', received_at: '2026-01-01T10:01:20Z',
+      source_id: 'agent-1', source_kind: 'agent', reporting_interval: 5, event_driven: false,
+      position: {
+        value: { latitude: 48.1, longitude: 2.1, altitude: 90, speed: 41, heading: 12, accuracy: 4 },
+        observed_at: '2026-01-01T10:00:55Z', source_id: 'agent-1', source_kind: 'agent',
+        channel: 'gnss', method: 'direct',
+      },
+      observations: [
+        { key: 'battery.soc', value: 60, observed_at: '2026-01-01T10:01:00Z', source_id: 'agent-1', source_kind: 'agent', channel: 'can', method: 'direct' },
+        { key: 'engine.rpm', value: 1400, observed_at: '2026-01-01T10:01:00Z', source_id: 'agent-1', source_kind: 'agent', channel: 'obd', method: 'direct' },
+      ],
+      agent: {},
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve(jsonResponse(String(url).includes('/observations')
+        ? { vehicle_id: 'vehicle-1', start: '', end: '', total: 1, limit: 500, offset: 0, samples: [sample] }
+        : { vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0, metric_keys: [], agent_keys: [], entries })))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mountTable()
+    await flushPromises()
+
+    await wrapper.findAll('tbody .expand-cell button')[0]!.trigger('click')
+    await flushPromises()
+    const detail = wrapper.get('.provenance')
+    // Which source, and the two instants that are not the same fact.
+    expect(detail.text()).toContain('agent-1')
+    expect(detail.text()).toContain('Received')
+    // One sample can carry several channels; that is the whole point of showing it.
+    expect(detail.text()).toContain('CAN')
+    expect(detail.text()).toContain('OBD-II')
+    expect(detail.text()).toContain('GNSS')
+    // The grid keeps its own request; provenance is a second, narrower one.
+    const observationCall = fetchMock.mock.calls.map((call) => String(call[0])).find((url) => url.includes('/observations'))!
+    expect(observationCall).toContain('limit=500')
+    expect(new URL(observationCall, 'http://localhost').searchParams.get('start')).toBe('2026-01-01T10:01:00.000Z')
+  })
+
+  it('closes the detail again without refetching the grid', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve(jsonResponse(String(url).includes('/observations')
+        ? { vehicle_id: 'vehicle-1', start: '', end: '', total: 0, limit: 500, offset: 0, samples: [] }
+        : { vehicle_id: 'vehicle-1', start: '', end: '', total: 2, limit: 50, offset: 0, metric_keys: [], agent_keys: [], entries })))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mountTable()
+    await flushPromises()
+    const toggle = wrapper.findAll('tbody .expand-cell button')[0]!
+    await toggle.trigger('click')
+    await flushPromises()
+    // No sample came back for that second, which is said rather than left blank.
+    expect(wrapper.text()).toContain('Nothing was recorded about where this reading came from')
+    await toggle.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.provenance-row').exists()).toBe(false)
+  })
 })

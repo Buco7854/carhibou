@@ -31,4 +31,3 @@ export interface DashboardWidgetDefinition {
   isEmpty?: (widget: DashboardWidget, vehicle: Vehicle | null | undefined) => boolean
 }
 
-export interface WidgetProps { widget:DashboardWidget }

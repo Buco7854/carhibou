@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import AppHelp from './AppHelp.vue'
 import AppIcon from './AppIcon.vue'
+import { formatSpan } from '../vehicleDisplay'
 import {
   CADENCE_PRESETS,
   DEFAULT_DRIVING_HOURS,
   drivingDelaySeconds,
   formatDataVolume,
-  formatDuration,
   monthlyUploadBytes,
   type Cadence,
 } from '../agentCadence'
@@ -37,7 +38,7 @@ const estimate = computed(() => formatDataVolume(
   monthlyUploadBytes(model.value, props.signalCount ?? 0, drivingHours.value),
   locale.value,
 ))
-const delay = computed(() => formatDuration(drivingDelaySeconds(model.value), locale.value))
+const delay = computed(() => formatSpan(drivingDelaySeconds(model.value), locale.value))
 
 const fields = [
   { key: 'sampling_seconds', labelKey: 'agents.samplingSeconds' },
@@ -58,6 +59,7 @@ function apply(preset: Cadence): void {
   <div class="cadence">
     <!-- Five named presets read as one control. Spelling each one out as a card
          with its own intervals made the choice look like five settings. -->
+    <p class="cadence-lead">{{ t('agents.cadenceLead') }}<AppHelp :label="t('agents.cadenceHelpLabel')"><span>{{ t('agents.cadenceHelp') }}</span></AppHelp></p>
     <div class="cadence-presets" role="group" :aria-label="t('agents.presets')">
       <button
         v-for="preset in CADENCE_PRESETS"
@@ -114,6 +116,7 @@ function apply(preset: Cadence): void {
 
 <style scoped>
 .cadence{display:grid;gap:10px}
+.cadence-lead{display:flex;align-items:center;gap:4px;margin:0;color:var(--muted);font-size:var(--font-caption)}
 .cadence-presets{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:3px;padding:3px;background:var(--panel-2);border-radius:var(--radius)}
 .preset{min-width:0;padding:6px 4px;color:var(--muted);background:transparent;border:0;border-radius:var(--radius-sm);font-size:var(--font-caption);font-weight:500;cursor:pointer;transition:color .12s,background-color .12s}
 .preset:hover{color:var(--text)}

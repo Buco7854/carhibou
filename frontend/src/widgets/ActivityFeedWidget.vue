@@ -2,11 +2,10 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget, SegmentKind, Segments } from '../api/types'
-import { formatDuration } from '../agentCadence'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { EMPTY_SEGMENTS, loadSegments } from '../api/segments'
-import { formatInstant } from '../vehicleDisplay'
+import { formatInstant, formatSpan } from '../vehicleDisplay'
 import { isSelected, mergeSegments, segmentKey, type FeedSegment } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
@@ -30,7 +29,7 @@ function headline(segment: FeedSegment): string {
 }
 
 function detail(segment: FeedSegment): string {
-  const parts = [formatInstant(segment.start), formatDuration(segment.duration_seconds, locale.value)]
+  const parts = [formatInstant(segment.start), formatSpan(segment.duration_seconds, locale.value)]
   const soc = segment.kind === 'drive' ? segment.drive : segment.charge
   if (soc?.soc_start !== undefined && soc?.soc_end !== undefined) parts.push(`${Math.round(soc.soc_start)}% → ${Math.round(soc.soc_end)}%`)
   return parts.join(' · ')

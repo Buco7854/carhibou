@@ -86,7 +86,7 @@ describe('external data connectors', () => {
     await connectorField(wrapper, 'Password').setValue('hunter2')
     await connectorField(wrapper, 'Namespace (optional)').setValue('garage')
     await connectorField(wrapper, 'Car id').setValue('2')
-    await connectorField(wrapper, 'Sample interval (seconds)').setValue('30')
+    await connectorField(wrapper, 'Read every (seconds)').setValue('30')
     await wrapper.get('.connector-form').trigger('submit')
     await flushPromises()
 
@@ -111,7 +111,7 @@ describe('external data connectors', () => {
     await flushPromises()
     await wrapper.get('.header-actions .button.secondary').trigger('click')
 
-    const interval = connectorField(wrapper, 'Sample interval (seconds)')
+    const interval = connectorField(wrapper, 'Read every (seconds)')
     expect(interval.attributes('min')).toBe('1')
     expect(interval.attributes('max')).toBe('3600')
     expect((interval.element as HTMLInputElement).value).toBe('10')

@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { History, HistoryTable, Segments } from './types'
+import type { History, HistoryObservationSample, HistoryObservations, HistoryTable, Segments } from './types'
 
 export const EMPTY_SEGMENTS: Segments = { drives: [], charges: [] }
 
@@ -74,4 +74,24 @@ export async function loadHistoryTable(vehicleId: string, request: HistoryTableR
     `offset=${request.offset ?? 0}`,
   ].join('&')
   return api<HistoryTable>(`/vehicles/${vehicleId}/history/table?${query}`)
+}
+
+/**
+ * The provenance behind one recorded sample.
+ *
+ * The endpoint pages by time rather than by id, so the sample is fetched through
+ * the second it was recorded in and picked out by id. That keeps the grid on
+ * /entries, which is the only endpoint that can sort and filter, and asks for
+ * provenance only for the row somebody opened.
+ */
+export async function loadSampleProvenance(vehicleId: string, sample: { id: string; recorded_at: string }): Promise<HistoryObservationSample | null> {
+  const start = new Date(sample.recorded_at)
+  const end = new Date(start.getTime() + 1000)
+  const query = [
+    `start=${encodeURIComponent(start.toISOString())}`,
+    `end=${encodeURIComponent(end.toISOString())}`,
+    'limit=500',
+  ].join('&')
+  const page = await api<HistoryObservations>(`/vehicles/${vehicleId}/history/observations?${query}`)
+  return page.samples.find((row) => row.id === sample.id) ?? null
 }

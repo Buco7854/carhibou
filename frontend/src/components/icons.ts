@@ -1,7 +1,7 @@
 import type { Component } from 'vue'
 import {
   ArrowLeft, BatteryCharging, BatteryMedium, Camera, Car, Check, ChevronDown, ChevronUp,
-  Columns3, Copy, Cpu, Ellipsis, Fuel, Gauge, History, ImageOff, LayoutGrid, LogOut, MapPin, Pencil, Plus, Search, Settings, ShieldCheck, Signal,
+  Columns3, Copy, Cpu, Ellipsis, Fuel, Gauge, History, ImageOff, Info, LayoutGrid, LogOut, MapPin, Pencil, Plus, Search, Settings, ShieldCheck, Signal,
   SlidersHorizontal, SunMedium, Thermometer, Trash2, TriangleAlert, Webhook, X, Zap,
 } from 'lucide-vue-next'
 
@@ -57,5 +57,6 @@ export const ICONS: Record<string, Component> = {
 
   // States.
   alert: TriangleAlert,
+  info: Info,
   'image-missing': ImageOff,
 }
