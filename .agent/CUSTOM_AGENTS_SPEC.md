@@ -13,7 +13,7 @@ be expressed as static steps.
   `custom`.
 - `agent_version` is the implementation's own SemVer and is informational. It must never be
   compared with the Carhibou server version.
-- `protocol_version` is a positive integer. The server currently supports version `1` and
+- `protocol_version` is a positive integer. The server currently supports version `2` and
   rejects another version before consuming an enrollment token.
 - Enrollment tokens are bound to one `implementation_id`. A token minted for one
   implementation cannot enroll another.

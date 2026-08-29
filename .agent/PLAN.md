@@ -66,7 +66,8 @@
 - [x] Persistent state, encrypted secrets and central redaction
 - [x] Stable context with HTTP, geometry, logging and dry-run helpers
 - [x] Execution history, manual/retry APIs and SPA editor with modal creation and compact empty state
-- [x] One execution per upload with `ctx.telemetry_batch`, leaving iteration to hook code
+- [x] One execution per upload with resolved current state, triggering observations,
+  state-at-time reconstruction and bounded history queries
 
 ## Phase 6 — recipes
 

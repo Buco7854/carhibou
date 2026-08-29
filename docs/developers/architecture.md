@@ -34,7 +34,7 @@ Agent implementation identity and wire compatibility are separate facts:
 - `protocol_version` is the integer Carhibou uses to accept or reject the wire contract.
 
 `agent_version` is never compared with the Carhibou server version. Compatibility is
-computed from `protocol_version`; the server currently accepts protocol version `1`.
+computed from `protocol_version`; the server currently accepts protocol version `2`.
 
 Enrollment tokens are single-use and bound to one `implementation_id`. A request naming a
 different implementation or an unsupported protocol is rejected before the token is

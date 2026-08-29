@@ -229,7 +229,8 @@ func TestMonitorCommandsKeepRuntimeFilteredAndDiagnosticsUnfiltered(t *testing.T
 		{
 			name: "unfiltered diagnostics",
 			monitor: func(adapter *OBDAdapter) error {
-				return adapter.MonitorAll(20*time.Millisecond, func(model.CANFrame) {})
+				_, err := adapter.MonitorAllReport(20*time.Millisecond, func(model.CANFrame) {})
+				return err
 			},
 			want: "ATCAF0\rSTMA\r\r",
 		},

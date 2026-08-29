@@ -85,7 +85,6 @@ type Sample struct {
 	Observations      []Observation        `json:"observations"`
 	Agent             map[string]any       `json:"agent"`
 	ReportingInterval *int                 `json:"reporting_interval,omitempty"`
-	EventDriven       bool                 `json:"event_driven,omitempty"`
 }
 
 func NewSample(sequence int64, position *PositionObservation, observations []Observation, agent map[string]any) Sample {

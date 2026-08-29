@@ -373,11 +373,6 @@ func (adapter *OBDAdapter) MonitorReport(duration time.Duration, onFrame func(mo
 	return adapter.monitorUntil(stop, "STM", onFrame)
 }
 
-func (adapter *OBDAdapter) MonitorAll(duration time.Duration, onFrame func(model.CANFrame)) error {
-	_, err := adapter.MonitorAllReport(duration, onFrame)
-	return err
-}
-
 func (adapter *OBDAdapter) MonitorAllReport(duration time.Duration, onFrame func(model.CANFrame)) (MonitorReport, error) {
 	stop := make(chan struct{})
 	timer := time.AfterFunc(duration, func() { close(stop) })

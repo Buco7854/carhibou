@@ -69,7 +69,7 @@ existing state/history/hook/online machinery works unchanged:
 - `implementation_id` is `connector.teslamate.mqtt` (prefix `connector.` is reserved:
   manifests may not use it, enrollment tokens may not name it, and `/agent/enroll`
   rejects it)
-- `protocol_version` 1, `agent_version` = server APP_VERSION, unusable random
+- `protocol_version` 2, `agent_version` = server APP_VERSION, unusable random
   credential, cadence fields mirror `sample_seconds`
 - credential rotation and enrollment-style actions on a connector-backed agent return
   400; revoking is expressed by disabling the connector; deleting the connector deletes

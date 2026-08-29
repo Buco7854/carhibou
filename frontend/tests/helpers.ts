@@ -83,18 +83,18 @@ export const agentImplementations = [
   {
     id: 'carhibou.go', name: 'Carhibou Go agent',
     hardware: 'Raspberry Pi and other Linux boards (ARMv6, ARMv7, ARM64, AMD64)',
-    protocol_version: 1, setup_kind: 'command' as const, docs_url: 'https://carhibou.example/agent',
+    protocol_version: 2, setup_kind: 'command' as const, docs_url: 'https://carhibou.example/agent',
   },
   {
     id: 'custom', name: 'Custom agent',
     hardware: 'Any hardware supported by your implementation',
-    protocol_version: 1, setup_kind: 'guided' as const, docs_url: '',
+    protocol_version: 2, setup_kind: 'guided' as const, docs_url: '',
   },
 ]
 
 /** The identity and compatibility fields every agent row now carries. */
 export const agentIdentity = {
-  implementation_id: 'carhibou.go', protocol_version: 1, agent_version: '0.1.0',
+  implementation_id: 'carhibou.go', protocol_version: 2, agent_version: '0.1.0',
   compatibility: 'compatible' as const, vehicle_profile: null as string | null,
 }
 

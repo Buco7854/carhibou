@@ -27,7 +27,6 @@ class Telemetry(Base):
     event_driven: Mapped[bool] = mapped_column(Boolean, default=False)
     agent_data: Mapped[JSONValue] = mapped_column(JSONType, default=dict)
 
-    agent = relationship("Agent")
     observation_rows = relationship(
         "TelemetryObservation", cascade="all, delete-orphan", lazy="selectin"
     )
