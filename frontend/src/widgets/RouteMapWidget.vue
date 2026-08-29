@@ -95,7 +95,7 @@ watch([() => vehicle.value?.id, () => drive.value && `${drive.value.start}-${dri
       <small>{{ t('insights.pickHint') }}</small>
     </div>
     <div v-if="hasMapData" class="map-stage">
-      <VehicleMap :position="position" :trail="trail" :marks="marks" @pick="pick" />
+      <VehicleMap :position="position" :trail="trail" :marks="marks" :subject="`${vehicle?.id ?? ''}:${widget.time_range_days ?? 1}`" @pick="pick" />
     </div>
     <DashboardWidgetEmpty v-else icon="location" :loading="Boolean(vehicle)&&!outOfRange&&history===null" :message="outOfRange ? t('insights.notInRange') : t('insights.noRoute')" />
     <dl v-if="readout" class="route-readout">

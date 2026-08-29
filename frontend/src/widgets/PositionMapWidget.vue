@@ -35,7 +35,7 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days, runtime.data
       <div><h2>{{ widget.title||t('dashboard.mapAndRoute') }}</h2><span class="mono">{{ positionLabel }}</span></div>
       <small v-if="history">{{ t('dashboard.sampleCount',{count:history.original_count}) }}</small>
     </div>
-    <div v-if="hasMapData" class="map-stage"><VehicleMap :position="position" :route="route" /></div>
+    <div v-if="hasMapData" class="map-stage"><VehicleMap :position="position" :route="route" :subject="vehicle?.id ?? ''" /></div>
     <DashboardWidgetEmpty v-else icon="location" :loading="Boolean(vehicle)&&history===null" />
   </article>
 </template>

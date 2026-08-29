@@ -11,6 +11,11 @@ const props = defineProps<{
   route?: Array<[number, number]> | undefined
   trail?: TrailPoint[] | undefined
   marks?: number[] | undefined
+  /**
+   * What the map is showing. Changing it is what earns a new frame; live updates
+   * to the same subject redraw without touching the reader's viewport.
+   */
+  subject?: string | undefined
 }>()
 const emit = defineEmits<{ pick: [index: number] }>()
 const element = ref<HTMLDivElement>()
@@ -55,7 +60,24 @@ function drawTrail(target: L.Map, points: TrailPoint[]): void {
     dot.on('click', () => emit('pick', index))
     trailLayers.push(dot)
   })
-  if (bounds.length) target.fitBounds(L.latLngBounds(bounds), { padding: [28, 28], maxZoom: 15 })
+  if (bounds.length) frame(() => target.fitBounds(L.latLngBounds(bounds), { padding: [28, 28], maxZoom: 15 }))
+}
+
+/**
+ * Whether the map may still choose its own viewport.
+ *
+ * Live state arrives every few seconds and each arrival redraws the layers. It
+ * must not also re-frame: a reader who panned across town to look at something
+ * had the map yanked back under them on the next upload. So the map frames
+ * itself once for a subject, and after that the viewport belongs to the reader.
+ * A new subject, meaning another vehicle or another range, earns a new frame.
+ */
+let framed = false
+
+function frame(apply: () => void): void {
+  if (framed) return
+  framed = true
+  apply()
 }
 
 function positionIcon(heading: number | null | undefined): L.DivIcon {
@@ -88,7 +110,7 @@ function update() {
       startMarker = L.circleMarker(routeStart, { radius: 5, color: 'var(--accent)', weight: 2, fillColor: 'var(--panel)', fillOpacity: 1 }).addTo(map)
       startMarker.bindTooltip(t('history.routeStart'), { direction: 'top', offset: [0, -5] })
     }
-    map.fitBounds(polyline.getBounds(), { padding: [28, 28], maxZoom: 15 })
+    frame(() => map!.fitBounds(polyline!.getBounds(), { padding: [28, 28], maxZoom: 15 }))
   }
   marker?.remove()
   marker = undefined
@@ -96,7 +118,7 @@ function update() {
     const point = L.latLng(props.position.latitude, props.position.longitude)
     marker = L.marker(point, { icon: positionIcon(props.position.heading), keyboard: false }).addTo(map)
     marker.bindTooltip(t('history.latestPosition'), { direction: 'top', offset: [0, -15] })
-    if (!props.route?.length && !props.trail?.length) map.setView(point, 14)
+    if (!props.route?.length && !props.trail?.length) frame(() => map!.setView(point, 14))
   }
 }
 
@@ -117,6 +139,9 @@ onMounted(() => {
   requestAnimationFrame(() => map?.invalidateSize())
 })
 watch(() => [props.position, props.route, props.trail, props.marks], update, { deep: true })
+// Another vehicle, or another range, is another thing to look at: that earns a
+// fresh frame, and nothing else does.
+watch(() => props.subject, () => { framed = false; update() })
 onBeforeUnmount(() => map?.remove())
 </script>
 

@@ -239,17 +239,16 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByRole('option', { name:'Touring', exact:true }).click()
   // Only the cards needing non-standard data hide: battery state, charging, a
   // charge curve, a photo. Speed is standard, so both speed cards stay.
-  for (const type of ['battery-gauge', 'charging', 'xy-chart', 'vehicle-media']) {
+  for (const type of ['battery-gauge', 'charging', 'xy-chart', 'vehicle-media', 'telemetry-list']) {
     await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(0)
   }
-  // This vehicle has neither a CAN reading nor a fix yet, so the speed cards say
+  // This vehicle has neither a CAN reading nor a fix yet, so the speed card says
   // so like any other card rather than vanishing.
-  await expect(page.locator('[data-widget-type="telemetry-list"] .dashboard-widget-empty')).toContainText('No data yet')
   await expect(page.locator('[data-widget-type="metric-card"] .dashboard-widget-empty')).toContainText('No data yet')
-  for (const type of ['vehicle-selector', 'online-status', 'metric-card', 'route-map', 'activity-feed', 'telemetry-list', 'segment-stats', 'period-stats', 'time-series']) {
+  for (const type of ['vehicle-selector', 'online-status', 'metric-card', 'route-map', 'activity-feed', 'segment-stats', 'period-stats', 'time-series']) {
     await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(1)
   }
-  await expect(page.locator('.grid-stack-item')).toHaveCount(9)
+  await expect(page.locator('.grid-stack-item')).toHaveCount(8)
   await expect(page.locator('[data-widget-type="position-map"] .vehicle-map')).toHaveCount(0)
   await vehicleSelector.getByRole('combobox').click()
   await page.getByPlaceholder('Search vehicles…').fill('Éclair')
@@ -449,6 +448,20 @@ test('mobile login keeps language, theme, keyboard access and reflow', async ({ 
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   const dimensions = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, viewport: window.innerWidth }))
   expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.viewport)
+
+  // Two long labels side by side set a width the page could not go below, so a
+  // French header pushed the whole page past the viewport and the phone zoomed
+  // out to fit it. Every page is checked in the longer language.
+  await page.getByLabel('E-mail').fill('browser-owner@example.com')
+  await page.getByLabel('Mot de passe').fill('browser-e2e-password-2026')
+  await page.getByRole('button', { name: 'Se connecter' }).click()
+  await expect(page).toHaveURL('/')
+  for (const path of ['/profiles', '/vehicles', '/data-sources', '/settings']) {
+    await page.goto(path)
+    await expect(page.locator('.page-header h1')).toBeVisible()
+    const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+    expect(fits, `${path} overflows the phone viewport`).toBe(true)
+  }
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations).toEqual([])
 })

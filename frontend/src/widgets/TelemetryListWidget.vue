@@ -3,15 +3,29 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
-import { formatMetricNumber, metricLabel, metricNumber, secondaryReadings, type MetricReading } from '../vehicleDisplay'
+import { formatMetricNumber, metricLabel, metricNumber, metricReading, secondaryReadings, type MetricReading } from '../vehicleDisplay'
 import { useDashboardVehicle } from './dashboardContext'
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const { t } = useI18n()
 const vehicle = useDashboardVehicle(props.widget)
-const speed = computed(() => metricNumber(vehicle.value, 'vehicle.speed'))
-const readings = computed(() => secondaryReadings(vehicle.value).filter((reading) => reading.value !== null))
+/**
+ * The chosen metrics, or the ones worth showing when nobody has chosen yet.
+ *
+ * A card configured with metrics shows exactly those, in that order, and stays
+ * silent about the rest. One saved before the card was configurable keeps the
+ * old behaviour rather than emptying itself.
+ */
+const readings = computed(() => {
+  const chosen = props.widget.metrics ?? []
+  const rows = chosen.length
+    ? chosen.map((key) => metricReading(vehicle.value, key))
+    : secondaryReadings(vehicle.value)
+  return rows.filter((reading) => reading.value !== null)
+})
+const speed = computed(() => (props.widget.metrics ?? []).length ? null : metricNumber(vehicle.value, 'vehicle.speed'))
 const signal = computed(() => {
+  if ((props.widget.metrics ?? []).length) return null
   const value = vehicle.value?.state?.agent.mobile_signal
   return typeof value === 'number' ? value : null
 })

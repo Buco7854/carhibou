@@ -398,7 +398,9 @@ describe('vehicle and dashboard management', () => {
     await wrapper.findAll('.dashboard-editor-bar .button').find((button) => button.text().includes('Add widget'))!.trigger('click')
     wrapper.findAllComponents(AppSelect)[0]!.vm.$emit('update:modelValue', 'multi-series')
     await flushPromises()
-    expect((wrapper.get('.app-modal input[placeholder]').element as HTMLInputElement).value).toBe('fuel.level, engine.rpm')
+    const rows = wrapper.findAll('.metric-row').map((row) =>
+      row.findComponent(AppSelect).props('modelValue'))
+    expect(rows).toEqual(['fuel.level', 'engine.rpm'])
   })
 
   it('adapts the energy gauge to fuel for a combustion vehicle', async () => {
@@ -437,7 +439,7 @@ describe('vehicle and dashboard management', () => {
     const body = JSON.parse(createCall?.[1]?.body as string)
     expect(body.name).toBe('Overview')
     expect(body.is_default).toBe(true)
-    expect(body.layout.preset).toBe('overview-v8')
+    expect(body.layout.preset).toBe('overview-v9')
     // Ordered by the questions an owner asks: what is it doing, how fast, how
     // much is left, where is it, what happened recently, what did it cost.
     expect(body.layout.widgets.map((row: {type:string}) => row.type)).toEqual([
@@ -465,9 +467,13 @@ describe('vehicle and dashboard management', () => {
       .map((row: {type:string}) => row.type)
     expect(flagged(false)).toEqual([
       'vehicle-selector', 'online-status', 'metric-card', 'route-map', 'activity-feed',
-      'telemetry-list', 'segment-stats', 'period-stats', 'time-series',
+      'segment-stats', 'period-stats', 'time-series',
     ])
-    expect(flagged(true)).toEqual(['battery-gauge', 'charging', 'xy-chart'])
+    expect(flagged(true)).toEqual(['battery-gauge', 'charging', 'telemetry-list', 'xy-chart'])
+    // The card ships with metrics chosen, so it works untouched and still says
+    // which readings it is showing.
+    const list = body.layout.widgets.find((row: {type:string}) => row.type === 'telemetry-list')
+    expect(list.metrics).toEqual(['vehicle.speed', 'battery.soc', 'battery.power', 'battery.pack_voltage', 'vehicle.odometer'])
     // The two speed cards show because speed is standard, not because the guard
     // is loose: rebinding either to a non-standard metric makes it specific again.
     for (const type of ['metric-card', 'time-series']) {
@@ -513,7 +519,7 @@ describe('vehicle and dashboard management', () => {
 
   it('updates dynamic widgets from the vehicle selector and persists card deletion', async () => {
     const secondVehicle = { ...vehicle, id:'vehicle-2', name:'Nimbus', state:{...vehicle.state,readings:readings({'fuel.level':25})} }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v8',widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v9',widgets:[
       {id:'selector',type:'vehicle-selector',x:0,y:0,w:12,h:1},
       {id:'fuel',type:'metric-card',metric:'fuel.level',x:0,y:1,w:3,h:2},
     ]}, created_at:'', updated_at:'' }
@@ -604,7 +610,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('offers types only, so a soc-versus-power chart is configured not conjured', async () => {
-    const dashboard = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v8', widgets:[] }, created_at:'', updated_at:'' }
+    const dashboard = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v9', widgets:[] }, created_at:'', updated_at:'' }
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
       if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
@@ -623,9 +629,11 @@ describe('vehicle and dashboard management', () => {
     // widget-tiers covers the menu contents. Here the reader configures a chart.
     typeSelect.vm.$emit('update:modelValue', 'xy-chart')
     await flushPromises()
-    const [x, y] = wrapper.findAll('.widget-modal-form input.mono')
-    await x!.setValue('battery.soc')
-    await y!.setValue('charging.power')
+    const axis = (label: string) => wrapper.findAllComponents(AppSelect)
+      .find((select) => select.find('.app-select-trigger').attributes('aria-label') === label)!
+    axis('X metric').vm.$emit('update:modelValue', 'battery.soc')
+    axis('Y metric').vm.$emit('update:modelValue', 'charging.power')
+    await flushPromises()
     await wrapper.get('.widget-modal-form').trigger('submit')
     await flushPromises()
 
@@ -637,7 +645,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('renders a saved charge-curve layout as the x-y chart that replaced it', async () => {
-    const legacy = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v8', widgets:[
+    const legacy = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v9', widgets:[
       { id:'legacy', type:'charge-curve', x:0, y:0, w:6, h:3 },
     ] }, created_at:'', updated_at:'' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
@@ -664,7 +672,7 @@ describe('vehicle and dashboard management', () => {
     // The EV's charging card needs a resolved charging.active to have anything to
     // say: the server resolves that flag now, and no reading means unknown.
     const ev = { ...vehicle, state:{ ...vehicle.state!, readings:readings({ 'battery.soc':70, 'charging.active':false }) } }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v8', widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v9', widgets:[
       { id:'selector', type:'vehicle-selector', x:0, y:0, w:12, h:1 },
       { id:'energy', type:'battery-gauge', x:0, y:1, w:4, h:2, settings:{ hide_when_empty:true } },
       { id:'charge', type:'charging', x:4, y:1, w:4, h:2, settings:{ hide_when_empty:true } },

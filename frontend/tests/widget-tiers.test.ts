@@ -26,7 +26,7 @@ function withMetrics(values: Record<string, unknown>, position: unknown = null):
 
 const dashboard = {
   id: 'd1', name: 'Overview', is_default: true,
-  layout: { preset: 'overview-v8', widgets: [] }, created_at: '', updated_at: '',
+  layout: { preset: 'overview-v9', widgets: [] }, created_at: '', updated_at: '',
 }
 
 function mountDashboards(vehicles: Vehicle[]) {
@@ -55,6 +55,13 @@ async function openPicker(vehicles: Vehicle[]) {
   await wrapper.findAll('.dashboard-editor-bar .button').find((button) => button.text().includes('Add widget'))!.trigger('click')
   await flushPromises()
   return wrapper
+}
+
+
+/** AppSelect takes its aria-label through attrs, so it is found by the trigger. */
+function pickerFor(wrapper: ReturnType<typeof mount>, label: string) {
+  return wrapper.findAllComponents(AppSelect)
+    .find((select) => select.find('.app-select-trigger').attributes('aria-label') === label)!
 }
 
 describe('the general and specific tiers', () => {
@@ -133,7 +140,7 @@ describe('the general and specific tiers', () => {
 
     // Rebinding the same card to standard data makes it general, with no need to
     // touch the toggle: a speed card belongs on any vehicle's dashboard.
-    await wrapper.get('.widget-modal-form input.mono').setValue('vehicle.speed')
+    pickerFor(wrapper, 'Metric').vm.$emit('update:modelValue', 'vehicle.speed')
     await flushPromises()
     expect(hidden()).toBe(false)
   })
@@ -157,8 +164,8 @@ describe('generic chart axis defaults', () => {
     await flushPromises()
 
     // Exactly the two axis fields, in the suggestion order, distinct from each other.
-    const values = wrapper.findAll('.widget-modal-form input.mono').map((input) => (input.element as HTMLInputElement).value)
-    expect(values).toEqual(['battery.soc', 'battery.power'])
+    const axes = ['X metric', 'Y metric'].map((label) => pickerFor(wrapper, label).props('modelValue'))
+    expect(axes).toEqual(['battery.soc', 'battery.power'])
   })
 
   it.each([
@@ -169,7 +176,7 @@ describe('generic chart axis defaults', () => {
     const picker = typePicker(wrapper)
     picker.vm.$emit('update:modelValue', 'xy-chart')
     await flushPromises()
-    const axes = wrapper.findAll('.widget-modal-form input.mono').map((input) => (input.element as HTMLInputElement).value)
+    const axes = ['X metric', 'Y metric'].map((label) => pickerFor(wrapper, label).props('modelValue'))
     expect(axes.filter((value) => value !== '')).toEqual([])
   })
 
@@ -245,5 +252,63 @@ describe('needsSpecificData', () => {
     for (const definition of Object.values(widgetRegistry).filter((row) => row.general)) {
       expect(needsSpecificData(at(definition.type, { metric: 'battery.soc' })), definition.type).toBe(false)
     }
+  })
+})
+
+describe('widget configuration after creation', () => {
+  beforeEach(() => {
+    i18n.global.locale.value = 'en'
+    auth.user = { ...adminUser }
+  })
+
+  it('reopens the editor on an existing card with its own values', async () => {
+    const dashboard = {
+      id: 'd1', name: 'Overview', is_default: true,
+      layout: { preset: 'overview-v9', widgets: [
+        { id: 'w1', type: 'metric-card', metric: 'battery.soc', unit: '%', title: 'Charge', x: 0, y: 0, w: 3, h: 2 },
+      ] },
+      created_at: '', updated_at: '',
+    }
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
+      if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
+      return Promise.resolve(jsonResponse({}))
+    }))
+    const wrapper = mount(DashboardsView, { global: { plugins: [i18n], stubs: { Teleport: true, TimeSeriesChart: { template: '<div />' }, VehicleMap: { template: '<div />' } } } })
+    await flushPromises()
+    await wrapper.get('.dashboard-menu-button').trigger('click')
+    await wrapper.findAll('[role="menuitem"]').find((button) => button.text().includes('Edit dashboard'))!.trigger('click')
+    await flushPromises()
+
+    // Configuration used to exist only at creation; the card now opens on itself.
+    await wrapper.get('.widget-configure').trigger('click')
+    await flushPromises()
+    expect(pickerFor(wrapper, 'Metric').props('modelValue')).toBe('battery.soc')
+    expect((wrapper.findAll('.widget-modal-form .input').at(-1)!.element as HTMLInputElement).value).toBe('Charge')
+
+    pickerFor(wrapper, 'Metric').vm.$emit('update:modelValue', 'vehicle.speed')
+    await flushPromises()
+    await wrapper.get('.widget-modal-form').trigger('submit')
+    await flushPromises()
+    const [saved] = (wrapper.vm as unknown as { active: { layout: { widgets: Array<Record<string, unknown>> } } }).active.layout.widgets
+    // The same card, rebound, rather than a second one beside it.
+    expect(saved).toMatchObject({ id: 'w1', type: 'metric-card', metric: 'vehicle.speed' })
+    expect((wrapper.vm as unknown as { active: { layout: { widgets: unknown[] } } }).active.layout.widgets).toHaveLength(1)
+  })
+
+  it('lets the reader choose which readings the telemetry card shows', async () => {
+    const wrapper = await openPicker([vehicle as unknown as Vehicle])
+    typePicker(wrapper).vm.$emit('update:modelValue', 'telemetry-list')
+    await flushPromises()
+
+    // Rows of the app's own select, not a comma-separated string to be parsed.
+    expect(wrapper.findAll('.metric-row').length).toBeGreaterThan(0)
+    await wrapper.get('.metric-add').trigger('click')
+    await flushPromises()
+    const rows = wrapper.findAll('.metric-row')
+    expect(rows.length).toBeGreaterThan(1)
+    await rows.at(-1)!.get('.icon-button').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.metric-row')).toHaveLength(rows.length - 1)
   })
 })

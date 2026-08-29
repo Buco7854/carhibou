@@ -138,7 +138,7 @@ onMounted(load)
       </section>
       <section class="panel route-panel">
         <header><h2>{{ t('history.route') }}</h2><span class="route-count">{{ routePoints.length }}</span></header>
-        <div class="route-map"><VehicleMap :position="lastPosition" :route="routePoints" /></div>
+        <div class="route-map"><VehicleMap :position="lastPosition" :route="routePoints" :subject="`${vehicleId}:${days}`" /></div>
       </section>
     </div>
     <div v-else class="panel empty">{{ t('history.noData') }}</div>

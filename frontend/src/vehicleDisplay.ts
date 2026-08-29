@@ -49,6 +49,9 @@ const metricDefinitions: Record<string, MetricDefinition> = {
   'battery.pack_voltage': {
     key: 'battery.pack_voltage', labelKey: 'metrics.packVoltage', unit: 'V', icon: 'battery', decimals: 1, kind: 'number',
   },
+  'battery.aux_voltage': {
+    key: 'battery.aux_voltage', labelKey: 'metrics.auxVoltage', unit: 'V', icon: 'battery', decimals: 1, kind: 'number',
+  },
   'vehicle.door_open': {
     key: 'vehicle.door_open', labelKey: 'metrics.doorOpen', unit: '', icon: 'vehicle', decimals: 0, kind: 'boolean',
   },

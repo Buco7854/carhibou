@@ -10,7 +10,7 @@ import type { Dashboard, DashboardWidget, SelectedSegment, Vehicle } from '../ap
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
-import { defaultDashboardMetrics, metricDefinition, reportedChartMetrics, reportedKeys } from '../vehicleDisplay'
+import { defaultDashboardMetrics, metricDefinition, metricLabel, reportedChartMetrics, reportedKeys } from '../vehicleDisplay'
 import { isGeneralChoice, needsSpecificData, normalizeWidget, widgetRegistry } from '../widgets/registry'
 import { dashboardRuntimeKey } from '../widgets/dashboardContext'
 
@@ -20,6 +20,14 @@ const activeId = ref('')
 const vehicles = ref<Vehicle[]>([])
 const gridElement = ref<HTMLDivElement>()
 const configuring = ref(false)
+/**
+ * The widget the editor is working on, or null when it is creating one.
+ *
+ * Configuration used to exist only at creation: getting a metric wrong meant
+ * deleting the card and building it again. The same form now opens on an
+ * existing card with its values in it.
+ */
+const editingWidget = ref<DashboardWidget | null>(null)
 const creating = ref(false)
 const saving = ref(false)
 const editing = ref(false)
@@ -31,12 +39,23 @@ const selectedVehicleId = ref('')
 const liveStatus = ref<LiveConnectionStatus>('connecting')
 const dataVersion = ref(0)
 const selectedSegment = ref<SelectedSegment | null>(null)
-const form = ref({ type:'metric-card', vehicle_id:'', metric:'vehicle.speed', metrics:'vehicle.speed', x_metric:'battery.soc', y_metric:'charging.power', title:'', unit:'km/h', time_range_days:1, hide_when_empty:false })
+const form = ref({ type:'metric-card', vehicle_id:'', metric:'vehicle.speed', metricList:[] as string[], x_metric:'battery.soc', y_metric:'charging.power', title:'', unit:'km/h', time_range_days:1, hide_when_empty:false })
+
+function addMetricRow(): void {
+  const next = metricChoices.value.find((key) => !form.value.metricList.includes(key))
+  form.value.metricList = [...form.value.metricList, next ?? metricChoices.value[0] ?? 'vehicle.speed']
+}
+function setMetricRow(index: number, key: string): void {
+  form.value.metricList = form.value.metricList.map((existing, at) => at === index ? key : existing)
+}
+function removeMetricRow(index: number): void {
+  form.value.metricList = form.value.metricList.filter((_, at) => at !== index)
+}
 let grid: GridStack | undefined
 let resizeObserver: ResizeObserver | undefined
 let canvasColumns = 12
 let editSnapshot: Dashboard[] | null = null
-const OVERVIEW_PRESET = 'overview-v8'
+const OVERVIEW_PRESET = 'overview-v9'
 
 function cloneDashboards(value: Dashboard[]): Dashboard[] {
   return JSON.parse(JSON.stringify(value)) as Dashboard[]
@@ -84,10 +103,11 @@ const pickerGroups = computed(() => {
 })
 const chosenDefinition = computed(() => widgetRegistry[form.value.type])
 const selectedVehicle = computed(() => vehicles.value.find((row) => row.id === selectedVehicleId.value))
-const metricSuggestion = computed(() => {
-  const vehicle = vehicles.value.find((row) => row.id === form.value.vehicle_id) ?? selectedVehicle.value
-  return defaultDashboardMetrics(vehicle).join(', ')
+const metricChoices = computed(() => {
+  const chosen = [form.value.metric, form.value.x_metric, form.value.y_metric, ...form.value.metricList].filter(Boolean)
+  return [...new Set([...availableMetrics.value, ...chosen])].sort()
 })
+
 const availableMetrics = computed(() => {
   const vehicle = vehicles.value.find((row) => row.id === form.value.vehicle_id) ?? selectedVehicle.value
   // What the server resolved for this vehicle, plus whatever the editor would
@@ -141,7 +161,7 @@ function premadeLayout(vehicleId?: string): Dashboard['layout'] {
     // the two lists beside it stack to exactly its height.
     widget(clientId('widget'), 'route-map', undefined, 0, 3, 8, 6, { time_range_days:1 }),
     widget(clientId('widget'), 'activity-feed', undefined, 8, 3, 4, 3, { time_range_days:7 }),
-    widget(clientId('widget'), 'telemetry-list', undefined, 8, 6, 4, 3),
+    widget(clientId('widget'), 'telemetry-list', undefined, 8, 6, 4, 3, { metrics:['vehicle.speed', 'battery.soc', 'battery.power', 'battery.pack_voltage', 'vehicle.odometer'], ...hideWhenEmpty }),
     // What did it cost. Half and half: both hold a grid of readings that wrapped
     // badly at a third of the width.
     widget(clientId('widget'), 'segment-stats', undefined, 0, 9, 6, 2, { time_range_days:7 }),
@@ -156,7 +176,7 @@ function applyVehicleDefaults(): void {
   const vehicle = vehicles.value.find((row) => row.id === form.value.vehicle_id) ?? selectedVehicle.value
   const metrics = defaultDashboardMetrics(vehicle)
   form.value.metric = metrics[0] ?? 'vehicle.speed'
-  form.value.metrics = metrics.join(', ')
+  form.value.metricList = [...metrics]
   form.value.unit = metricDefinition(form.value.metric).unit
   // A generic chart is offered two axes only when the vehicle really reports two
   // distinct ones. Otherwise both stay empty and the card asks to be configured,
@@ -174,7 +194,7 @@ function applyTierDefaults(): void {
   form.value.hide_when_empty = needsSpecificData({
     id:'draft', type:definition.type, x:0, y:0, w:0, h:0,
     ...(definition.needsMetric ? { metric:form.value.metric } : {}),
-    ...(definition.needsMetrics ? { metrics:form.value.metrics.split(',').map((value) => value.trim()).filter(Boolean) } : {}),
+    ...(definition.needsMetrics ? { metrics:form.value.metricList } : {}),
     ...(definition.configSchema.fields.includes('x_metric') ? { x_metric:form.value.x_metric, y_metric:form.value.y_metric } : {}),
   })
 }
@@ -362,6 +382,55 @@ async function createDashboard(): Promise<void> {
   await beginEdit()
 }
 
+function openWidgetEditor(current: DashboardWidget | null): void {
+  editingWidget.value = current
+  if (current) {
+    const definition = widgetRegistry[current.type]
+    form.value = {
+      ...form.value,
+      type: current.type,
+      vehicle_id: current.vehicle_id ?? '',
+      metric: current.metric ?? form.value.metric,
+      metricList: [...(current.metrics ?? [])],
+      x_metric: current.x_metric ?? '',
+      y_metric: current.y_metric ?? '',
+      title: current.title ?? '',
+      unit: current.unit ?? metricDefinition(current.metric ?? '').unit,
+      time_range_days: current.time_range_days ?? 1,
+      hide_when_empty: Boolean(current.settings?.hide_when_empty),
+    }
+    void definition
+  }
+  configuring.value = true
+}
+
+/**
+ * Apply the form to a widget that already exists.
+ *
+ * A field the form no longer supplies is removed rather than set to undefined,
+ * so clearing a title leaves the card titling itself from its binding again.
+ */
+function saveWidget(): void {
+  const definition = chosenDefinition.value
+  const current = editingWidget.value
+  if (!definition || !current) return
+  const next: Partial<DashboardWidget> = {
+    ...(definition.needsMetric ? { metric:form.value.metric, unit:form.value.unit } : {}),
+    ...(definition.needsMetrics ? { metrics:[...new Set(form.value.metricList)] } : {}),
+    ...(definition.configSchema.fields.includes('time_range_days') ? { time_range_days:form.value.time_range_days } : {}),
+    ...(definition.configSchema.fields.includes('x_metric') ? { x_metric:form.value.x_metric, y_metric:form.value.y_metric } : {}),
+    ...(form.value.title ? { title:form.value.title } : {}),
+    ...(form.value.vehicle_id ? { vehicle_id:form.value.vehicle_id } : {}),
+    ...(definition.isEmpty && form.value.hide_when_empty ? { settings:{ hide_when_empty:true } } : {}),
+  }
+  if (!form.value.title) delete current.title
+  if (!form.value.vehicle_id) delete current.vehicle_id
+  if (!(definition.isEmpty && form.value.hide_when_empty)) delete current.settings
+  Object.assign(current, next)
+  configuring.value = false
+  editingWidget.value = null
+}
+
 async function addWidget(): Promise<void> {
   if (!active.value) return
   const definition = chosenDefinition.value
@@ -372,7 +441,7 @@ async function addWidget(): Promise<void> {
     ...(form.value.title ? { title:form.value.title } : {}),
     ...(form.value.vehicle_id ? { vehicle_id:form.value.vehicle_id } : {}),
     ...(definition.needsMetric ? { metric:form.value.metric, unit:form.value.unit } : {}),
-    ...(definition.needsMetrics ? { metrics:[...new Set(form.value.metrics.split(',').map((value) => value.trim()).filter(Boolean))] } : {}),
+    ...(definition.needsMetrics ? { metrics:[...new Set(form.value.metricList)] } : {}),
     ...(definition.configSchema.fields.includes('time_range_days') ? { time_range_days:form.value.time_range_days } : {}),
     ...(definition.configSchema.fields.includes('x_metric') ? { x_metric:form.value.x_metric, y_metric:form.value.y_metric } : {}),
     ...(definition.isEmpty && form.value.hide_when_empty ? { settings:{ hide_when_empty:true } } : {}),
@@ -445,7 +514,7 @@ watch(() => visibleWidgets.value.map((row) => row.id).join(','), async (next, pr
   initializeGrid()
 })
 watch([() => form.value.vehicle_id, selectedVehicleId], applyVehicleDefaults)
-watch([() => form.value.type, () => form.value.metric, () => form.value.metrics], applyTierDefaults)
+watch([() => form.value.type, () => form.value.metric, () => form.value.metricList], applyTierDefaults)
 watch(() => form.value.metric, (metric) => { form.value.unit = metricDefinition(metric).unit })
 onMounted(async () => { await load(); connectLiveEvents() })
 onBeforeUnmount(destroyGrid)
@@ -477,7 +546,7 @@ onBeforeUnmount(destroyGrid)
         <button v-if="!active.is_default" class="link-button" @click="makeDefault">{{ t('dashboards.makeDefault') }}</button>
         <span v-else class="default-label">{{ t('dashboards.defaultBadge') }}</span>
         <button v-if="!activeIsPremade" class="link-button danger" :disabled="dashboards.length===1" @click="deleteActive">{{ t('dashboards.delete') }}</button>
-        <button class="button secondary" @click="configuring=true"><AppIcon name="plus" :size="15" />{{ t('dashboards.addWidget') }}</button>
+        <button class="button secondary" @click="openWidgetEditor(null)"><AppIcon name="plus" :size="15" />{{ t('dashboards.addWidget') }}</button>
         <button class="button secondary" @click="cancelEdit">{{ t('common.cancel') }}</button>
         <button class="button" :disabled="saving" @click="save()">{{ t('common.save') }}</button>
       </div>
@@ -487,7 +556,10 @@ onBeforeUnmount(destroyGrid)
       <div ref="gridElement" class="grid-stack min-h-80" :class="{ 'is-narrow':narrowCanvas }">
         <div v-for="currentWidget in visibleWidgets" :key="currentWidget.id" class="grid-stack-item" :data-widget-id="currentWidget.id" :data-widget-type="currentWidget.type" :gs-x="currentWidget.x" :gs-y="currentWidget.y" :gs-w="currentWidget.w" :gs-h="currentWidget.h">
           <div class="grid-stack-item-content panel">
-            <button v-if="editing" class="widget-remove" :aria-label="t('common.delete')" @click="removeWidget(currentWidget.id)"><AppIcon name="close" :size="13" /></button>
+            <template v-if="editing">
+              <button v-if="widgetRegistry[currentWidget.type]?.configSchema.fields.length" class="widget-configure" :aria-label="t('dashboards.editWidget')" @click="openWidgetEditor(currentWidget)"><AppIcon name="settings" :size="13" /></button>
+              <button class="widget-remove" :aria-label="t('common.delete')" @click="removeWidget(currentWidget.id)"><AppIcon name="close" :size="13" /></button>
+            </template>
             <component :is="widgetRegistry[currentWidget.type]?.component" :widget="currentWidget" />
           </div>
         </div>
@@ -495,20 +567,30 @@ onBeforeUnmount(destroyGrid)
       <div v-if="!active.layout.widgets.length" class="empty panel">{{ t('dashboards.empty') }}</div>
     </section>
 
-    <AppModal :open="configuring" :title="t('dashboards.addWidget')" @close="configuring=false">
-      <form class="dashboard-modal-form widget-modal-form" @submit.prevent="addWidget">
-        <label class="field"><span>{{ t('common.type') }}</span><AppSelect v-model="form.type"><optgroup v-for="group in pickerGroups" :key="group.label" :label="group.label"><option v-for="option in group.options" :key="option.value" :value="option.value">{{ option.label }}</option></optgroup></AppSelect></label>
+    <AppModal :open="configuring" :title="editingWidget ? t('dashboards.editWidget') : t('dashboards.addWidget')" @close="configuring=false;editingWidget=null">
+      <form class="dashboard-modal-form widget-modal-form" @submit.prevent="editingWidget ? saveWidget() : addWidget()">
+        <label class="field"><span>{{ t('common.type') }}</span><AppSelect v-model="form.type" :disabled="Boolean(editingWidget)"><optgroup v-for="group in pickerGroups" :key="group.label" :label="group.label"><option v-for="option in group.options" :key="option.value" :value="option.value">{{ option.label }}</option></optgroup></AppSelect></label>
         <label v-if="chosenDefinition?.configSchema.fields.includes('vehicle_id')" class="field"><span>{{ t('common.vehicle') }}</span><AppSelect v-model="form.vehicle_id"><option value="">{{ t('dashboards.selectedVehicle') }}</option><option v-for="vehicle in vehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.name }}</option></AppSelect><small class="field-hint">{{ t('dashboards.selectedVehicleHint') }}</small></label>
-        <label v-if="chosenDefinition?.needsMetric" class="field"><span>{{ t('history.metric') }}</span><input v-model="form.metric" class="input mono" list="metric-options" /><datalist id="metric-options"><option v-for="name in availableMetrics" :key="name">{{ name }}</option></datalist></label>
-        <label v-if="chosenDefinition?.needsMetrics" class="field"><span>{{ t('dashboards.metrics') }}</span><input v-model="form.metrics" class="input mono" :placeholder="metricSuggestion" /></label>
+        <label v-if="chosenDefinition?.needsMetric" class="field"><span>{{ t('history.metric') }}</span><AppSelect v-model="form.metric" :aria-label="t('history.metric')"><option v-for="name in metricChoices" :key="name" :value="name">{{ metricLabel(metricDefinition(name), t) }} · {{ name }}</option></AppSelect></label>
+        <div v-if="chosenDefinition?.needsMetrics" class="field metric-list">
+          <span>{{ t('dashboards.metrics') }}</span>
+          <div v-for="(name, index) in form.metricList" :key="`${name}-${index}`" class="metric-row">
+            <AppSelect :model-value="name" :aria-label="t('dashboards.metricNumber', { number: index + 1 })" @update:model-value="setMetricRow(index, String($event))">
+              <option v-for="option in metricChoices" :key="option" :value="option">{{ metricLabel(metricDefinition(option), t) }} · {{ option }}</option>
+            </AppSelect>
+            <button class="icon-button" type="button" :aria-label="t('dashboards.removeMetric', { name })" @click="removeMetricRow(index)"><AppIcon name="close" :size="14" /></button>
+          </div>
+          <button class="button secondary metric-add" type="button" @click="addMetricRow"><AppIcon name="plus" :size="14" />{{ t('dashboards.addMetric') }}</button>
+          <small class="field-hint">{{ t('dashboards.metricsHint') }}</small>
+        </div>
         <label v-if="chosenDefinition?.configSchema.fields.includes('time_range_days')" class="field"><span>{{ t('dashboards.timeRange') }}</span><AppSelect v-model="form.time_range_days"><option :value="1">{{ t('history.day') }}</option><option :value="7">{{ t('history.week') }}</option><option :value="30">{{ t('history.month') }}</option></AppSelect></label>
         <template v-if="chosenDefinition?.configSchema.fields.includes('x_metric')">
-          <label class="field"><span>{{ t('dashboards.xMetric') }}</span><input v-model="form.x_metric" class="input mono" list="metric-options" /></label>
-          <label class="field"><span>{{ t('dashboards.yMetric') }}</span><input v-model="form.y_metric" class="input mono" list="metric-options" /></label>
+          <label class="field"><span>{{ t('dashboards.xMetric') }}</span><AppSelect v-model="form.x_metric" :aria-label="t('dashboards.xMetric')"><option v-for="name in metricChoices" :key="name" :value="name">{{ metricLabel(metricDefinition(name), t) }} · {{ name }}</option></AppSelect></label>
+          <label class="field"><span>{{ t('dashboards.yMetric') }}</span><AppSelect v-model="form.y_metric" :aria-label="t('dashboards.yMetric')"><option v-for="name in metricChoices" :key="name" :value="name">{{ metricLabel(metricDefinition(name), t) }} · {{ name }}</option></AppSelect></label>
         </template>
         <label class="field"><span>{{ t('common.title') }}</span><input v-model="form.title" class="input" /></label>
         <label v-if="supportsHiding" class="widget-toggle"><input v-model="form.hide_when_empty" type="checkbox" /><span>{{ t('dashboards.hideWhenEmpty') }}</span></label>
-        <div class="form-actions"><button class="button">{{ t('dashboards.addWidget') }}</button><button class="button ghost" type="button" @click="configuring=false">{{ t('common.cancel') }}</button></div>
+        <div class="form-actions"><button class="button">{{ editingWidget ? t('common.save') : t('dashboards.addWidget') }}</button><button class="button ghost" type="button" @click="configuring=false;editingWidget=null">{{ t('common.cancel') }}</button></div>
       </form>
     </AppModal>
 
@@ -556,6 +638,11 @@ onBeforeUnmount(destroyGrid)
 
 .grid-stack-item-content{inset:6px!important;min-width:0;overflow:hidden!important;border-radius:var(--radius-lg)}
 .grid-stack.is-narrow .grid-stack-item-content{inset:5px!important}
+.widget-configure{position:absolute;right:34px;top:6px;z-index:600;width:24px;height:24px;display:grid;place-items:center;color:var(--muted);background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);cursor:pointer;transition:color .12s,border-color .12s}
+.widget-configure:hover{color:var(--text);border-color:var(--muted-2)}
+.metric-list{gap:6px}
+.metric-row{display:grid;grid-template-columns:minmax(0,1fr) 28px;align-items:center;gap:4px}
+.metric-add{justify-self:start;margin-top:2px}
 .widget-remove{position:absolute;right:6px;top:6px;z-index:600;width:24px;height:24px;display:grid;place-items:center;color:var(--danger);background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);cursor:pointer;transition:color .12s,background-color .12s,border-color .12s}
 .widget-remove:hover{color:#fff;background:var(--danger);border-color:var(--danger)}
 
