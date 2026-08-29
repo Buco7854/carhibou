@@ -25,6 +25,8 @@ const (
 
 var highSpeedBaudRates = []int{2000000, 1000000, 921600, 500000, 460800, 230400}
 
+var openOBDPort = serial.Open
+
 type OBDAdapter struct {
 	device string
 	port   serial.Port
@@ -47,7 +49,7 @@ func NewOBDAdapter(device string) *OBDAdapter {
 
 func (adapter *OBDAdapter) Connect() error {
 	adapter.Close()
-	port, err := serial.Open(adapter.device, &serial.Mode{BaudRate: defaultOBDBaudRate})
+	port, err := openOBDPort(adapter.device, &serial.Mode{BaudRate: defaultOBDBaudRate})
 	if err != nil {
 		return err
 	}
@@ -676,23 +678,33 @@ func (provider *StandardOBDProvider) Live() bool {
 	return provider.connected && provider.failure == ""
 }
 
-func (provider *StandardOBDProvider) ReadObservations() (model.MetricObservations, error) {
+// Start opens the adapter before the first sample. Active PID queries still run
+// when observations are collected, but hardware ownership and failures become
+// visible as soon as the service starts.
+func (provider *StandardOBDProvider) Start() {
 	if !provider.connected {
 		if time.Now().Before(provider.nextTry) {
-			return model.MetricObservations{}, nil
+			return
 		}
 		provider.nextTry = time.Now().Add(connectRetryInterval)
 		if err := provider.adapter.Connect(); err != nil {
-			provider.failure = "adapter did not connect: " + err.Error()
-			return model.MetricObservations{}, nil
+			provider.failure = fmt.Sprintf("device %s failed to open: %v", provider.adapter.device, err)
+			return
 		}
 		if err := provider.adapter.SelectProtocol("0"); err != nil {
 			provider.adapter.Close()
 			provider.failure = "adapter rejected automatic protocol search: " + err.Error()
-			return model.MetricObservations{}, nil
+			return
 		}
 		provider.connected = true
 		provider.failure = ""
+	}
+}
+
+func (provider *StandardOBDProvider) ReadObservations() (model.MetricObservations, error) {
+	provider.Start()
+	if !provider.connected {
+		return model.MetricObservations{}, nil
 	}
 	observations := model.MetricObservations{}
 	for pid, definition := range StandardPIDs {

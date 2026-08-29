@@ -29,6 +29,13 @@ type VehicleProvider interface {
 	Close()
 }
 
+// VehicleStarter lets a source acquire its hardware and begin any background
+// monitoring before the first sample is taken. ReadObservations remains a safe
+// fallback for callers that do not manage provider lifecycles explicitly.
+type VehicleStarter interface {
+	Start()
+}
+
 // VehicleStatus is implemented by a source that can say why it published no
 // metrics. Every fault reading a vehicle is recoverable and none of them should
 // stop an agent reporting its position, so ReadMetrics returns what it has

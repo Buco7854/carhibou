@@ -39,6 +39,7 @@ const protocolTrial = 2 * time.Second
 type ProfileProvider struct {
 	adapter *OBDAdapter
 	decoder *profile.DecoderEngine
+	trial   time.Duration
 
 	mutex        sync.Mutex
 	observations model.MetricObservations
@@ -51,13 +52,16 @@ type ProfileProvider struct {
 }
 
 func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *ProfileProvider {
-	return &ProfileProvider{adapter: adapter, decoder: decoder, observations: model.MetricObservations{}}
+	return &ProfileProvider{
+		adapter: adapter, decoder: decoder, trial: protocolTrial,
+		observations: model.MetricObservations{},
+	}
 }
 
 // Status explains why the provider is publishing nothing.
 //
 // Every failure here is recoverable and none of it should stop an agent
-// reporting its position, so ReadMetrics returns what it has rather than an
+// reporting its position, so ReadObservations returns what it has rather than an
 // error. That made a permanently disconnected adapter invisible: the vehicle
 // published position and health forever and simply never mentioned CAN.
 func (provider *ProfileProvider) Status() string {
@@ -74,7 +78,7 @@ func (provider *ProfileProvider) Status() string {
 func (provider *ProfileProvider) Live() bool {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
-	return !provider.lastFrame.IsZero() && time.Since(provider.lastFrame) < protocolTrial
+	return !provider.lastFrame.IsZero() && time.Since(provider.lastFrame) < provider.trial
 }
 
 // ReadObservations returns the values the background monitor has collected.
@@ -84,13 +88,15 @@ func (provider *ProfileProvider) Live() bool {
 // one-second cadence is a one-second cadence, rather than a second of listening
 // plus everything else the sample needs.
 func (provider *ProfileProvider) ReadObservations() (model.MetricObservations, error) {
-	provider.start()
+	provider.Start()
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
 	return copyObservations(provider.observations), nil
 }
 
-func (provider *ProfileProvider) start() {
+// Start connects and begins monitoring eagerly. ReadObservations also calls it
+// so direct users that do not own the provider lifecycle remain safe.
+func (provider *ProfileProvider) Start() {
 	provider.mutex.Lock()
 	running := provider.stop != nil
 	waiting := time.Now().Before(provider.nextTry)
@@ -102,7 +108,7 @@ func (provider *ProfileProvider) start() {
 	provider.mutex.Unlock()
 
 	if err := provider.adapter.Connect(); err != nil {
-		provider.fail("adapter did not connect: " + err.Error())
+		provider.fail(fmt.Sprintf("device %s failed to open: %v", provider.adapter.device, err))
 		return
 	}
 	if err := provider.adapter.PassFilters(provider.decoder.CANIDs()); err != nil {
@@ -149,7 +155,10 @@ func (provider *ProfileProvider) selectListeningProtocol() (string, error) {
 			continue
 		}
 		seen := false
-		if err := provider.adapter.Monitor(protocolTrial, func(model.CANFrame) { seen = true }); err != nil {
+		if err := provider.adapter.Monitor(provider.trial, func(frame model.CANFrame) {
+			seen = true
+			provider.record(frame)
+		}); err != nil {
 			return "", fmt.Errorf("adapter stopped while listening: %w", err)
 		}
 		if seen {

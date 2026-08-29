@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -836,6 +837,37 @@ func resolveDevices(hardware store.Hardware, locations paths, refresh bool) reso
 	return result
 }
 
+func reprobeVehicleDevice(locations paths, gpsDevice string) (string, error) {
+	allCandidates := store.SerialCandidates()
+	candidates := make([]string, 0, len(allCandidates))
+	for _, candidate := range allCandidates {
+		if agentruntime.ValidateDistinctDevices(gpsDevice, candidate) == nil {
+			candidates = append(candidates, candidate)
+		}
+	}
+	reports := providers.ProbeAll(candidates, func(report providers.PortReport) {
+		fmt.Fprintf(os.Stderr, "vehicle probe %s -> %s\n", report.Device, describePort(report))
+	})
+	_, obdDevice, _ := providers.SelectRoles(reports)
+	if obdDevice == "" {
+		return "", fmt.Errorf(
+			"no OBD device found while probing /dev/serial/by-id/*, /dev/ttyUSB*, /dev/ttyACM*",
+		)
+	}
+	detection, _ := detectionStore(locations).Load()
+	detection.At = time.Now().UTC().Format(time.RFC3339)
+	detection.OBD = obdDevice
+	detection.Candidates = allCandidates
+	detection.Ports = reports
+	if detection.GPS == "" {
+		detection.GPS = gpsDevice
+	}
+	if err := detectionStore(locations).Save(detection); err != nil {
+		fmt.Fprintln(os.Stderr, "Could not record recovered vehicle device:", err)
+	}
+	return obdDevice, nil
+}
+
 // fromDetection rebuilds a selection from the stored answer. An explicit choice in
 // the hardware file still wins: the cache only ever answers for "auto".
 func fromDetection(hardware store.Hardware, detection store.Detection) resolvedDevices {
@@ -1052,8 +1084,8 @@ func commandRun(locations paths, arguments []string) error {
 	if *obdOverride != "" {
 		devices.obd = *obdOverride
 	}
-	gpsDevice, obdDevice := devices.gps, devices.obd
-	if err := agentruntime.ValidateDistinctDevices(gpsDevice, obdDevice); err != nil {
+	gpsDevice := devices.gps
+	if err := agentruntime.ValidateDistinctDevices(gpsDevice, devices.obd); err != nil {
 		return err
 	}
 	api, err := client.New(credentials.ServerURL, credentials.Credential, version, credentials.AllowInsecureHTTP)
@@ -1074,11 +1106,25 @@ func commandRun(locations paths, arguments []string) error {
 		return err
 	}
 	defer closePosition()
-	vehicle, err := vehicleProvider(obdDevice, configuration)
-	if err != nil {
-		detectionStore(locations).Forget()
+	if err := validateVehicleConfiguration(configuration); err != nil {
 		return err
 	}
+	var configurationMutex sync.RWMutex
+	currentConfiguration := func() store.Configuration {
+		configurationMutex.RLock()
+		defer configurationMutex.RUnlock()
+		return configuration
+	}
+	acquireVehicle := serviceVehicleAcquirer(
+		hardware,
+		locations,
+		gpsDevice,
+		devices.obd,
+		*obdOverride,
+		currentConfiguration,
+	)
+	vehicle := agentruntime.NewRetryingVehicleProvider(acquireVehicle)
+	vehicle.Start()
 	defer vehicle.Close()
 	sequence, _ := agentruntime.LastSequence(queue)
 	agent := &agentruntime.Agent{Queue: queue, Client: api, Position: position, Vehicle: vehicle, BootID: model.NewUUID(), Sequence: sequence}
@@ -1098,13 +1144,13 @@ func commandRun(locations paths, arguments []string) error {
 				candidate, installErr := configurationStore.InstallIfNewer(remote)
 				if installErr == nil {
 					if !reflect.DeepEqual(candidate, configuration) {
-						replacement, replacementErr := vehicleProvider(obdDevice, candidate)
-						if replacementErr == nil {
-							agent.Vehicle.Close()
-							agent.Vehicle = replacement
+						if validationErr := validateVehicleConfiguration(candidate); validationErr == nil {
+							configurationMutex.Lock()
 							configuration = candidate
+							configurationMutex.Unlock()
+							vehicle.Reset()
 						} else {
-							fmt.Fprintln(os.Stderr, "Configuration sync retained last-known-good:", replacementErr)
+							fmt.Fprintln(os.Stderr, "Configuration sync retained last-known-good:", validationErr)
 						}
 					}
 				} else {
@@ -1157,12 +1203,23 @@ func collectAtCadence(
 }
 
 func vehicleProvider(device string, configuration store.Configuration) (agentruntime.VehicleProvider, error) {
+	decoder, err := vehicleProfileDecoder(configuration)
+	if err != nil {
+		return nil, err
+	}
 	if device == "" {
 		return agentruntime.EmptyVehicle{}, nil
 	}
 	adapter := providers.NewOBDAdapter(device)
-	if configuration.VehicleProfile == nil {
+	if decoder == nil {
 		return providers.NewStandardOBDProvider(adapter), nil
+	}
+	return providers.NewProfileProvider(adapter, decoder), nil
+}
+
+func vehicleProfileDecoder(configuration store.Configuration) (*profile.DecoderEngine, error) {
+	if configuration.VehicleProfile == nil {
+		return nil, nil
 	}
 	if len(configuration.VehicleProfileDefinition) == 0 || string(configuration.VehicleProfileDefinition) == "null" {
 		return nil, fmt.Errorf("selected profile has no server definition")
@@ -1171,7 +1228,48 @@ func vehicleProvider(device string, configuration store.Configuration) (agentrun
 	if err != nil {
 		return nil, err
 	}
-	return providers.NewProfileProvider(adapter, decoder), nil
+	return decoder, nil
+}
+
+func validateVehicleConfiguration(configuration store.Configuration) error {
+	_, err := vehicleProfileDecoder(configuration)
+	return err
+}
+
+func serviceVehicleAcquirer(
+	hardware store.Hardware,
+	locations paths,
+	gpsDevice string,
+	initialDevice string,
+	override string,
+	configuration func() store.Configuration,
+) agentruntime.VehicleAcquirer {
+	device := initialDevice
+	firstAttempt := true
+	return func() (agentruntime.VehicleProvider, error) {
+		if override != "" {
+			device = override
+		} else if !firstAttempt && hardware.OBD == store.Auto {
+			resolved, err := reprobeVehicleDevice(locations, gpsDevice)
+			if err != nil {
+				return nil, err
+			}
+			device = resolved
+		}
+		firstAttempt = false
+		if device == "" {
+			if hardware.OBD == store.Off {
+				return nil, fmt.Errorf("vehicle source is disabled in hardware configuration")
+			}
+			return nil, fmt.Errorf(
+				"no OBD device found while probing /dev/serial/by-id/*, /dev/ttyUSB*, /dev/ttyACM*",
+			)
+		}
+		if err := agentruntime.ValidateDistinctDevices(gpsDevice, device); err != nil {
+			return nil, err
+		}
+		return vehicleProvider(device, configuration())
+	}
 }
 
 func loadCredentials(locations paths) (store.Credentials, error) {

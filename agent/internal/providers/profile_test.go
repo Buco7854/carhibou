@@ -7,6 +7,7 @@ import (
 
 	"github.com/Buco7854/carhibou/agent/internal/model"
 	"github.com/Buco7854/carhibou/agent/internal/profile"
+	"go.bug.st/serial"
 )
 
 const oneSignal = `{"id":"t","signals":[{"name":"battery.soc","source":{"type":"can","can_id":884},
@@ -57,6 +58,44 @@ func TestProfileObservationsKeepFrameTimesAndDerivedDependencyAge(t *testing.T) 
 	}
 }
 
+func TestProfileStartsMonitoringAndRetainsFramesBeforeTheFirstRead(t *testing.T) {
+	port := &scriptedPort{replies: map[string]string{
+		"ATZ":    "OK\r>",
+		"ATE0":   "OK\r>",
+		"ATL0":   "OK\r>",
+		"ATS1":   "OK\r>",
+		"ATH1":   "OK\r>",
+		"STBRT":  "?\r>",
+		"STFAP":  "OK\r>",
+		"ATSP6":  "OK\r>",
+		"ATCAF0": "OK\r>",
+		"STM":    "374 8 00 90 00 00 00 00 00 00\r",
+		"\r":     "STOPPED\r>",
+	}}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 25 * time.Millisecond
+	defer provider.Close()
+	provider.Start()
+
+	provider.mutex.Lock()
+	running := provider.stop != nil
+	provider.mutex.Unlock()
+	if !running {
+		t.Fatal("profile monitor was not running when Start returned")
+	}
+	observations, err := provider.ReadObservations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := observations["battery.soc"].Value; got != float64(67) {
+		t.Fatalf("first battery.soc=%v, want decoded frame captured during Start", got)
+	}
+}
+
 // Sampling must not wait for the bus. Frames arrive continuously whether or not
 // anyone is reading, and a window opened per sample both blocked for its whole
 // duration — making a one-second cadence impossible — and saw only the fraction
@@ -76,7 +115,7 @@ func TestReadMetricsDoesNotWaitForTheBus(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("three samples took %s; sampling is waiting on the bus", elapsed)
 	}
-	if status := provider.Status(); !strings.Contains(status, "did not connect") {
+	if status := provider.Status(); !strings.Contains(status, "failed to open") {
 		t.Fatalf("status=%q, want the connection failure named", status)
 	}
 	if provider.Live() {
