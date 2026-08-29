@@ -27,13 +27,34 @@ def postgres_factory() -> Generator[sessionmaker[Session], None, None]:
     engine = create_engine(DATABASE_URL, pool_pre_ping=True)
     with engine.begin() as connection:
         connection.execute(text("TRUNCATE TABLE users CASCADE"))
-        data_type = connection.scalar(
-            text(
-                "SELECT data_type FROM information_schema.columns "
-                "WHERE table_name='telemetry' AND column_name='metrics'"
+        jsonb_columns = {
+            (table_name, column_name): data_type
+            for table_name, column_name, data_type in connection.execute(
+                text(
+                    "SELECT table_name, column_name, data_type "
+                    "FROM information_schema.columns "
+                    "WHERE (table_name, column_name) IN ("
+                    "('telemetry', 'agent_data'), "
+                    "('telemetry_observations', 'value'), "
+                    "('telemetry_position_observations', 'value'), "
+                    "('telemetry_metric_candidates', 'value'), "
+                    "('telemetry_position_candidates', 'value'), "
+                    "('vehicle_state', 'readings'), "
+                    "('vehicle_state', 'position'), "
+                    "('vehicle_state', 'agent_state'))"
+                )
             )
-        )
-        assert data_type == "jsonb"
+        }
+        assert jsonb_columns == {
+            ("telemetry", "agent_data"): "jsonb",
+            ("telemetry_observations", "value"): "jsonb",
+            ("telemetry_position_observations", "value"): "jsonb",
+            ("telemetry_metric_candidates", "value"): "jsonb",
+            ("telemetry_position_candidates", "value"): "jsonb",
+            ("vehicle_state", "readings"): "jsonb",
+            ("vehicle_state", "position"): "jsonb",
+            ("vehicle_state", "agent_state"): "jsonb",
+        }
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     yield factory
     with engine.begin() as connection:
