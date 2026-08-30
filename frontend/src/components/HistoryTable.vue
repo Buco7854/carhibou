@@ -98,6 +98,54 @@ function carriedEarlier(row: HistoryTableRow, reading: Reading): string {
   return t('history.carriedEarlier', { span: formatSpan(seconds, locale.value) })
 }
 
+/**
+ * Whether anything in this row was actually measured inside it.
+ *
+ * Rows are born at changes in what is known, which is not the same as rows being
+ * born at reports: a value expiring changes what is known just as much as a new
+ * reading does, and the range's own edge is always shown. A row where every cell
+ * predates the bucket is one of those, and it reads as a data error unless the
+ * table says so.
+ *
+ * Inferred from the observation times the row already carries, because the row
+ * carries no count of the reports behind it. That inference is honest in one
+ * direction and imprecise in the other: a report whose values all expired before
+ * this bucket ends would read as expiry-born. See the note beside the loader for
+ * the field that would settle it.
+ */
+function reportAnchored(row: HistoryTableRow): boolean {
+  const opened = new Date(row.bucket_start).getTime()
+  const closed = new Date(row.bucket_end).getTime()
+  const inside = (at: string) => {
+    const stamp = new Date(at).getTime()
+    return stamp >= opened && stamp <= closed
+  }
+  if (row.position && inside(row.position.observed_at)) return true
+  return Object.values(row.readings).some((entry) => inside(entry.observed_at))
+}
+
+/**
+ * The newest row when it stands at the end of the range rather than at a report.
+ *
+ * Its time is the instant the range was asked for, so printing a wall clock
+ * there implies the car said something then. It says "now" instead.
+ */
+function atRangeEdge(row: HistoryTableRow, index: number): boolean {
+  if (index !== 0 || !table.value) return false
+  const edge = new Date(table.value.end).getTime()
+  const closed = new Date(row.bucket_end).getTime()
+  return Math.abs(edge - closed) < stepSeconds.value * 1000 && !reportAnchored(row)
+}
+
+function whenLabel(row: HistoryTableRow, index: number): string {
+  return atRangeEdge(row, index) ? t('history.rowNow') : instant(row.bucket_end)
+}
+
+function whyRow(row: HistoryTableRow, index: number): string {
+  if (atRangeEdge(row, index)) return t('history.rowEdgeReason')
+  return reportAnchored(row) ? '' : t('history.rowExpiryReason')
+}
+
 function display(key: string, reading: Reading): string {
   const definition = metricDefinition(key)
   if (typeof reading.value === 'boolean') return t(reading.value ? 'metrics.active' : 'metrics.inactive')
@@ -173,9 +221,9 @@ void load()
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in rows" :key="row.bucket_start">
+          <tr v-for="(row, index) in rows" :key="row.bucket_start">
             <td class="snapshot-when">
-              {{ instant(row.bucket_end) }}
+              <span :class="{ 'is-derived': !reportAnchored(row) }" :title="whyRow(row, index)">{{ whenLabel(row, index) }}</span>
               <!-- One row can stand for many identical buckets. Saying how many
                    is what stops a quiet night reading as a single moment. -->
               <small v-if="row.collapsed_buckets > 1">{{ t('history.unchangedFor', { span: formatSpan(row.collapsed_buckets * stepSeconds, locale) }) }}</small>
@@ -221,6 +269,9 @@ void load()
 .snapshot th small{color:var(--muted);font-weight:400}
 .snapshot-when{white-space:nowrap}
 .snapshot-when small{display:block;margin-top:2px;color:var(--muted);font-size:var(--font-micro)}
+/* A row nothing was reported into still has a real time; muting it says the time
+   is the row's, not a moment the car spoke. */
+.is-derived{color:var(--muted)}
 /* A carried value is real but old. Dimming it and naming its age is what keeps
    a forward-filled cell from reading as a fresh measurement. */
 .is-carried{color:var(--muted)}

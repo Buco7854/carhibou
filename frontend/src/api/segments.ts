@@ -56,6 +56,14 @@ export async function loadHistory(vehicleId: string, range: HistoryRange): Promi
  */
 export const TABLE_STEP_SECONDS = [1, 5, 10, 30, 60, 300, 900, 3600, 21600, 86400] as const
 
+/**
+ * A row says when it starts and ends and what was known by then, but not how
+ * many observations landed inside it. The timeline infers that from whether any
+ * cell was observed within the bucket, which mistakes a report whose values had
+ * all expired for an expiry-born row. A per-row count of received reports, say
+ * `reports: number` on HistoryTableRow, would make it exact; until then the
+ * inference is what the table shows.
+ */
 export interface HistoryTableRequest {
   start: Date | string
   end?: Date | string

@@ -123,4 +123,61 @@ describe('history snapshot table', () => {
     // A coarser step means different rows, so the old page number means nothing.
     expect(query.get('offset')).toBe('0')
   })
+
+  it('marks a row nothing was reported into, and names the range edge "now"', async () => {
+    // Rows are born at changes in what is known. A value expiring is such a
+    // change, and so is the edge of the range, so a row can exist at an instant
+    // the car never spoke. Both read as a data error unless the table says so.
+    const edge = {
+      ...table(),
+      end: '2026-01-01T11:00:00Z',
+      rows: [
+        {
+          bucket_start: '2026-01-01T10:59:00Z', bucket_end: '2026-01-01T11:00:00Z', collapsed_buckets: 1,
+          readings: readings({ 'battery.soc': 61 }, { observed_at: '2026-01-01T09:00:00Z' }),
+          position: null, agent: {},
+        },
+        {
+          bucket_start: '2026-01-01T09:00:00Z', bucket_end: '2026-01-01T09:01:00Z', collapsed_buckets: 1,
+          readings: readings({ 'battery.soc': 61 }, { observed_at: '2026-01-01T09:00:30Z' }),
+          position: null, agent: {},
+        },
+      ],
+    }
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(edge)))
+    const wrapper = mountTable()
+    await flushPromises()
+
+    const when = wrapper.findAll('.snapshot-when span')
+    // Newest row: the range edge, so it is "now" rather than a wall clock that
+    // would imply the car reported then.
+    expect(when[0]!.text()).toBe('now')
+    expect(when[0]!.classes()).toContain('is-derived')
+    expect(when[0]!.attributes('title')).toContain('end of the range')
+    // The older row was measured inside its own bucket, so it reads normally.
+    expect(when[1]!.text()).not.toBe('now')
+    expect(when[1]!.classes()).not.toContain('is-derived')
+    expect(when[1]!.attributes('title')).toBe('')
+  })
+
+  it('marks an expiry-born row in the middle of the range', async () => {
+    const middle = {
+      ...table(),
+      end: '2026-01-01T12:00:00Z',
+      rows: [{
+        bucket_start: '2026-01-01T10:00:00Z', bucket_end: '2026-01-01T10:01:00Z', collapsed_buckets: 1,
+        readings: readings({ 'battery.soc': 61 }, { observed_at: '2026-01-01T08:00:00Z' }),
+        position: null, agent: {},
+      }],
+    }
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(middle)))
+    const wrapper = mountTable()
+    await flushPromises()
+
+    const when = wrapper.get('.snapshot-when span')
+    // Not the range edge, so it keeps its real time but says why it is there.
+    expect(when.text()).not.toBe('now')
+    expect(when.classes()).toContain('is-derived')
+    expect(when.attributes('title')).toContain('went stale')
+  })
 })
