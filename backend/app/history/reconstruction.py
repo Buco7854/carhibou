@@ -330,6 +330,12 @@ def table_rows(
     event_index = 0
     for offset, index in enumerate(ordered):
         bucket_end = min(end, start + step * (index + 1))
+        # Rows exist for two reasons: a report landed, or a candidate expired at
+        # a moment nothing was reported. Counting the reports as they are
+        # consumed tells the two apart exactly, where reading it back off the
+        # observation times cannot: a report whose values had all already
+        # expired carries no fresh observed_at to infer it from.
+        reports = 0
         while event_index < len(events) and as_utc(events[event_index].observed_at) <= bucket_end:
             event = events[event_index]
             if event.metric:
@@ -354,20 +360,25 @@ def table_rows(
                 )
             if event.agent is not None:
                 state.agent.update(event.agent)
+                reports += 1
             event_index += 1
         next_index = ordered[offset + 1] if offset + 1 < len(ordered) else bucket_count
         span_end = min(end, start + step * next_index)
         snapshot = resolved_state(state, bucket_end)
+        # The count stays out of the signature: two spans that show the same
+        # state are still the same row, however many reports built each of them.
         signature = snapshot
         if output and output[-1]["_signature"] == signature:
             output[-1]["bucket_end"] = span_end
             output[-1]["collapsed_buckets"] += next_index - index
+            output[-1]["reports"] += reports
         else:
             output.append(
                 {
                     "bucket_start": start + step * index,
                     "bucket_end": span_end,
                     "collapsed_buckets": next_index - index,
+                    "reports": reports,
                     **snapshot,
                     "_signature": signature,
                 }

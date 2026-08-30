@@ -24,6 +24,7 @@ function table(overrides: Record<string, unknown> = {}) {
         bucket_start: BUCKET_START,
         bucket_end: BUCKET_END,
         collapsed_buckets: 1,
+        reports: 1,
         readings: {
           ...readings({ 'vehicle.speed': 42 }, { observed_at: '2026-01-01T10:05:30Z' }),
           ...readings({ 'battery.soc': 61 }, { observed_at: '2026-01-01T09:05:00Z' }),
@@ -35,6 +36,7 @@ function table(overrides: Record<string, unknown> = {}) {
         bucket_start: '2026-01-01T09:00:00Z',
         bucket_end: '2026-01-01T09:20:00Z',
         collapsed_buckets: 20,
+        reports: 20,
         readings: readings({ 'battery.soc': 61 }, { observed_at: '2026-01-01T09:00:10Z' }),
         position: null,
         agent: {},
@@ -133,12 +135,12 @@ describe('history snapshot table', () => {
       end: '2026-01-01T11:00:00Z',
       rows: [
         {
-          bucket_start: '2026-01-01T10:59:00Z', bucket_end: '2026-01-01T11:00:00Z', collapsed_buckets: 1,
+          bucket_start: '2026-01-01T10:59:00Z', bucket_end: '2026-01-01T11:00:00Z', collapsed_buckets: 1, reports: 0,
           readings: readings({ 'battery.soc': 61 }, { observed_at: '2026-01-01T09:00:00Z' }),
           position: null, agent: {},
         },
         {
-          bucket_start: '2026-01-01T09:00:00Z', bucket_end: '2026-01-01T09:01:00Z', collapsed_buckets: 1,
+          bucket_start: '2026-01-01T09:00:00Z', bucket_end: '2026-01-01T09:01:00Z', collapsed_buckets: 1, reports: 1,
           readings: readings({ 'battery.soc': 61 }, { observed_at: '2026-01-01T09:00:30Z' }),
           position: null, agent: {},
         },
@@ -165,7 +167,7 @@ describe('history snapshot table', () => {
       ...table(),
       end: '2026-01-01T12:00:00Z',
       rows: [{
-        bucket_start: '2026-01-01T10:00:00Z', bucket_end: '2026-01-01T10:01:00Z', collapsed_buckets: 1,
+        bucket_start: '2026-01-01T10:00:00Z', bucket_end: '2026-01-01T10:01:00Z', collapsed_buckets: 1, reports: 0,
         readings: readings({ 'battery.soc': 61 }, { observed_at: '2026-01-01T08:00:00Z' }),
         position: null, agent: {},
       }],

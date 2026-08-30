@@ -104,6 +104,7 @@ class HistoryTableRow(BaseModel):
     bucket_start: datetime
     bucket_end: datetime
     collapsed_buckets: int
+    reports: int
     readings: dict[str, ReadingResponse]
     position: ResolvedPositionResponse | None
     agent: dict[str, object]

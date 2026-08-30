@@ -282,6 +282,7 @@ export interface HistoryTableRow {
   bucket_start: string
   bucket_end: string
   collapsed_buckets: number
+  reports: number
   readings: Record<string, Reading>
   position: ResolvedPosition | null
   agent: Record<string, unknown>

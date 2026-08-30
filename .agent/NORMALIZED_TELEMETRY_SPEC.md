@@ -233,8 +233,12 @@ History endpoints, all vehicle-scoped:
   are exactly {1, 5, 10, 30, 60, 300, 900, 3600, 21600, 86400}; anything
   else is a 400, never rounded. Response: `step_seconds`, `total`, `limit`,
   `offset`, and `rows` of `{bucket_start, bucket_end, collapsed_buckets,
-  readings: key → reading, position, agent}`, newest to oldest; identical
-  consecutive buckets collapse into one row carrying `collapsed_buckets`.
+  reports, readings: key → reading, position, agent}`, newest to oldest;
+  identical consecutive buckets collapse into one row carrying
+  `collapsed_buckets`. `reports` counts the telemetry samples recorded inside
+  the row's span, summed when buckets collapse, so a row built from a delivery
+  is distinguishable from one born of a candidate expiring or of the range
+  edge; it does not take part in the collapse comparison.
 
 Hook context (implemented in `backend/app/hooks/context.py`; the v1
 `ctx.telemetry.metrics` and `ctx.telemetry_batch` no longer exist):

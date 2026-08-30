@@ -99,29 +99,18 @@ function carriedEarlier(row: HistoryTableRow, reading: Reading): string {
 }
 
 /**
- * Whether anything in this row was actually measured inside it.
+ * Whether anything in this row was actually received inside it.
  *
  * Rows are born at changes in what is known, which is not the same as rows being
  * born at reports: a value expiring changes what is known just as much as a new
- * reading does, and the range's own edge is always shown. A row where every cell
- * predates the bucket is one of those, and it reads as a data error unless the
- * table says so.
- *
- * Inferred from the observation times the row already carries, because the row
- * carries no count of the reports behind it. That inference is honest in one
- * direction and imprecise in the other: a report whose values all expired before
- * this bucket ends would read as expiry-born. See the note beside the loader for
- * the field that would settle it.
+ * reading does, and the range's own edge is always shown. A row nothing was
+ * reported into is one of those, and it reads as a data error unless the
+ * table says so. The server counts the samples recorded inside each row's span,
+ * summed when rows collapse, so even a report whose values had all expired by
+ * the bucket's end is still its row's anchor.
  */
 function reportAnchored(row: HistoryTableRow): boolean {
-  const opened = new Date(row.bucket_start).getTime()
-  const closed = new Date(row.bucket_end).getTime()
-  const inside = (at: string) => {
-    const stamp = new Date(at).getTime()
-    return stamp >= opened && stamp <= closed
-  }
-  if (row.position && inside(row.position.observed_at)) return true
-  return Object.values(row.readings).some((entry) => inside(entry.observed_at))
+  return row.reports > 0
 }
 
 /**

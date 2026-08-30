@@ -301,6 +301,89 @@ def test_history_table_forward_fills_true_observation_times_without_dense_rows(
         == base
     )
     assert len(rows) < 5
+    # Two samples went in, so exactly two reports are spread across the rows.
+    assert sum(row["reports"] for row in rows) == 2
+    assert combined["reports"] >= 1
+
+
+def test_history_table_counts_reports_per_row_and_sums_them_when_rows_collapse(
+    registered: tuple[TestClient, str],
+) -> None:
+    """A row exists either because something was reported or because something
+    expired at a moment nothing was. Reading that back off observation times
+    misreads a report whose values had all already aged out, so the count of
+    deliveries inside each row is carried explicitly."""
+    client, csrf = registered
+    vehicle_id, _agent_id, credential = _source(client, csrf)
+    base = datetime.now(UTC) - timedelta(minutes=40)
+    # One report that says something, then three parked heartbeats that say
+    # nothing: the state they leave behind is identical, so their buckets
+    # collapse and the count is what distinguishes the span from silence.
+    _upload(
+        client,
+        credential,
+        [
+            _sample(base, 0, {"battery.soc": 50}),
+            _sample(base + timedelta(minutes=1), 1, {}),
+            _sample(base + timedelta(minutes=2), 2, {}),
+            _sample(base + timedelta(minutes=3), 3, {}),
+        ],
+    )
+
+    table = client.get(
+        f"/api/v1/vehicles/{vehicle_id}/history/table",
+        params={
+            "start": (base - timedelta(seconds=1)).isoformat(),
+            "end": (base + timedelta(minutes=35)).isoformat(),
+            "step_seconds": 60,
+        },
+    )
+    assert table.status_code == 200, table.text
+    rows = table.json()["rows"]
+
+    # Every delivery is accounted for exactly once across the whole table.
+    assert sum(row["reports"] for row in rows) == 4
+
+    # The collapsed span carries the sum of what merged into it rather than the
+    # count of the bucket that happened to open it.
+    reporting = [row for row in rows if row["reports"] > 0]
+    assert len(reporting) == 1
+    assert reporting[0]["reports"] == 4
+    assert reporting[0]["collapsed_buckets"] > 1
+
+    # Quiet rows exist because a candidate expired or the range has an edge, and
+    # they say so with a zero rather than leaving it to be inferred.
+    quiet = [row for row in rows if row["reports"] == 0]
+    assert quiet, "expected at least one row born of expiry or the range edge"
+    assert all(row["readings"] or row["position"] is None for row in quiet)
+
+
+def test_history_table_counts_a_report_whose_values_have_all_expired(
+    registered: tuple[TestClient, str],
+) -> None:
+    """The case that defeats inference: a delivery arrives, and by the end of
+    its own bucket every value it carried has already expired. Nothing in the
+    observation times marks the row as report-anchored; the count does."""
+    client, csrf = registered
+    vehicle_id, _agent_id, credential = _source(client, csrf)
+    base = datetime.now(UTC) - timedelta(minutes=20)
+    # vehicle.in_use is not retained when stale, so once it expires it leaves
+    # no reading behind at all.
+    _upload(client, credential, [_sample(base, 0, {"vehicle.in_use": True})])
+
+    table = client.get(
+        f"/api/v1/vehicles/{vehicle_id}/history/table",
+        params={
+            "start": (base - timedelta(seconds=1)).isoformat(),
+            "end": (base + timedelta(minutes=15)).isoformat(),
+            "step_seconds": 300,
+        },
+    )
+    assert table.status_code == 200, table.text
+    rows = table.json()["rows"]
+    assert sum(row["reports"] for row in rows) == 1
+    anchored = [row for row in rows if row["reports"] == 1]
+    assert len(anchored) == 1
 
 
 def test_ingestion_rolls_back_history_candidates_state_and_jobs_together(
