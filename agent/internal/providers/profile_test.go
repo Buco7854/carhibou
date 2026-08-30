@@ -123,14 +123,21 @@ func TestProfileFallsBackWhenFilteredSTMIsSilentButSTMAWorks(t *testing.T) {
 		t.Fatalf("battery.soc=%v, want the STMA frame decoded", got)
 	}
 
+	// Select, filter, then listen. Filters have to be installed before any trial
+	// listens: on this firmware a filtered monitor with no filters installed
+	// passes nothing, so a trial that listened first could only ever report
+	// silence, however loudly the bus was talking.
 	recorded := port.recordedCommands()
 	protocolIndex := commandIndex(recorded, "ATSP6", 0)
 	filterIndex := commandIndex(recorded, "STFAP 374,FFF", 0)
 	firstSTM := commandIndex(recorded, "STM", 0)
 	filteredSTM := commandIndex(recorded, "STM", firstSTM+1)
 	stma := commandIndex(recorded, "STMA", 0)
-	if protocolIndex < 0 || filterIndex < 0 || firstSTM < protocolIndex || filterIndex < firstSTM || filteredSTM < filterIndex || stma < filteredSTM {
-		t.Fatalf("command order=%v, want protocol trial before filters, then filtered STM, then STMA", recorded)
+	if protocolIndex < 0 || filterIndex < 0 || firstSTM < 0 || filteredSTM < 0 || stma < 0 {
+		t.Fatalf("command order=%v, want protocol, filters, filtered STM, then STMA", recorded)
+	}
+	if !(protocolIndex < filterIndex && filterIndex < firstSTM && firstSTM < filteredSTM && filteredSTM < stma) {
+		t.Fatalf("command order=%v, want protocol, filters, filtered STM, then STMA", recorded)
 	}
 }
 

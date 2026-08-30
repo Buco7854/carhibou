@@ -52,6 +52,24 @@ const (
 	// eventDebounce is the shortest gap between two event-triggered samples. A
 	// signal that chatters at frame rate must not turn into an upload storm.
 	eventDebounce = 30 * time.Second
+	// filterAuditInterval is how often a silent filtered monitor is asked to
+	// prove that the silence is the vehicle's and not its own.
+	filterAuditInterval = 60 * time.Second
+	// filterAuditBurst is how long the unfiltered comparison listens. A vehicle
+	// broadcasting at all repeats well inside this.
+	filterAuditBurst = 3 * time.Second
+	// busWakeQuiet is how long the bus must have been silent for the next frame
+	// to count as the vehicle waking rather than as an ordinary gap between
+	// broadcasts. A car that is awake repeats within milliseconds, so anything
+	// this long means it had stopped.
+	busWakeQuiet = time.Minute
+	// quietSettleMargin is added to the liveness window before a gap in frames is
+	// called sleep. A momentary pause between broadcasts is not the ignition
+	// going off, and reporting it as one would park a moving car.
+	quietSettleMargin = 5 * time.Second
+	// quietPoll is how often the gap since the last frame is measured. Nothing
+	// calls in when a bus stops, so the transition has to be looked for.
+	quietPoll = time.Second
 )
 
 // AuxVoltageMetric is the canonical name for the adapter's supply reading. It is
@@ -93,8 +111,19 @@ type ProfileProvider struct {
 	eventReason string
 	lastEventAt time.Time
 	eventGap    time.Duration
-	voltageStop chan struct{}
-	voltageDone sync.WaitGroup
+
+	auditInterval    time.Duration
+	auditBurst       time.Duration
+	fellBack         bool
+	contradictions   int
+	lastAnyFrame     time.Time
+	monitorStartedAt time.Time
+	quietSettle      time.Duration
+	quietPoll        time.Duration
+	busQuiet         bool
+
+	sessionStop chan struct{}
+	sessionDone sync.WaitGroup
 
 	stop    chan struct{}
 	stopped sync.WaitGroup
@@ -111,6 +140,8 @@ func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *Pr
 		allowed: allowed, observations: model.MetricObservations{},
 		voltageInterval: auxVoltageInterval, voltageTimeout: auxVoltageTimeout,
 		eventGap: eventDebounce, eventValues: map[string]any{},
+		auditInterval: filterAuditInterval, auditBurst: filterAuditBurst,
+		quietSettle: protocolTrial + quietSettleMargin, quietPoll: quietPoll,
 	}
 }
 
@@ -133,8 +164,11 @@ func (provider *ProfileProvider) State() string {
 	defer provider.mutex.Unlock()
 	parts := []string{}
 	silent := provider.stop != nil && (provider.lastDecoded.IsZero() || time.Since(provider.lastDecoded) > provider.trial)
-	if provider.unfiltered {
-		parts = append(parts, "unfiltered monitor; hardware filters ineffective")
+	// The mode is reported whenever one is in force, working or not, because
+	// "filtered and hearing nothing" and "unfiltered and hearing nothing" are
+	// different problems and the interface cannot tell them apart otherwise.
+	if provider.stop != nil {
+		parts = append(parts, "monitor: "+provider.modeDescription())
 	}
 	if silent {
 		parts = append(parts, provider.quietDescription())
@@ -152,6 +186,23 @@ func (provider *ProfileProvider) State() string {
 		parts = append(parts, "adapter buffer overflowed")
 	}
 	return strings.Join(parts, "; ")
+}
+
+// modeDescription names the monitor in force. The caller holds the mutex.
+//
+// Filtered is the expected steady state and the only one that keeps up with a
+// busy bus: unfiltered monitoring on a live vehicle at the adapter's default
+// baud overflows its buffer and drops most of what it sees, so the fallback is
+// a last resort and says so rather than reading as an equivalent choice.
+func (provider *ProfileProvider) modeDescription() string {
+	if !provider.unfiltered {
+		return "filtered"
+	}
+	hazard := "unfiltered fallback (last resort); expect dropped frames on a live bus"
+	if provider.fellBack {
+		return hazard + "; hardware filters delivered nothing while the bus was live"
+	}
+	return hazard + "; hardware filters ineffective at startup"
 }
 
 // quietDescription says how long the bus has been silent while the monitor is
@@ -221,18 +272,21 @@ func (provider *ProfileProvider) Start() {
 	}
 
 	stop := make(chan struct{})
-	voltageStop := make(chan struct{})
+	sessionStop := make(chan struct{})
 	provider.mutex.Lock()
 	provider.stop = stop
-	provider.voltageStop = voltageStop
+	provider.sessionStop = sessionStop
+	provider.monitorStartedAt = time.Now().UTC()
 	provider.failure = ""
 	provider.unfiltered = preparation.UseUnfiltered
 	provider.baseReport = preparationMonitorReport(preparation)
 	provider.monitorReport = provider.baseReport
 	provider.mutex.Unlock()
 
-	provider.voltageDone.Add(1)
-	go provider.pollVoltage(voltageStop)
+	provider.sessionDone.Add(3)
+	go provider.pollVoltage(sessionStop)
+	go provider.auditFilters(sessionStop)
+	go provider.watchQuiet(sessionStop)
 
 	provider.stopped.Add(1)
 	go func() {
@@ -250,12 +304,13 @@ func (provider *ProfileProvider) Start() {
 	}()
 }
 func (provider *ProfileProvider) record(frame model.CANFrame) {
+	observedAt := frameTime(frame)
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	provider.noteBusActivity(observedAt)
 	if _, ok := provider.allowed[frame.CANID]; !ok {
 		return
 	}
-	provider.mutex.Lock()
-	defer provider.mutex.Unlock()
-	observedAt := frameTime(frame)
 	provider.lastFrame = observedAt
 	next := copyObservations(provider.observations)
 	decodedValues := provider.decoder.Decode(frame, observationValues(provider.observations))
@@ -300,15 +355,16 @@ func (provider *ProfileProvider) fail(reason string) {
 func (provider *ProfileProvider) Close() {
 	provider.mutex.Lock()
 	stop := provider.stop
-	voltageStop := provider.voltageStop
+	sessionStop := provider.sessionStop
 	provider.stop = nil
-	provider.voltageStop = nil
+	provider.sessionStop = nil
 	provider.mutex.Unlock()
-	// The supply poll interleaves itself with the monitor, so it has to be gone
-	// before the monitor is asked to stop or its request outlives its server.
-	if voltageStop != nil {
-		close(voltageStop)
-		provider.voltageDone.Wait()
+	// Both background loops interleave themselves with the monitor, so they have
+	// to be gone before the monitor is asked to stop or their requests outlive
+	// the goroutine that serves them.
+	if sessionStop != nil {
+		close(sessionStop)
+		provider.sessionDone.Wait()
 	}
 	if stop != nil {
 		close(stop)
@@ -324,7 +380,7 @@ func (provider *ProfileProvider) Close() {
 // port. On a bus that has gone quiet this is the only traffic the adapter sees,
 // and it is what separates a sleeping vehicle from an adapter somebody unplugged.
 func (provider *ProfileProvider) pollVoltage(stop <-chan struct{}) {
-	defer provider.voltageDone.Done()
+	defer provider.sessionDone.Done()
 	ticker := time.NewTicker(provider.voltageInterval)
 	defer ticker.Stop()
 	for {
@@ -402,6 +458,73 @@ func (provider *ProfileProvider) recordVoltageFailure() {
 	}
 }
 
+// auditFilters keeps asking whether a silent filtered monitor is silent because
+// the vehicle is asleep or because its own filters are dropping everything.
+//
+// The question cannot be settled once at startup: a service that starts while
+// the car sleeps sees both monitors say nothing, which proves neither. Settling
+// on the filtered stream then and never revisiting it is how an adapter whose
+// STFAP is accepted but applied wrongly goes deaf for the rest of the session
+// while its supply reading keeps working perfectly.
+func (provider *ProfileProvider) auditFilters(stop <-chan struct{}) {
+	defer provider.sessionDone.Done()
+	ticker := time.NewTicker(provider.auditInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			provider.runFilterAudit()
+		}
+	}
+}
+
+func (provider *ProfileProvider) runFilterAudit() {
+	provider.mutex.Lock()
+	settled := provider.unfiltered || provider.failure != ""
+	heard := !provider.lastFrame.IsZero() && time.Since(provider.lastFrame) < provider.auditInterval
+	provider.mutex.Unlock()
+	// Nothing to prove once the fallback is in force, and nothing to suspect
+	// while frames are arriving: the filtered stream is doing its job.
+	if settled || heard {
+		return
+	}
+
+	// Frames seen here are real observations, not just evidence, so they are
+	// decoded on the way through. A wake that happens to land inside the burst
+	// must not cost the transition that started it.
+	relevant := 0
+	count := func(frame model.CANFrame) {
+		if _, ok := provider.allowed[frame.CANID]; ok {
+			relevant++
+		}
+		provider.record(frame)
+	}
+	burst := func(adapter *OBDAdapter) { _, _ = adapter.SampleMonitorAll(provider.auditBurst, count) }
+	if !provider.adapter.DuringMonitor(burst, provider.auditBurst+provider.voltageTimeout) {
+		return
+	}
+	// Only frames this profile asked for decide it. Unrelated traffic proves the
+	// bus is awake, but switching to software filtering would drop those too, so
+	// it is not evidence that the fallback would help.
+	if relevant == 0 {
+		return
+	}
+
+	// Reaching here contradicts what this firmware is expected to do: filters
+	// that carried thousands of frames per second in verification have now
+	// delivered none while the bus was demonstrably live. The switch is made
+	// because hearing something badly beats hearing nothing, but it is recorded
+	// as the surprise it is rather than as a routine adjustment.
+	provider.mutex.Lock()
+	provider.unfiltered = true
+	provider.fellBack = true
+	provider.contradictions++
+	provider.mutex.Unlock()
+	provider.adapter.SwitchMonitor("STMA")
+}
+
 // Attached reports whether the adapter itself is still answering.
 //
 // It is deliberately not Live: a vehicle that has gone to sleep stops
@@ -427,11 +550,82 @@ func (provider *ProfileProvider) TakeEvent() string {
 	return reason
 }
 
-// noteEvents records a state change worth reporting before the cadence would.
+// raiseEvent arms one early sample, subject to the shared debounce so a signal
+// that chatters at frame rate costs one extra sample rather than thousands. The
+// caller holds the mutex.
+func (provider *ProfileProvider) raiseEvent(at time.Time, reason string) {
+	if !provider.lastEventAt.IsZero() && at.Sub(provider.lastEventAt) < provider.eventGap {
+		return
+	}
+	provider.lastEventAt = at
+	provider.eventReason = reason
+}
+
+// noteBusActivity turns the first frame after a silence into a wake event.
 //
-// Only a change counts, and only one within the debounce window, so a signal
-// that chatters between two values at frame rate costs one extra sample rather
-// than thousands. The caller holds the mutex.
+// It is deliberately independent of the profile: a vehicle switched on without
+// being driven may flip no metric this profile decodes, and on the C-Zero the
+// readiness frame is not even among the identifiers it watches. Traffic itself
+// is the evidence that the car came back, and waiting out a ten-minute parked
+// cadence to say so is how switching the car on looked like nothing happening.
+// The caller holds the mutex.
+func (provider *ProfileProvider) noteBusActivity(at time.Time) {
+	previous := provider.lastAnyFrame
+	provider.lastAnyFrame = at
+	provider.busQuiet = false
+	quiet := previous
+	if quiet.IsZero() {
+		// Nothing has been heard yet, so the silence is measured from the moment
+		// this monitor began listening. Starting against a car that is already
+		// running is not a wake.
+		quiet = provider.monitorStartedAt
+	}
+	if quiet.IsZero() || at.Sub(quiet) < busWakeQuiet {
+		return
+	}
+	provider.raiseEvent(at, fmt.Sprintf("vehicle bus woke after %s quiet", at.Sub(quiet).Round(time.Second)))
+}
+
+// watchQuiet notices the bus stopping. Nothing calls in when frames cease, so
+// the absence has to be looked for rather than waited on.
+func (provider *ProfileProvider) watchQuiet(stop <-chan struct{}) {
+	defer provider.sessionDone.Done()
+	ticker := time.NewTicker(provider.quietPoll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			provider.noteQuietOnset(time.Now().UTC())
+		}
+	}
+}
+
+// noteQuietOnset turns the bus falling silent into one event.
+//
+// The sample it triggers carries whatever the drive last decoded — the closing
+// state of charge and odometer — together with the new source state, so the
+// dashboard shows where the car was left within seconds of the ignition going
+// off instead of at the end of a parked cadence. One event per transition: a bus
+// that flaps on the edge of sleep sets the flag once and the shared debounce
+// covers the rest.
+func (provider *ProfileProvider) noteQuietOnset(at time.Time) {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	if provider.busQuiet || provider.lastAnyFrame.IsZero() {
+		return
+	}
+	quiet := at.Sub(provider.lastAnyFrame)
+	if quiet < provider.quietSettle {
+		return
+	}
+	provider.busQuiet = true
+	provider.raiseEvent(at, fmt.Sprintf("vehicle bus went quiet after %s", quiet.Round(time.Second)))
+}
+
+// noteEvents records a state change worth reporting before the cadence would.
+// Only a change counts. The caller holds the mutex.
 func (provider *ProfileProvider) noteEvents(next model.MetricObservations, at time.Time) {
 	for _, key := range eventMetrics {
 		observation, present := next[key]
@@ -443,11 +637,7 @@ func (provider *ProfileProvider) noteEvents(next model.MetricObservations, at ti
 		if !seen || previous == observation.Value {
 			continue
 		}
-		if !provider.lastEventAt.IsZero() && at.Sub(provider.lastEventAt) < provider.eventGap {
-			continue
-		}
-		provider.lastEventAt = at
-		provider.eventReason = fmt.Sprintf("%s changed to %v", key, observation.Value)
+		provider.raiseEvent(at, fmt.Sprintf("%s changed to %v", key, observation.Value))
 		return
 	}
 }

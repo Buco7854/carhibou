@@ -74,9 +74,10 @@ func PrepareProfileMonitor(
 		}
 	}
 
-	trials, protocolCode, protocolDescription, err := inspectProtocols(
-		adapter, verificationWindow, rawLineLimit, profileFrame, announce, expired,
+	trials, protocolCode, protocolDescription, filterCommands, err := inspectProtocols(
+		adapter, canIDs, verificationWindow, rawLineLimit, profileFrame, announce, expired,
 	)
+	result.FilterCommands = filterCommands
 	result.ProtocolTrials = append(result.ProtocolTrials, trials...)
 	if err != nil {
 		return result, err
@@ -89,9 +90,10 @@ func PrepareProfileMonitor(
 		if err := adapter.PreferDefaultBaud(); err != nil {
 			return result, err
 		}
-		trials, protocolCode, protocolDescription, err = inspectProtocols(
-			adapter, verificationWindow, rawLineLimit, profileFrame, announce, expired,
+		trials, protocolCode, protocolDescription, filterCommands, err = inspectProtocols(
+			adapter, canIDs, verificationWindow, rawLineLimit, profileFrame, announce, expired,
 		)
+		result.FilterCommands = filterCommands
 		result.ProtocolTrials = append(result.ProtocolTrials, trials...)
 		if err != nil {
 			return result, err
@@ -102,12 +104,6 @@ func PrepareProfileMonitor(
 
 	if expired() {
 		return result, ErrPreparationDeadline
-	}
-	announce(fmt.Sprintf("applying %d CAN filters", len(canIDs)))
-	filterCommands, err := adapter.PassFiltersReport(canIDs)
-	result.FilterCommands = filterCommands
-	if err != nil {
-		return result, fmt.Errorf("adapter rejected the CAN filters: %w", err)
 	}
 	announce(fmt.Sprintf("verifying hardware-filtered monitoring for %s", verificationWindow))
 	result.Filtered, err = adapter.InspectMonitor(verificationWindow, false, rawLineLimit, profileFrame)
@@ -148,18 +144,28 @@ func PrepareProfileMonitor(
 	return result, nil
 }
 
+// inspectProtocols finds the protocol that carries this profile's frames.
+//
+// Filters are installed before each trial listens, because on at least one STN
+// firmware a filtered monitor with no filters installed passes nothing at all
+// rather than everything. Trials that listened first therefore heard silence on
+// a wide-awake bus and proved only that the question had been asked backwards.
+// Selecting a protocol needs no listening evidence, so the order that works on
+// real hardware is select, filter, then listen.
 func inspectProtocols(
 	adapter *OBDAdapter,
+	canIDs []int,
 	window time.Duration,
 	rawLineLimit int,
 	onFrame func(model.CANFrame),
 	announce func(string),
 	expired func() bool,
-) ([]ProtocolTrialResult, string, string, error) {
+) ([]ProtocolTrialResult, string, string, []CommandExchange, error) {
 	trials := []ProtocolTrialResult{}
+	filters := []CommandExchange{}
 	for _, protocol := range canProtocols {
 		if expired() {
-			return trials, "", "", ErrPreparationDeadline
+			return trials, "", "", filters, ErrPreparationDeadline
 		}
 		announce(fmt.Sprintf("listening %s on %s (protocol %s)", window, protocol.description, protocol.code))
 		trial := ProtocolTrialResult{
@@ -170,23 +176,36 @@ func inspectProtocols(
 			trials = append(trials, trial)
 			continue
 		}
+		installed, err := adapter.PassFiltersReport(canIDs)
+		if err != nil {
+			trial.Error = err.Error()
+			trials = append(trials, trial)
+			return trials, "", "", installed, fmt.Errorf("adapter rejected the CAN filters: %w", err)
+		}
+		filters = installed
 		trace, err := adapter.InspectMonitor(window, false, rawLineLimit, onFrame)
 		trial.Trace = trace
 		if err != nil {
 			trial.Error = err.Error()
 			trials = append(trials, trial)
-			return trials, "", "", fmt.Errorf("adapter stopped while testing protocol %s: %w", protocol.code, err)
+			return trials, "", "", filters, fmt.Errorf("adapter stopped while testing protocol %s: %w", protocol.code, err)
 		}
 		trials = append(trials, trial)
 		if trace.Report.ParsedFrames > 0 {
-			return trials, protocol.code, protocol.description, nil
+			return trials, protocol.code, protocol.description, filters, nil
 		}
 	}
 	fallback := canProtocols[0]
 	if err := adapter.SelectProtocol(fallback.code); err != nil {
-		return trials, "", "", fmt.Errorf("adapter rejected every CAN protocol: %w", err)
+		return trials, "", "", filters, fmt.Errorf("adapter rejected every CAN protocol: %w", err)
 	}
-	return trials, fallback.code, fallback.description, nil
+	// The protocol changed, so the filters that belonged to the last trial did
+	// not follow it.
+	installed, err := adapter.PassFiltersReport(canIDs)
+	if err != nil {
+		return trials, "", "", installed, fmt.Errorf("adapter rejected the CAN filters: %w", err)
+	}
+	return trials, fallback.code, fallback.description, installed, nil
 }
 
 func sustainedCleanTraffic(trials []ProtocolTrialResult) bool {

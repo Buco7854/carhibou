@@ -48,6 +48,10 @@ type OBDAdapter struct {
 	// has to be served between frames by whoever already owns it.
 	requests   chan monitorRequest
 	monitoring atomic.Bool
+	// switchTo carries a new monitor command chosen while the stream was paused,
+	// so a session that proves its hardware filters useless can abandon them
+	// without being torn down and rebuilt.
+	switchTo atomic.Value
 }
 
 // monitorRequest is one command run interleaved with monitoring.
@@ -375,14 +379,25 @@ func VehicleAnswered(lines []string) bool {
 // one plugged into nothing. Around 12.4 V is a resting battery; 13.5 V or more
 // means something is charging it.
 func (adapter *OBDAdapter) Voltage() (string, error) {
-	lines, err := adapter.Command("ATRV", 0)
-	if err != nil {
-		return "", err
+	// The answer is recognised by its shape rather than by its position. A reply
+	// taken near a monitor can still carry a stray frame line, and "374 8 00 90
+	// 00 00 00 00 00 00" must never be read as a supply voltage. One retry covers
+	// the case where the whole reply was residue.
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		lines, err := adapter.Command("ATRV", 0)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		for _, line := range lines {
+			if _, ok := ParseSupplyVoltage(line); ok {
+				return strings.TrimSpace(line), nil
+			}
+		}
+		lastErr = fmt.Errorf("adapter reported no voltage")
 	}
-	if len(lines) == 0 {
-		return "", fmt.Errorf("adapter reported no voltage")
-	}
-	return strings.TrimSpace(lines[0]), nil
+	return "", lastErr
 }
 
 // ParseSupplyVoltage turns an ATRV reply such as "12.4V" into a number.
@@ -605,6 +620,9 @@ func (adapter *OBDAdapter) monitorUntil(
 			if err != nil {
 				return trace, err
 			}
+			if next := adapter.takeMonitorSwitch(); next != "" {
+				command = next
+			}
 			if err := adapter.enterStream(command); err != nil {
 				return trace, err
 			}
@@ -624,6 +642,11 @@ func (adapter *OBDAdapter) monitorUntil(
 // leaveStream returns the adapter from monitoring to its command prompt. Any
 // frames still in flight arrive before the prompt does, so they are observed
 // rather than discarded.
+//
+// The buffer is emptied once the prompt is in hand. Bytes that arrived after the
+// adapter stopped streaming belong to no reply, and leaving them there made them
+// the beginning of the next one: an identity read taken after a monitor came
+// back as raw CAN frames rather than as the adapter's name.
 func (adapter *OBDAdapter) leaveStream(observe func(string)) error {
 	if _, err := adapter.port.Write([]byte("\r")); err != nil {
 		return err
@@ -632,7 +655,17 @@ func (adapter *OBDAdapter) leaveStream(observe func(string)) error {
 	for _, line := range strings.FieldsFunc(response, func(r rune) bool { return r == '\r' || r == '\n' }) {
 		observe(line)
 	}
+	adapter.discardResidue()
 	return err
+}
+
+// discardResidue drops anything buffered behind a command prompt. Only a stream
+// leaves bytes there, and none of them answer a question anybody asked.
+func (adapter *OBDAdapter) discardResidue() {
+	adapter.pending = ""
+	if adapter.port != nil {
+		_ = adapter.port.ResetInputBuffer()
+	}
 }
 
 func (adapter *OBDAdapter) enterStream(command string) error {
@@ -642,6 +675,42 @@ func (adapter *OBDAdapter) enterStream(command string) error {
 	adapter.pending = ""
 	_, err := adapter.port.Write([]byte(command + "\r"))
 	return err
+}
+
+// SwitchMonitor changes the command a running monitor resumes with. It takes
+// effect when the stream is next re-entered, which is why it is only useful from
+// inside DuringMonitor: that is the one moment the adapter is at its prompt.
+func (adapter *OBDAdapter) SwitchMonitor(command string) { adapter.switchTo.Store(command) }
+
+func (adapter *OBDAdapter) takeMonitorSwitch() string {
+	value, _ := adapter.switchTo.Swap("").(string)
+	return value
+}
+
+// SampleMonitorAll listens on the unfiltered monitor for a bounded window from a
+// caller that already holds the command prompt, which is what DuringMonitor
+// hands it. It serves no requests of its own: it is itself one, and nesting the
+// full monitor loop here would hand the port to two owners at once.
+func (adapter *OBDAdapter) SampleMonitorAll(
+	window time.Duration, onFrame func(model.CANFrame),
+) (MonitorReport, error) {
+	report := MonitorReport{}
+	if adapter.port == nil {
+		return report, fmt.Errorf("adapter is not connected")
+	}
+	observe := func(line string) { observeMonitorLine(strings.TrimSpace(line), onFrame, &report) }
+	if err := adapter.enterStream("STMA"); err != nil {
+		return report, err
+	}
+	deadline := time.Now().Add(window)
+	for time.Now().Before(deadline) {
+		line, err := adapter.readUntil('\r', monitorReadWindow)
+		if err != nil {
+			continue
+		}
+		observe(line)
+	}
+	return report, adapter.leaveStream(observe)
 }
 
 // DuringMonitor runs work on the adapter from inside a running monitor loop.

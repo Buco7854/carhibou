@@ -244,3 +244,66 @@ func TestVehicleSourceStateIsPublishedWithoutBecomingAnError(t *testing.T) {
 		t.Fatalf("degraded state was promoted to an error: %#v", sample.Agent)
 	}
 }
+
+type eventingManagedVehicle struct {
+	managedFakeVehicle
+	event string
+}
+
+func (vehicle *eventingManagedVehicle) TakeEvent() string {
+	reason := vehicle.event
+	vehicle.event = ""
+	return reason
+}
+
+// The seam between a source noticing something and the sample that reports it.
+// Without this the wake and sleep triggers could be raised perfectly and still
+// never reach a sample, because the owner in between forwards nothing.
+func TestRetryingVehicleProviderForwardsSourceEventsToTheSample(t *testing.T) {
+	vehicle := &eventingManagedVehicle{}
+	source := NewRetryingVehicleProvider(func() (VehicleProvider, error) { return vehicle, nil })
+	defer source.Close()
+	source.Start()
+
+	if reason := source.TakeEvent(); reason != "" {
+		t.Fatalf("unprompted event: %q", reason)
+	}
+
+	vehicle.event = "vehicle bus went quiet after 7s"
+	agent := newAgent(t, EmptyPosition{})
+	agent.Vehicle = source
+	if reason := agent.PendingEvent(); reason != vehicle.event && reason == "" {
+		t.Fatal("the source's event never reached the agent")
+	}
+	sample, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sample.Agent["sample_trigger"] != "vehicle bus went quiet after 7s" {
+		t.Fatalf("sample_trigger=%v, want the quiet transition named", sample.Agent["sample_trigger"])
+	}
+
+	// Consumed once: the next sample is an ordinary cadence one.
+	next, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stamped := next.Agent["sample_trigger"]; stamped {
+		t.Fatal("the trigger outlived the sample it explained")
+	}
+}
+
+// A source that has failed says nothing, so a dead adapter cannot manufacture
+// wake and sleep events out of its own death.
+func TestFailedSourceForwardsNoEvents(t *testing.T) {
+	vehicle := &eventingManagedVehicle{event: "vehicle bus woke after 9h quiet"}
+	vehicle.status = "adapter stopped answering"
+	source := NewRetryingVehicleProvider(func() (VehicleProvider, error) { return vehicle, nil })
+	defer source.Close()
+	fastVehicleRetries(source)
+	source.Start()
+
+	if reason := source.TakeEvent(); reason != "" {
+		t.Fatalf("a failed source raised an event: %q", reason)
+	}
+}
