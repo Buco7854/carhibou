@@ -258,6 +258,62 @@ def test_charging_resolution_is_explicit_first_and_synthesizes_rate() -> None:
     assert "charging.power" not in resolved
 
 
+def test_measured_charging_power_beats_the_resolvers_own_derivation() -> None:
+    """A profile that computes AC-side power from volts times amps reports a real
+    observation; the resolver's own figure is an inference from pack power. When
+    both exist the measured one wins, and it wins as a CAN reading rather than
+    being relabelled derived."""
+    now = datetime.now(UTC)
+    # What the C-Zero profile's computed metric actually produces: a CAN-channel
+    # candidate whose method is derived because the profile multiplied two
+    # signals, not because the server guessed.
+    measured = Candidate(
+        key="charging.power",
+        value=3.22,
+        observed_at=now,
+        source_id="can-agent",
+        source_kind="agent",
+        channel="can",
+        method="derived",
+    )
+    pack = Candidate(
+        key="battery.power",
+        value=-3.4,
+        observed_at=now,
+        source_id="can-agent",
+        source_kind="agent",
+        channel="can",
+        method="direct",
+    )
+
+    resolved = resolve_readings([measured, pack], now)
+    assert resolved["charging.power"]["value"] == 3.22
+    assert resolved["charging.power"]["channel"] == "can"
+    # The pack-power evidence still answers whether charging is happening.
+    assert resolved["charging.active"]["value"] is True
+
+    # Without the measured candidate the derivation is still there for vehicles
+    # whose profiles cannot compute it.
+    fallback = resolve_readings([pack], now)
+    assert fallback["charging.power"]["value"] == 3.4
+    assert fallback["charging.power"]["channel"] == "derived"
+
+    # And a measured value that has aged out gives way rather than being kept:
+    # charging.power is not a retained metric.
+    stale = Candidate(
+        key="charging.power",
+        value=3.22,
+        observed_at=now - timedelta(hours=1),
+        source_id="can-agent",
+        source_kind="agent",
+        channel="can",
+        method="derived",
+    )
+    aged = resolve_readings([stale, pack], now)
+    assert aged["charging.power"]["value"] == 3.4
+    assert aged["charging.power"]["channel"] == "derived"
+
+
 def test_history_table_forward_fills_true_observation_times_without_dense_rows(
     registered: tuple[TestClient, str],
 ) -> None:

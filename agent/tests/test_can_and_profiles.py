@@ -48,6 +48,17 @@ def test_experimental_c_zero_profile_decodes_documented_starting_points() -> Non
     assert values["battery.current"] == pytest.approx(1.0)
     assert values["battery.pack_voltage"] == pytest.approx(330.0)
 
+    # 0x389 carries the AC side of the charger: byte 1 is volts, byte 6 is amps
+    # in tenths. Multiplying them is what the proven script called chargingwatt,
+    # and computing it here makes the charge rate a recorded observation rather
+    # than something the server has to infer from pack power.
+    charger = decoder.decode(CANFrame(4, 0x389, bytes.fromhex("00E6000000008C00")))
+    charging = {value.name: value.value for value in charger}
+    assert charging["charging.voltage"] == pytest.approx(230.0)
+    assert charging["charging.current"] == pytest.approx(14.0)
+    assert charging["charging.power"] == pytest.approx(3.22)
+    assert {value.name: value.unit for value in charger}["charging.power"] == "kW"
+
     states = {
         payload: {
             value.name: value.value
