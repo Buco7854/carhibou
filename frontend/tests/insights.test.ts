@@ -404,3 +404,62 @@ describe('driving insight widgets', () => {
     expect(wrapper.get('.dashboard-widget-empty').text()).toContain('Nothing recorded')
   })
 })
+
+describe('pairing two axes that never arrive together', () => {
+  beforeEach(() => {
+    i18n.global.locale.value = 'en'
+    auth.user = { ...adminUser }
+  })
+
+  /** The real car: one CAN frame carries the level, another the power. */
+  function alternating(count: number, spacingMs: number) {
+    const start = Date.parse('2026-08-27T20:00:00Z')
+    return Array.from({ length: count }, (_, index) => ({
+      id: `p${index}`,
+      recorded_at: new Date(start + index * spacingMs).toISOString(),
+      latitude: null, longitude: null, speed: null, heading: null,
+      metrics: index % 2 === 0 ? { 'battery.soc': 40 + index * 0.5 } : { 'charging.power': 2.2 + (index % 5) * 0.2 },
+    }))
+  }
+
+  const curve = { x_metric: 'battery.soc', y_metric: 'charging.power', time_range_days: 7 }
+
+  it('pairs sparse axes that alternate between samples', async () => {
+    // Neither metric ever shares a sample with the other, which is the shape the
+    // simulator never produced and the car always does.
+    const points = alternating(40, 8_000)
+    expect(points.every((point) => Object.keys(point.metrics).length === 1)).toBe(true)
+    api({ history: { vehicle_id: vehicle.id, start: '', end: '', available_metrics: [], original_count: points.length, points } })
+    const { wrapper } = mountWidget('xy-chart', curve)
+    await flushPromises()
+
+    const plotted = Number(wrapper.get('.chart-stub').attributes('data-points'))
+    expect(plotted).toBeGreaterThan(1)
+    expect(wrapper.text()).not.toContain('No paired readings')
+  })
+
+  it('refuses to pair readings taken hours apart', async () => {
+    // A level from this morning against a power from tonight is a point that
+    // never existed, so the card says it has nothing rather than drawing it.
+    const start = Date.parse('2026-08-27T06:00:00Z')
+    const points = [
+      { id: 'a', recorded_at: new Date(start).toISOString(), latitude: null, longitude: null, speed: null, heading: null, metrics: { 'battery.soc': 61 } },
+      { id: 'b', recorded_at: new Date(start + 5 * 3_600_000).toISOString(), latitude: null, longitude: null, speed: null, heading: null, metrics: { 'charging.power': 7 } },
+      { id: 'c', recorded_at: new Date(start + 10 * 3_600_000).toISOString(), latitude: null, longitude: null, speed: null, heading: null, metrics: { 'battery.soc': 64 } },
+    ]
+    api({ history: { vehicle_id: vehicle.id, start: '', end: '', available_metrics: [], original_count: 3, points } })
+    const { wrapper } = mountWidget('xy-chart', curve)
+    await flushPromises()
+
+    expect(wrapper.find('.chart-stub').exists()).toBe(false)
+    expect(wrapper.text()).toContain('No paired readings')
+  })
+
+  it('still pairs when both axes do share a sample', async () => {
+    // The simulator's shape must keep working; the bound only drops stale ends.
+    api()
+    const { wrapper } = mountWidget('xy-chart', { ...curve, time_range_days: 30 })
+    await flushPromises()
+    expect(Number(wrapper.get('.chart-stub').attributes('data-points'))).toBeGreaterThan(1)
+  })
+})

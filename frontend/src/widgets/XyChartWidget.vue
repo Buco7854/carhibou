@@ -49,18 +49,71 @@ const outOfRange = computed(() => follow.value.state === 'out-of-range')
 
 
 
-// A source reports keys as they change, so a point rarely carries both. Each
-// series carries its last known value forward before the two are paired.
+/**
+ * How long a reading may stand in for itself before it stops being true.
+ *
+ * The two axes almost never arrive together: on a real car the charge level
+ * comes from one CAN frame and the charge power from another, in separate
+ * samples, so pairing them at all means carrying each one forward. Carrying it
+ * without limit is what makes a scatter plot lie: a charge level from an hour
+ * ago plotted against a power from now is a point that never existed.
+ *
+ * The bound follows the data rather than a guess about it. Each axis reports at
+ * some cadence, and a value is worth carrying across a few of its own intervals
+ * and no further, so the window is four times the slower axis's median spacing.
+ * A car on CAN alternating frames every eight seconds gets about a minute; a
+ * connector relaying one key every ten gets the half hour it needs to pair at
+ * all. The clamp stops a fast cadence making the window uselessly tight, and
+ * stops a source that spoke twice in a day making it meaningless. A series with
+ * only one reading has no cadence to measure, so it gets the widest window and
+ * the pairing still fails if its partner is further away than that.
+ */
+const MIN_CARRY_MS = 30_000
+const MAX_CARRY_MS = 1_800_000
+
+function medianSpacing(stamps: number[]): number {
+  if (stamps.length < 2) return Number.POSITIVE_INFINITY
+  const gaps = stamps.slice(1).map((at, index) => at - stamps[index]!).sort((left, right) => left - right)
+  return gaps[Math.floor(gaps.length / 2)] ?? Number.POSITIVE_INFINITY
+}
+
+function carryWindow(xStamps: number[], yStamps: number[]): number {
+  const slower = Math.max(medianSpacing(xStamps), medianSpacing(yStamps))
+  if (!Number.isFinite(slower)) return MAX_CARRY_MS
+  return Math.min(MAX_CARRY_MS, Math.max(MIN_CARRY_MS, slower * 4))
+}
+
 const paired = computed<Array<[number, number]>>(() => {
-  let x: number | null = null
-  let y: number | null = null
-  const points: Array<[number, number]> = []
-  for (const point of history.value?.points ?? []) {
-    x = historyValue(point, xMetric.value) ?? x
-    y = historyValue(point, yMetric.value) ?? y
-    if (x !== null && y !== null) points.push([x, y])
+  const points = history.value?.points ?? []
+  const xStamps: number[] = []
+  const yStamps: number[] = []
+  const observed: Array<{ at: number; x: number | null; y: number | null }> = []
+  for (const point of points) {
+    const at = new Date(point.recorded_at).getTime()
+    const x = historyValue(point, xMetric.value)
+    const y = historyValue(point, yMetric.value)
+    if (x === null && y === null) continue
+    if (x !== null) xStamps.push(at)
+    if (y !== null) yStamps.push(at)
+    observed.push({ at, x, y })
   }
-  return points
+  if (!xStamps.length || !yStamps.length) return []
+
+  const window = carryWindow(xStamps, yStamps)
+  const pairs: Array<[number, number]> = []
+  let lastX: { at: number; value: number } | null = null
+  let lastY: { at: number; value: number } | null = null
+  for (const sample of observed) {
+    if (sample.x !== null) lastX = { at: sample.at, value: sample.x }
+    if (sample.y !== null) lastY = { at: sample.at, value: sample.y }
+    if (!lastX || !lastY) continue
+    // Both ends must still be recent enough to describe the same moment.
+    if (sample.at - lastX.at > window || sample.at - lastY.at > window) continue
+    const previous = pairs.at(-1)
+    if (previous && previous[0] === lastX.value && previous[1] === lastY.value) continue
+    pairs.push([lastX.value, lastY.value])
+  }
+  return pairs
 })
 
 const series = computed(() => [{
