@@ -240,6 +240,16 @@ History endpoints, all vehicle-scoped:
   is distinguishable from one born of a candidate expiring or of the range
   edge; it does not take part in the collapse comparison.
 
+Registry, not vehicle-scoped:
+
+- `GET /api/v1/metrics/registry` (authenticated read): every canonical metric
+  definition as `{key, unit, meaning, kind, value_type, retained,
+  freshness_seconds}`, sorted by key, so profile and hook authors can see which
+  keys carry an agreed meaning rather than guessing one into the namespaced
+  extension space. `retained` is the definition's stale-retention behaviour and
+  `freshness_seconds` its registry window; position is one atomic observation
+  rather than a registry metric, so it does not appear.
+
 Hook context (implemented in `backend/app/hooks/context.py`; the v1
 `ctx.telemetry.metrics` and `ctx.telemetry_batch` no longer exist):
 

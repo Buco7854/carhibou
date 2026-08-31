@@ -123,3 +123,17 @@ class BatchResponse(BaseModel):
     accepted: list[str]
     duplicates: list[str]
     config_version: int
+
+
+class MetricDefinitionResponse(BaseModel):
+    key: str
+    unit: str | None
+    meaning: str
+    kind: str
+    value_type: str
+    retained: bool
+    freshness_seconds: int
+
+
+class MetricRegistryResponse(BaseModel):
+    metrics: list[MetricDefinitionResponse]
