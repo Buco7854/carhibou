@@ -47,6 +47,10 @@ const DYNAMIC: Array<[string, string[]]> = [
   ['dashboard.agent', ['online', 'stale', 'never']],
   ['insights.filterOption', ['all', 'drive', 'charge']],
   ['insights.kind', ['drive', 'charge']],
+  // Built from what the metric registry reports, and shown verbatim when the
+  // server names a kind or a type this build has no word for.
+  ['metricKeys.kind', ['state', 'measurement', 'counter']],
+  ['metricKeys.type', ['number', 'boolean', 'string']],
 ]
 
 function referencedKeys(): string[] {

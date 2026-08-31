@@ -7,6 +7,7 @@ import type { History, Hook, HookExecution, HookRevision, Vehicle } from '../api
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import HookEditorForm, { type HookDraft } from '../components/HookEditorForm.vue'
+import MetricKeyReference from '../components/MetricKeyReference.vue'
 
 interface Secret { id: string; name: string; masked: string; created_at: string; updated_at: string }
 const defaultSource = `# Runs after telemetry is safely stored.\nsoc = ctx.telemetry.current.readings.get("battery.soc")\nif soc is None or not soc.fresh:\n    return\n\narmed = ctx.state.get("armed", True)\nif armed and soc.value < 20:\n    ctx.log.warning("Battery is low", soc=soc.value, observed_at=soc.observed_at)\n    ctx.state["armed"] = False\nelif not armed and soc.value > 23:\n    ctx.state["armed"] = True\n`
@@ -22,6 +23,7 @@ const saved = ref(false)
 const saving = ref(false)
 const testing = ref(false)
 const creating = ref(false)
+const referenceOpen = ref(false)
 const secrets = ref<Secret[]>([])
 const secretName = ref('')
 const secretValue = ref('')
@@ -202,7 +204,7 @@ onMounted(load)
         </header>
 
         <div class="detail-body">
-          <HookEditorForm v-model="form" form-id="hook-detail-form" :standalone="false" :vehicles="vehicles" :error="error" :saving="saving" @save="save" />
+          <HookEditorForm v-model="form" form-id="hook-detail-form" :standalone="false" :vehicles="vehicles" :error="error" :saving="saving" @save="save" @reference="referenceOpen = true" />
           <details v-if="revisions.length" class="revision-list">
             <summary>{{ t('hooks.revisions') }}</summary>
             <div><button v-for="revision in revisions" :key="revision.id" class="button secondary" type="button" :disabled="revision.revision===selected?.revision" @click="restoreRevision(revision.revision)">{{ t('hooks.restoreRevision', { revision:revision.revision }) }}</button></div>
@@ -241,9 +243,11 @@ onMounted(load)
       </section>
     </div>
 
-    <AppModal :open="creating" :title="t('hooks.createTitle')" wide @close="cancelCreate">
-      <HookEditorForm v-model="form" :vehicles="vehicles" :error="error" :saving="saving" @save="save" />
+    <AppModal :open="creating" :inactive="referenceOpen" :title="t('hooks.createTitle')" wide @close="cancelCreate">
+      <HookEditorForm v-model="form" :vehicles="vehicles" :error="error" :saving="saving" @save="save" @reference="referenceOpen = true" />
     </AppModal>
+
+    <MetricKeyReference :open="referenceOpen" @close="referenceOpen = false" />
   </div>
 </template>
 
@@ -322,17 +326,30 @@ onMounted(load)
 .runs-table th:nth-child(3),.runs-table td:nth-child(3){width:96px}
 .runs-table summary{color:var(--muted);cursor:pointer}
 .runs-table summary:hover{color:var(--text)}
-.execution-output{max-width:620px;max-height:220px;margin:8px 0 0;overflow:auto;font-family:var(--mono);font-size:var(--font-caption);white-space:pre-wrap}
+.execution-output{max-width:620px;max-height:220px;margin:8px 0 0;overflow:auto;font-family:var(--mono);font-size:var(--font-caption);white-space:pre-wrap;overflow-wrap:anywhere}
 .execution-output.is-error{color:var(--danger)}
 
 @media(max-width:900px){
   .hooks-layout{grid-template-columns:1fr}
   .hooks-rail{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
   .detail-bar{position:static;flex-wrap:wrap}
+  /* The bar wraps, but this row did not: three items that each refuse to shrink
+     below their own text overflow the page in any locale whose labels are
+     longer than English. It has to be allowed to wrap in turn. */
+  .detail-actions{flex-wrap:wrap}
 }
 @media(max-width:560px){
   .hooks-rail{grid-template-columns:1fr}
   .detail-actions{width:100%}
-  .detail-actions .button{flex:1}
+  .detail-actions .button{flex:1 1 auto;min-width:0}
+  .toggle{flex:1 0 100%}
+  /* A 620px log pane and two fixed columns give the runs table about 905px of
+     intrinsic width, which its wrapper then scrolls sideways for the whole
+     width of a phone. On a narrow screen the columns can size themselves and
+     the pane can take the width it is given. */
+  .execution-output{max-width:100%}
+  .runs-table th:first-child,.runs-table td:first-child,
+  .runs-table th:nth-child(3),.runs-table td:nth-child(3){width:auto}
+  .runs-table th,.runs-table td{padding:9px 10px}
 }
 </style>

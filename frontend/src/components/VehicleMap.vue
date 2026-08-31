@@ -155,7 +155,12 @@ onBeforeUnmount(() => map?.remove())
 </template>
 
 <style scoped>
-.map-frame{--map-route-halo:rgba(255,255,255,.9);position:relative;width:100%;height:100%;min-height:300px;overflow:hidden;background:var(--panel-2)}
+/* Leaflet numbers its own panes from 200 to 700 and its controls at 1000, all
+   as plain z-indexes. Without a stacking context of its own the map spends
+   those numbers in the page's context, where they outrank the nav rail and
+   the mobile nav bar. Isolating the frame confines them, so app chrome wins
+   on its own much smaller numbers and no map internal can ever compete. */
+.map-frame{--map-route-halo:rgba(255,255,255,.9);position:relative;isolation:isolate;width:100%;height:100%;min-height:300px;overflow:hidden;background:var(--panel-2)}
 .vehicle-map{width:100%;height:100%;min-height:300px;background:var(--panel-2)}
 :deep(.leaflet-tile-pane){filter:grayscale(.42) saturate(.62) contrast(.9) brightness(1.055)}
 :global([data-theme="dark"] .map-frame){--map-route-halo:rgba(13,16,14,.86)}

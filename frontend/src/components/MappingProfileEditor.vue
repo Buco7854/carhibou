@@ -5,6 +5,8 @@ import { api, errorMessage } from '../api/client'
 import type { MappingRule, MappingTransform, VehicleProfile } from '../api/types'
 import AppIcon from './AppIcon.vue'
 import AppModal from './AppModal.vue'
+import MetricKeyReference from './MetricKeyReference.vue'
+import { loadMetricKeys, metricKeys } from '../metricRegistry'
 import AppSelect from './AppSelect.vue'
 
 type TransformKind = 'none' | 'scale' | 'enum' | 'boolean' | 'json'
@@ -31,6 +33,10 @@ const rule = ref<RuleDraft>(blankRule())
 const editing = computed(() => Boolean(props.profile) && !props.clone)
 const transformKinds: TransformKind[] = ['none', 'scale', 'enum', 'boolean', 'json']
 const positionTargets = ['position.latitude', 'position.longitude', 'position.altitude', 'position.speed', 'position.heading', 'position.accuracy']
+const referenceOpen = ref(false)
+/* Position targets are not metric keys and are not in the registry, so the
+   field offers both lists it accepts. */
+const targetOptions = computed(() => [...metricKeys.value.map((entry) => entry.key), ...positionTargets])
 
 function blankRule(): RuleDraft {
   return { match: '', target: '', kind: 'none', scale: 1, offset: 0, enumText: '' }
@@ -179,7 +185,7 @@ async function save(): Promise<void> {
   }
 }
 
-watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => { if (open) reset() }, { immediate: true })
+watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => { if (open) { reset(); void loadMetricKeys() } }, { immediate: true })
 </script>
 
 <template>
@@ -215,15 +221,18 @@ watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => {
     </form>
   </AppModal>
 
-  <AppModal :open="ruleOpen" :title="ruleIndex === null ? t('profiles.addRule') : t('profiles.editRule')" wide @close="ruleOpen=false">
+  <AppModal :open="ruleOpen" :inactive="referenceOpen" :title="ruleIndex === null ? t('profiles.addRule') : t('profiles.editRule')" wide @close="ruleOpen=false">
     <form class="signal-editor" @submit.prevent="saveRule">
       <section class="field-section">
-        <header><h3>{{ t('profiles.ruleMapping') }}</h3><p>{{ t('profiles.ruleMappingHint') }}</p></header>
+        <header>
+          <div><h3>{{ t('profiles.ruleMapping') }}</h3><p>{{ t('profiles.ruleMappingHint') }}</p></div>
+          <button class="link-button" type="button" @click="referenceOpen = true">{{ t('metricKeys.open') }}</button>
+        </header>
         <div class="signal-grid identity-grid">
           <label class="field"><span>{{ t('profiles.ruleMatch') }}</span><input v-model="rule.match" class="input mono" placeholder="battery_level" required autofocus /></label>
           <label class="field"><span>{{ t('profiles.ruleTarget') }}</span><input v-model="rule.target" class="input mono" list="mapping-targets" placeholder="battery.soc" required /></label>
         </div>
-        <datalist id="mapping-targets"><option v-for="target in positionTargets" :key="target" :value="target" /></datalist>
+        <datalist id="mapping-targets"><option v-for="target in targetOptions" :key="target" :value="target" /></datalist>
       </section>
       <section class="field-section">
         <header><h3>{{ t('profiles.transform') }}</h3><p>{{ t('profiles.transformHint') }}</p></header>
@@ -240,6 +249,8 @@ watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => {
       <div class="form-actions"><button class="button">{{ t('profiles.saveRule') }}</button><button class="button secondary" type="button" @click="ruleOpen=false">{{ t('common.cancel') }}</button></div>
     </form>
   </AppModal>
+
+  <MetricKeyReference :open="referenceOpen" @close="referenceOpen = false" />
 </template>
 
 <style scoped>
@@ -259,6 +270,9 @@ watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => {
 .danger-text{color:var(--danger)}
 .profile-empty{margin:0;padding:16px;color:var(--muted);font-size:var(--font-caption);text-align:center;border:1px dashed var(--line);border-radius:var(--radius)}
 .field-section{display:grid;gap:10px}
+/* Only the mapping section carries a trailing action, so the header stays a
+   plain block until one is present. */
+.field-section header:has(.link-button){display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 .field-section header h3{margin:0;font-size:var(--font-body);font-weight:600}
 .field-section header p{margin:3px 0 0;color:var(--muted);font-size:var(--font-caption)}
 .signal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}

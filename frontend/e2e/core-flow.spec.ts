@@ -420,6 +420,53 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   const mobileDimensions = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, viewport: window.innerWidth }))
   expect(mobileDimensions.scroll).toBeLessThanOrEqual(mobileDimensions.viewport)
 
+  // Leaflet numbers its own panes from 200 to 700 and its controls up to 1000,
+  // as plain z-indexes. The nav sits at 60, so unless the map keeps those
+  // numbers inside a stacking context of its own they outrank the chrome and
+  // the bar disappears under the tiles.
+  const mapFrame = page.locator('.map-frame').first()
+  await expect(mapFrame).toBeVisible()
+  expect(await mapFrame.evaluate((frame) => getComputedStyle(frame).isolation)).toBe('isolate')
+  const overMap = await page.evaluate(() => {
+    const frame = document.querySelector('.map-frame')!
+    const nav = document.querySelector('.sidebar')!
+    // Bring the map under the fixed bar, which is the one place on a phone
+    // where chrome and map genuinely share pixels.
+    frame.scrollIntoView({ block: 'end' })
+    const navBox = nav.getBoundingClientRect()
+    const mapBox = frame.getBoundingClientRect()
+    const left = Math.max(navBox.left, mapBox.left)
+    const right = Math.min(navBox.right, mapBox.right)
+    const top = Math.max(navBox.top, mapBox.top)
+    const bottom = Math.min(navBox.bottom, mapBox.bottom)
+    if (left >= right || top >= bottom) return { overlaps: false, insideNav: false, insideMap: false }
+    const hit = document.elementFromPoint(Math.round((left + right) / 2), Math.round((top + bottom) / 2))
+    return { overlaps: true, insideNav: !!hit && nav.contains(hit), insideMap: !!hit && frame.contains(hit) }
+  })
+  expect(overMap.overlaps, 'the map has to reach under the nav bar for this to prove anything').toBe(true)
+  expect(overMap.insideNav, 'the nav bar must paint above the map').toBe(true)
+  expect(overMap.insideMap).toBe(false)
+
+  // Every floating layer rides on the same fact: once the map holds its own
+  // stacking context, anything the app raises at all sits above it. The nav
+  // sheet covers the viewport, so its backdrop and the map always share pixels.
+  await page.getByRole('button', { name: 'More' }).click()
+  const overlayOverMap = await page.evaluate(() => {
+    const frame = document.querySelector('.map-frame')!
+    const backdrop = document.querySelector('.nav-sheet-backdrop')!
+    const sheet = document.querySelector('.nav-sheet')!
+    const box = frame.getBoundingClientRect()
+    const hit = document.elementFromPoint(Math.round((box.left + box.right) / 2), Math.round((box.top + box.bottom) / 2))
+    // Either half of the overlay may be the one over this point, depending on
+    // where the map sits; what matters is that the map is not.
+    return { onOverlay: hit === backdrop || (!!hit && sheet.contains(hit)), insideMap: !!hit && frame.contains(hit) }
+  })
+  expect(overlayOverMap.onOverlay, 'a floating layer must paint above the map').toBe(true)
+  expect(overlayOverMap.insideMap).toBe(false)
+  // The backdrop covers the bar that opened the sheet, so it is also the way out.
+  await page.locator('.nav-sheet-backdrop').click({ position: { x: 40, y: 40 } })
+  await expect(page.locator('.nav-sheet')).toHaveCount(0)
+
   await page.getByRole('link', { name: 'Vehicles', exact: true }).click()
   await expect(page.locator('.vehicle-card').first()).toBeVisible()
   await expect(page.locator('.vehicle-card img')).toBeVisible()
@@ -456,12 +503,57 @@ test('mobile login keeps language, theme, keyboard access and reflow', async ({ 
   await page.getByLabel('Mot de passe').fill('browser-e2e-password-2026')
   await page.getByRole('button', { name: 'Se connecter' }).click()
   await expect(page).toHaveURL('/')
-  for (const path of ['/profiles', '/vehicles', '/data-sources', '/settings']) {
+  // The hooks page only overflowed once a hook was selected: the overflow is in
+  // the detail panel's action row, and the page without one never renders it.
+  // A sweep that visits the empty page reports it fitting and is telling the
+  // truth about a state nobody with a hook ever sees.
+  await browserJson(page, 'post', '/api/v1/hooks', {
+    name: 'Sonde de mise en page', description: '', enabled: false,
+    trigger_type: 'telemetry.received', vehicle_id: null, source: 'return\n', timeout_seconds: 10,
+  })
+  for (const path of ['/profiles', '/vehicles', '/data-sources', '/settings', '/hooks']) {
     await page.goto(path)
     await expect(page.locator('.page-header h1')).toBeVisible()
+    if (path === '/hooks') await expect(page.locator('.detail-bar')).toBeVisible()
     const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
     expect(fits, `${path} overflows the phone viewport`).toBe(true)
   }
+
+  // The sheet is anchored to the bottom of the screen, so any height it claims
+  // beyond the visible viewport is spent above the top edge, taking the heading
+  // and the first field label with it.
+  await page.getByRole('button', { name: 'Nouveau hook' }).first().click()
+  const sheet = page.locator('.app-modal')
+  await expect(sheet).toBeVisible()
+  const firstField = await page.evaluate(() => {
+    const modal = document.querySelector('.app-modal')!
+    const input = modal.querySelector('input.input')!
+    const label = input.closest('label')!.querySelector('span')!
+    const box = label.getBoundingClientRect()
+    const sheetBox = modal.getBoundingClientRect()
+    return { label: label.textContent, top: box.top, bottom: box.bottom, sheetTop: sheetBox.top, height: window.innerHeight }
+  })
+  expect(firstField.label).toBe('Nom')
+  expect(firstField.sheetTop, 'the sheet must not start above the screen').toBeGreaterThanOrEqual(0)
+  expect(firstField.top, 'the name label must not sit off the top of the screen').toBeGreaterThanOrEqual(0)
+  expect(firstField.bottom).toBeLessThanOrEqual(firstField.height)
+
+  // The keys the source code below is about, without leaving the editor.
+  await page.getByRole('dialog', { name: 'Créer un hook' }).locator('.source-label .link-button').click()
+  await expect(page.getByRole('dialog', { name: 'Clés de mesure' })).toBeVisible()
+  await expect(page.locator('.key-list li').first()).toBeVisible()
+  const keyCount = await page.locator('.key-list li').count()
+  expect(keyCount).toBeGreaterThan(20)
+  await page.locator('.key-reference input[type="search"]').fill('pneu')
+  await expect.poll(() => page.locator('.key-list li').count()).toBeLessThan(keyCount)
+  await page.locator('.key-reference input[type="search"]').fill('battery.soc')
+  await expect(page.locator('.key-list .key-name')).toHaveText(['battery.soc'])
+  const referenceFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+  expect(referenceFits, 'the key reference overflows the phone viewport').toBe(true)
+  await page.getByRole('dialog', { name: 'Clés de mesure' }).getByRole('button', { name: 'Fermer' }).first().click()
+  await page.getByRole('dialog', { name: 'Créer un hook' }).getByRole('button', { name: 'Fermer' }).first().click()
+  await expect(sheet).toHaveCount(0)
+
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations).toEqual([])
 })

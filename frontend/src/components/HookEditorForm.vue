@@ -27,7 +27,7 @@ withDefaults(defineProps<{
   formId: '',
   standalone: true,
 })
-const emit = defineEmits<{ save: [] }>()
+const emit = defineEmits<{ save: []; reference: [] }>()
 const form = defineModel<HookDraft>({ required: true })
 const { t } = useI18n()
 </script>
@@ -42,8 +42,11 @@ const { t } = useI18n()
     </div>
 
     <div class="field source-field">
-      <span>{{ t('hooks.source') }}</span>
-      <CodeEditor v-model="form.source" />
+      <div class="source-label">
+        <span>{{ t('hooks.source') }}</span>
+        <button class="link-button" type="button" @click="emit('reference')">{{ t('metricKeys.open') }}</button>
+      </div>
+      <CodeEditor v-model="form.source" :label="t('hooks.source')" />
       <small class="field-hint">
         {{ t('hooks.batchHint') }}<br>
         {{ t('hooks.sideEffectWarning') }}
@@ -61,6 +64,12 @@ const { t } = useI18n()
 
 <style scoped>
 .hook-editor-form{display:grid;gap:16px}
+/* The keys go in the code directly below, so the way to look one up belongs on
+   this label rather than somewhere else on the page. */
+.source-label{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+/* The wrapper takes the span out of .field's direct children, which is where
+   the label styling is bound. */
+.source-label>span{color:var(--text);font-size:var(--font-caption);font-weight:500}
 .editor-actions{display:flex;align-items:center;gap:14px}
 .inline-toggle{display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer}
 .inline-toggle input{width:14px;height:14px;accent-color:var(--accent)}

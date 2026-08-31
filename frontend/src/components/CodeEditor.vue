@@ -1,25 +1,37 @@
 <script setup lang="ts">
 import { python } from '@codemirror/lang-python'
-import { Compartment } from '@codemirror/state'
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { Compartment, Prec, type Extension } from '@codemirror/state'
 import { oneDark } from '@codemirror/theme-one-dark'
+import { tags } from '@lezer/highlight'
 import { EditorView } from '@codemirror/view'
 import { basicSetup } from 'codemirror'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { resolvedTheme } from '../theme'
 
+const props = defineProps<{ label: string }>()
 const model = defineModel<string>({ required:true })
 const host = ref<HTMLDivElement>()
 let view:EditorView|undefined
 const theme = new Compartment()
+
+/* One Dark paints these tags in a coral that measures 4.08:1 on its own
+   active-line background and 4.38:1 on the plain one, both under the 4.5:1 the
+   rest of the interface is held to. Lightened only as far as clearing it. */
+const readableCoral = syntaxHighlighting(HighlightStyle.define([
+  { tag:[tags.name,tags.deleted,tags.character,tags.propertyName,tags.macroName], color:'#e77a83' },
+  { tag:tags.heading, fontWeight:'bold', color:'#e77a83' },
+]))
+const darkTheme = ():Extension[] => [oneDark, Prec.high(readableCoral)]
 onMounted(()=>{
   view=new EditorView({
     doc:model.value,
-    extensions:[basicSetup,python(),theme.of(resolvedTheme.value==='dark'?oneDark:[]),EditorView.lineWrapping,EditorView.updateListener.of(update=>{if(update.docChanged)model.value=update.state.doc.toString()})],
+    extensions:[basicSetup,python(),theme.of(resolvedTheme.value==='dark'?darkTheme():[]),EditorView.lineWrapping,EditorView.contentAttributes.of({ 'aria-label':props.label }),EditorView.updateListener.of(update=>{if(update.docChanged)model.value=update.state.doc.toString()})],
     parent:host.value!,
   })
 })
 watch(model,(value)=>{if(view&&value!==view.state.doc.toString())view.dispatch({changes:{from:0,to:view.state.doc.length,insert:value}})})
-watch(resolvedTheme,(value)=>view?.dispatch({effects:theme.reconfigure(value==='dark'?oneDark:[])}))
+watch(resolvedTheme,(value)=>view?.dispatch({effects:theme.reconfigure(value==='dark'?darkTheme():[])}))
 onBeforeUnmount(()=>view?.destroy())
 </script>
 <template><div ref="host" class="code-editor" /></template>

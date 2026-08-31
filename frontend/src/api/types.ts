@@ -414,3 +414,22 @@ export interface AuthMethods {
   password: boolean
   oidc: { enabled: boolean; name: string }
 }
+
+/**
+ * One canonical metric key, as published by the server so that hook and profile
+ * authors do not have to read the registry source or guess a name and land in
+ * the namespaced extension space where nothing understands it.
+ */
+export interface MetricRegistryEntry {
+  key: string
+  unit: string | null
+  meaning: string
+  kind: string
+  value_type: string
+  retained: boolean
+  freshness_seconds: number
+}
+
+export interface MetricRegistry {
+  metrics: MetricRegistryEntry[]
+}
