@@ -111,6 +111,55 @@ class HookHTTPResponse:
         return json.loads(self.text)
 
 
+class HookHTTPError(RuntimeError):
+    """A request that never reached a server, said in one line.
+
+    httpx reports these through its own layers, so an author who pointed at the
+    wrong port read sixty lines of transport internals to learn that nothing had
+    answered. The original is chained, so the detail is still in the traceback
+    tail for anyone who wants it.
+    """
+
+
+def _endpoint(method: str, url: str) -> str:
+    """Name the request without repeating anything secret.
+
+    Only the scheme, host and port. A path carries record identifiers, a query
+    carries tokens, and userinfo carries credentials outright, so the message is
+    built from the three parts that locate a server and none of the parts that
+    authenticate to it.
+    """
+
+    try:
+        parsed = httpx.URL(url)
+        endpoint = f"{parsed.scheme}://{parsed.host}"
+        if parsed.port is not None:
+            endpoint = f"{endpoint}:{parsed.port}"
+    except (httpx.InvalidURL, UnicodeError, ValueError):
+        return method.upper()
+    return f"{method.upper()} {endpoint}"
+
+
+def _hint(error: httpx.TransportError) -> str:
+    """Say what a bare disconnect usually means.
+
+    A server that accepts the connection and then closes it without answering is
+    almost always speaking something other than HTTP on that port, which is a
+    configuration mistake rather than an outage and is worth naming.
+    """
+
+    if isinstance(error, httpx.RemoteProtocolError) and "disconnect" in str(error).lower():
+        return " - this port may not speak HTTP (Traccar's OsmAnd HTTP port is 5055 by default)"
+    return ""
+
+
+def _one_line(error: Exception) -> str:
+    detail = " ".join(str(error).split()).rstrip(".")
+    if not detail:
+        return type(error).__name__
+    return detail[0].lower() + detail[1:]
+
+
 class HookHTTP:
     def request(
         self,
@@ -125,16 +174,24 @@ class HookHTTP:
     ) -> HookHTTPResponse:
         if json is not None and text is not None:
             raise ValueError("provide either json or text, not both")
-        response = httpx.request(
-            method,
-            url,
-            headers=headers,
-            params=params,
-            json=json,
-            content=text,
-            timeout=min(max(timeout, 0.1), 60),
-            follow_redirects=False,
-        )
+        seconds = min(max(timeout, 0.1), 60)
+        try:
+            response = httpx.request(
+                method,
+                url,
+                headers=headers,
+                params=params,
+                json=json,
+                content=text,
+                timeout=seconds,
+                follow_redirects=False,
+            )
+        except httpx.TimeoutException as exc:
+            raise HookHTTPError(f"{_endpoint(method, url)} timed out after {seconds:g}s") from exc
+        except httpx.TransportError as exc:
+            raise HookHTTPError(
+                f"{_endpoint(method, url)} failed: {_one_line(exc)}{_hint(exc)}"
+            ) from exc
         return HookHTTPResponse(
             status_code=response.status_code,
             headers=MappingProxyType(dict(response.headers)),
