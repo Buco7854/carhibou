@@ -341,6 +341,18 @@ export interface HookExecution {
   created_at: string
 }
 
+/**
+ * How a hook last ran, as the list needs it.
+ *
+ * `status` is the stored value: pending, running, success, failed or timeout.
+ * Null until the hook has run at all, because never having run and having
+ * failed are different things and the list has to tell them apart.
+ */
+export interface HookExecutionSummary {
+  status: string
+  created_at: string
+}
+
 export interface Hook {
   id: string
   name: string
@@ -353,6 +365,7 @@ export interface Hook {
   revision: number
   created_at: string
   updated_at: string
+  last_execution: HookExecutionSummary | null
 }
 
 export interface HookRevision {

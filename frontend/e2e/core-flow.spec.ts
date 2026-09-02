@@ -616,6 +616,18 @@ test('the hook list carries what tells hooks apart, and a hook can be deleted', 
   const described = await make('Zulu described hook', 'Explains itself in a sentence', true, false)
   const bare = await make('Zulu bare hook', '', false, false)
   await make('Zulu scoped hook', '', true, true)
+  // One that has run and failed, so the list has all three states to show.
+  const broken = await browserJson<HookRecord>(page, 'post', '/api/v1/hooks', {
+    name: 'Zulu failing hook', description: '', enabled: true, trigger_type: 'telemetry.received',
+    vehicle_id: null, source: 'raise RuntimeError("upstream refused")\n', timeout_seconds: 10,
+  })
+  const recent = await browserJson<{ samples: Array<{ id: string }> }>(
+    page, 'get', `/api/v1/vehicles/${vehicle!.id}/history/observations?limit=5`)
+  await browserJson(page, 'post', `/api/v1/hooks/${broken.id}/test`, { telemetry_id: recent.samples[0]!.id, dry_run: true })
+  await expect.poll(async () => {
+    const rows = await browserJson<Array<{ id: string; last_execution: { status: string } | null }>>(page, 'get', '/api/v1/hooks')
+    return rows.find((hook) => hook.id === broken.id)?.last_execution?.status
+  }, { timeout: 15_000 }).toBe('failed')
   // Enough of its own that the filter appears whatever other tests left behind.
   for (let index = 0; index < 6; index += 1) await make(`Zulu filler ${index}`, '', false, false)
 
@@ -627,6 +639,16 @@ test('the hook list carries what tells hooks apart, and a hook can be deleted', 
   await expect(row('Zulu described hook')).not.toHaveClass(/\boff\b/)
   await expect(row('Zulu bare hook')).toHaveClass(/\boff\b/)
   await expect(row('Zulu bare hook')).toContainText('Disabled')
+
+  // Never run, ran, and ran and failed are three different things, and the row
+  // says which without the reader opening the hook.
+  await expect(row('Zulu described hook').locator('.hook-run')).toHaveText('Never run')
+  await expect(row('Zulu described hook')).not.toHaveClass(/failing/)
+  await expect(row('Zulu failing hook')).toHaveClass(/failing/)
+  await expect(row('Zulu failing hook').locator('.hook-run')).toContainText('Failed')
+  // Both facts the dot carries reach a reader who cannot see it.
+  await expect(row('Zulu failing hook')).toContainText('Enabled, Failed')
+  await expect(row('Zulu bare hook')).toContainText('Disabled, Never run')
 
   // "All vehicles" is the default and said nothing, so it no longer takes the
   // only line a row has; what the author wrote does.

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { formatInstant } from '../vehicleDisplay'
+import { formatAge, formatInstant } from '../vehicleDisplay'
 import { api, errorMessage } from '../api/client'
 import { useLiveRefresh } from '../api/live'
 import type { HistoryObservationSample, HistoryObservations, Hook, HookExecution, HookRevision, Vehicle } from '../api/types'
@@ -15,7 +15,7 @@ import MetricKeyReference from '../components/MetricKeyReference.vue'
 interface Secret { id: string; name: string; masked: string; created_at: string; updated_at: string }
 const defaultSource = `# Runs after telemetry is safely stored.\nsoc = ctx.telemetry.current.readings.get("battery.soc")\nif soc is None or not soc.fresh:\n    return\n\narmed = ctx.state.get("armed", True)\nif armed and soc.value < 20:\n    ctx.log.warning("Battery is low", soc=soc.value, observed_at=soc.observed_at)\n    ctx.state["armed"] = False\nelif not armed and soc.value > 23:\n    ctx.state["armed"] = True\n`
 const emptyDraft = (): HookDraft => ({ name:'', description:'', enabled:false, trigger_type:'telemetry.received', vehicle_id:null, source:defaultSource, timeout_seconds:10 })
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const hooks = ref<Hook[]>([])
 const vehicles = ref<Vehicle[]>([])
 const selectedId = ref('')
@@ -44,6 +44,32 @@ const listedHooks = computed(() => {
   return hooks.value.filter((hook) =>
     hook.name.toLowerCase().includes(needle) || hook.description.toLowerCase().includes(needle))
 })
+
+/*
+ * A hook that failed is the one thing in this list worth interrupting for.
+ *
+ * Only a finished run that went wrong counts: pending and running have not
+ * reached a verdict, and claiming failure for a run still in flight would be a
+ * guess. `timeout` is a failure the server names separately.
+ */
+const FAILED_STATUSES = new Set(['failed', 'timeout'])
+
+function hasFailed(hook: Hook): boolean {
+  return FAILED_STATUSES.has(hook.last_execution?.status ?? '')
+}
+
+/** When a hook last ran, or that it never has. Never a guess about an outcome. */
+function hookRun(hook: Hook): string {
+  const run = hook.last_execution
+  if (!run) return t('hooks.neverRun')
+  const age = formatAge(run.created_at, locale.value)
+  return hasFailed(hook) ? t('hooks.failedAge', { age }) : t('hooks.ranAge', { age })
+}
+
+/** Both facts a reader takes from the dot, for a reader who cannot see it. */
+function hookState(hook: Hook): string {
+  return `${hook.enabled ? t('hooks.enabledLabel') : t('hooks.disabledLabel')}, ${hookRun(hook)}`
+}
 
 /**
  * The one line under a hook's name, or nothing.
@@ -111,6 +137,14 @@ async function save(): Promise<void> {
     error.value = errorMessage(reason, t('common.error'))
   } finally {
     saving.value = false
+  }
+}
+
+async function refreshHooks(): Promise<void> {
+  try {
+    hooks.value = await api<Hook[]>('/hooks')
+  } catch {
+    // A poll that fails changes nothing on screen; the next one tries again.
   }
 }
 
@@ -211,7 +245,13 @@ async function removeSecret(name: string): Promise<void> {
  * while the tab is hidden and catches up on return. Nothing polls when no hook
  * is selected, because there is nothing to ask about.
  */
-useLiveRefresh(() => { if (selectedId.value) void loadExecutions() }, { pollMs: 5000 })
+useLiveRefresh(() => {
+  if (selectedId.value) void loadExecutions()
+  // The list now says how each hook last ran, which is only true if it is kept
+  // up. This replaces the rows alone: reselecting would throw away edits in the
+  // detail form that have not been saved yet.
+  void refreshHooks()
+}, { pollMs: 5000 })
 
 onMounted(load)
 </script>
@@ -241,12 +281,18 @@ onMounted(load)
             <input v-model="hookFilter" class="input" type="search" :placeholder="t('hooks.filter')" />
           </label>
           <div class="hook-list">
-            <button v-for="hook in listedHooks" :key="hook.id" :class="['hook-row', { active:selectedId===hook.id, off:!hook.enabled }]" @click="select(hook.id)">
+            <button v-for="hook in listedHooks" :key="hook.id" :class="['hook-row', { active:selectedId===hook.id, off:!hook.enabled, failing:hasFailed(hook) }]" @click="select(hook.id)">
               <span class="hook-state" aria-hidden="true" />
               <span class="hook-name">{{ hook.name }}</span>
-              <!-- The dot carries this visually; nothing is left to colour alone. -->
-              <span class="sr-only">{{ hook.enabled ? t('hooks.enabledLabel') : t('hooks.disabledLabel') }}</span>
-              <small v-if="hookNote(hook)" class="hook-note">{{ hookNote(hook) }}</small>
+              <!-- The dot carries both of these visually; nothing is left to
+                   colour alone, and the run is stated rather than implied. -->
+              <span class="sr-only">{{ hookState(hook) }}</span>
+              <span class="hook-meta">
+                <small v-if="hookNote(hook)" class="hook-note">{{ hookNote(hook) }}</small>
+                <!-- Last, and never truncated: a long description gives way to
+                     it rather than pushing it out of the row. -->
+                <small class="hook-run">{{ hookRun(hook) }}</small>
+              </span>
             </button>
             <p v-if="!listedHooks.length" class="rail-note">{{ t('hooks.noMatch') }}</p>
           </div>
@@ -393,10 +439,23 @@ onMounted(load)
    A dot says it without competing with the name. */
 .hook-state{width:7px;height:7px;align-self:center;background:var(--success);border-radius:50%}
 .hook-row.off .hook-state{background:transparent;box-shadow:inset 0 0 0 1.5px var(--muted-2)}
+/* A failed run recolours the dot without disturbing what it already says: still
+   filled when the hook is on, still a ring when it is off. */
+.hook-row.failing .hook-state{background:var(--danger)}
+.hook-row.off.failing .hook-state{background:transparent;box-shadow:inset 0 0 0 1.5px var(--danger)}
 .hook-name{overflow:hidden;font-size:var(--font-body);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
 /* A hook that is off should recede rather than announce itself. */
 .hook-row.off .hook-name{color:var(--muted)}
-.hook-note{grid-column:2;overflow:hidden;color:var(--muted);font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}
+/* The description gives way, the run does not: the fact most worth reading is
+   the one a long description would otherwise push out of the row. */
+.hook-meta{grid-column:2;min-width:0;display:flex;align-items:baseline;gap:8px}
+.hook-note{min-width:0;overflow:hidden;color:var(--muted);font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}
+.hook-run{flex:none;margin-left:auto;color:var(--muted-2);font-size:var(--font-micro);white-space:nowrap}
+.hook-row.failing .hook-run{color:var(--danger)}
+/* The dark danger tone measures 4.35:1 against the row's hover background,
+   under the 4.5:1 this size of text is held to. Lightened only for this text,
+   because the token is a fill elsewhere and reads white-on-danger there. */
+[data-theme="dark"] .hook-row.failing .hook-run{color:#f48080}
 
 .secret-list{list-style:none;margin:0;padding:0;display:grid;gap:1px}
 .secret-list li{display:grid;grid-template-columns:minmax(0,1fr) 22px;align-items:center;padding:5px 2px 5px 0}
