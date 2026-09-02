@@ -2,6 +2,7 @@ package providers
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,19 +65,56 @@ func TestClassifyIdentifiesAnNMEAStreamWithoutWriting(t *testing.T) {
 	}
 }
 
-// The interface that streams sentences is often the one that accepts the command
-// switching that stream on. Stopping at the first answer left the agent holding a
-// receiver it had no way to power up, and which interface index carries which
-// capability varies by module, so it cannot be assumed either.
-func TestClassifyKeepsAskingAfterFindingAnNMEAStream(t *testing.T) {
-	port := &scriptedPort{
+// A port that streams sentences has identified itself, and is left alone.
+//
+// It used to be asked for AT as well, on the reasoning that the streaming
+// interface is often the one that switches the stream on. The cost of that was
+// paid on a SIM7600: AT traffic aimed at an NMEA interface is the thing most
+// likely to wedge the module, and since sweeps repeat on a reacquisition backoff
+// rather than running once at startup, it repeats for as long as anything is
+// missing. SelectRoles finds the control interface among the ports that did not
+// stream, which is where it lives on every module this has been seen on.
+func TestClassifyNeverWritesToAPortThatStreamsNMEA(t *testing.T) {
+	port := &recordingProbePort{scriptedPort: scriptedPort{
 		stream:  nmeaSentence("GPGGA,120000.00,4851.0000,N,00220.0000,E,1,08,1.0,89.6,M,,,,") + "\r\n",
-		replies: map[string]string{"AT\r": "AT\r\r\nOK\r\n"},
-	}
+		replies: map[string]string{"AT\r": "AT\r\r\nOK\r\n", "ATI": "ATI\r\rSIM7600\r\r>"},
+	}}
 	report := ClassifyPort(port, fastProbe)
-	if !report.NMEA || !report.Modem {
-		t.Fatalf("%+v, want a port that both streams and accepts AT", report)
+	if !report.NMEA || report.Role != RoleNMEA {
+		t.Fatalf("%+v, want the stream to classify the port", report)
 	}
+	if report.Modem || report.ELM {
+		t.Fatalf("%+v, want no answer that could only come from a command", report)
+	}
+	if port.written != "" {
+		t.Fatalf("wrote %q to a port that was already answering by itself", port.written)
+	}
+}
+
+// A port that says nothing on its own is still asked, because silence identifies
+// nothing and the adapter and the control interface both have to be found.
+func TestClassifyStillQuestionsASilentPort(t *testing.T) {
+	port := &recordingProbePort{scriptedPort: scriptedPort{
+		replies: map[string]string{"AT\r": "AT\r\r\nOK\r\n"},
+	}}
+	report := ClassifyPort(port, fastProbe)
+	if !report.Modem || report.Role != RoleModem {
+		t.Fatalf("%+v, want the silent port identified as a modem", report)
+	}
+	if !strings.Contains(port.written, "ATI") || !strings.Contains(port.written, "AT\r") {
+		t.Fatalf("wrote %q, want both questions asked of a silent port", port.written)
+	}
+}
+
+// recordingProbePort keeps what was written so a test can assert that nothing was.
+type recordingProbePort struct {
+	scriptedPort
+	written string
+}
+
+func (port *recordingProbePort) Write(payload []byte) (int, error) {
+	port.written += string(payload)
+	return port.scriptedPort.Write(payload)
 }
 
 // An ELM adapter answers plain AT as well, so the enquiry has to stop once it has

@@ -72,12 +72,17 @@ func (timing probeConversation) budget() time.Duration {
 	return timing.listen + 2*timing.command + portSettle
 }
 
-// ClassifyPort reports everything one already-open port turns out to do.
+// ClassifyPort reports what one already-open port turns out to do.
 //
 // Listening comes first because it costs nothing on a talkative port and needs no
-// write to hardware whose purpose is unknown. It is not the end of the enquiry: a
-// port that streams NMEA is still asked whether it accepts AT, which is the only
-// way to find the interface that can switch the receiver on.
+// write to hardware whose purpose is unknown, and a port that streams NMEA has
+// answered the question by itself: it is classified and left alone, without ever
+// being written to. Asking it for AT as well used to be justified by wanting the
+// interface that can switch the receiver on, but SelectRoles finds that among the
+// ports that did not stream, and a cellular module is at its most fragile when
+// its NMEA interface is sent commands. Sweeps now run on a reacquisition backoff
+// rather than only at startup, so that traffic repeats for as long as any source
+// is missing.
 //
 // ELM is asked before AT and ends the enquiry, because an OBD adapter answers
 // plain AT too and would otherwise be mistaken for a modem.
@@ -86,6 +91,8 @@ func ClassifyPort(port serial.Port, timing probeConversation) PortReport {
 	if sentence, ok := listenForNMEA(port, timing.listen); ok {
 		report.NMEA = true
 		report.Identity = sentence
+		report.Role = primaryRole(report)
+		return report
 	}
 	if identity, ok := ask(port, "ATI", timing.command, func(reply string) bool {
 		upper := strings.ToUpper(reply)
