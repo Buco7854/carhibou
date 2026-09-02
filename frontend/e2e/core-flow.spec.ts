@@ -504,6 +504,164 @@ function canonicalKeysNamedByTheInterface(): { notes: string[]; labels: string[]
   return { notes, labels }
 }
 
+test('a test run picks the newest sample that actually carries something', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('browser-owner@example.com')
+  await page.getByLabel('Password').fill('browser-e2e-password-2026')
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page).toHaveURL('/')
+
+  const vehicle = await browserJson<VehicleRecord>(page, 'post', '/api/v1/vehicles', { name: 'Parked saloon' })
+  const enrollment = await browserJson<Enrollment>(page, 'post', `/api/v1/vehicles/${vehicle.id}/enrollments`, { implementation_id: 'carhibou.go' })
+  const enrolled = await browserJson<EnrolledAgent>(page, 'post', '/api/v1/agent/enroll', {
+    token: enrollment.token, implementation_id: 'carhibou.go', protocol_version: 2,
+    agent_version: 'e2e-1.0.0', hostname: 'parked-simulator', hardware: {},
+  })
+
+  /*
+   * What a parked car on the delta wire actually stores: something real, and
+   * then heartbeats carrying nothing at all. The newest sample is the emptiest
+   * one, which is the whole point of this test.
+   */
+  const carrying = randomUUID()
+  const heartbeat = randomUUID()
+  const earlier = new Date(Date.now() - 120_000).toISOString()
+  const later = new Date(Date.now() - 30_000).toISOString()
+  const batch = await page.request.post('/api/v1/agent/telemetry/batch', {
+    headers: { Authorization: `Agent ${enrolled.credential}` },
+    data: { boot_id: randomUUID(), samples: [
+      { id: carrying, sequence: 1, recorded_at: earlier,
+        position: { value: { latitude: 48.85, longitude: 2.35, speed: 0, heading: 0, altitude: 40, accuracy: 5 }, observed_at: earlier, channel: 'gnss', method: 'direct' },
+        observations: [{ key: 'battery.soc', value: 64, observed_at: earlier, channel: 'can', method: 'direct' }],
+        agent: {} },
+      { id: heartbeat, sequence: 2, recorded_at: later, position: null, observations: [], agent: { queue_depth: 0 } },
+    ] },
+  })
+  expect(batch.status(), await batch.text()).toBe(200)
+  expect((await batch.json()).accepted).toHaveLength(2)
+
+  // The server really did store the empty one, and really did store it newest.
+  const stored = await browserJson<{ samples: Array<{ id: string; observations: unknown[]; position: unknown }> }>(
+    page, 'get', `/api/v1/vehicles/${vehicle.id}/history/observations?limit=10`)
+  expect(stored.samples[0]?.id).toBe(heartbeat)
+  expect(stored.samples[0]?.observations).toHaveLength(0)
+  expect(stored.samples[0]?.position).toBeNull()
+
+  const hook = await browserJson<HookRecord>(page, 'post', '/api/v1/hooks', {
+    name: 'Needs triggering', description: '', enabled: false, trigger_type: 'telemetry.received',
+    vehicle_id: vehicle.id, timeout_seconds: 10,
+    // The guard the Traccar example uses, and the one that made this look broken.
+    source: 'if not ctx.telemetry.triggering:\n    return\nctx.log.info("saw", count=len(ctx.telemetry.triggering))\n',
+  })
+
+  await page.goto('/hooks')
+  await page.locator('.hook-list').getByRole('button', { name: /Needs triggering/ }).click()
+  await expect(page.locator('.detail-identity h2')).toHaveText('Needs triggering')
+
+  const testPost = page.waitForRequest((request) =>
+    request.url().includes(`/hooks/${hook.id}/test`) && request.method() === 'POST')
+  await page.getByRole('button', { name: 'Test with telemetry' }).click()
+  const chosen = JSON.parse((await testPost).postData() ?? '{}')
+  // The heartbeat is newer. Choosing it gives the hook nothing to trigger on.
+  expect(chosen.telemetry_id, 'the test must not run on a bare heartbeat').toBe(carrying)
+  expect(chosen.telemetry_id).not.toBe(heartbeat)
+
+  const executions = await waitForExecutions(page, hook.id, 1)
+  // Triggering is the sample's observations plus its position, so the count the
+  // hook saw is derived from what the server stored rather than written out.
+  const source = stored.samples.find((sample) => sample.id === carrying)!
+  const carried = source.observations.length + (source.position ? 1 : 0)
+  expect(carried).toBeGreaterThan(0)
+  expect(JSON.stringify(executions[0]?.logs)).toContain(`"count":${carried}`)
+})
+
+test('a run that logged nothing says so rather than showing an empty cell', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('browser-owner@example.com')
+  await page.getByLabel('Password').fill('browser-e2e-password-2026')
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page).toHaveURL('/')
+
+  const [vehicle] = await browserJson<VehicleRecord[]>(page, 'get', '/api/v1/vehicles')
+  const hook = await browserJson<HookRecord>(page, 'post', '/api/v1/hooks', {
+    name: 'Says nothing', description: '', enabled: false, trigger_type: 'telemetry.received',
+    vehicle_id: vehicle!.id, source: 'return\n', timeout_seconds: 10,
+  })
+
+  await page.goto('/hooks')
+  await page.locator('.hook-list').getByRole('button', { name: /Says nothing/ }).click()
+  await page.getByRole('button', { name: 'Test with telemetry' }).click()
+  await waitForExecutions(page, hook.id, 1)
+
+  // An em dash in the logs column is indistinguishable from a page that failed
+  // to draw, which is how a working hook got read as broken.
+  const row = page.locator('.runs-table tbody tr').first()
+  await expect(row.locator('.quiet-run')).toHaveText('Completed with no output')
+  await expect(row.locator('details')).toHaveCount(0)
+})
+
+test('the hook list carries what tells hooks apart, and a hook can be deleted', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('browser-owner@example.com')
+  await page.getByLabel('Password').fill('browser-e2e-password-2026')
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page).toHaveURL('/')
+
+  const [vehicle] = await browserJson<VehicleRecord[]>(page, 'get', '/api/v1/vehicles')
+  const make = (name: string, description: string, enabled: boolean, scoped: boolean) =>
+    browserJson<HookRecord>(page, 'post', '/api/v1/hooks', {
+      name, description, enabled, trigger_type: 'telemetry.received',
+      vehicle_id: scoped ? vehicle!.id : null, source: 'return\n', timeout_seconds: 10,
+    })
+  const described = await make('Zulu described hook', 'Explains itself in a sentence', true, false)
+  const bare = await make('Zulu bare hook', '', false, false)
+  await make('Zulu scoped hook', '', true, true)
+  // Enough of its own that the filter appears whatever other tests left behind.
+  for (let index = 0; index < 6; index += 1) await make(`Zulu filler ${index}`, '', false, false)
+
+  await page.goto('/hooks')
+  const row = (name: string) => page.locator('.hook-row', { hasText: name })
+
+  // A hook that is on and one that is off are told apart without a word for it,
+  // and nothing is left to colour alone.
+  await expect(row('Zulu described hook')).not.toHaveClass(/\boff\b/)
+  await expect(row('Zulu bare hook')).toHaveClass(/\boff\b/)
+  await expect(row('Zulu bare hook')).toContainText('Disabled')
+
+  // "All vehicles" is the default and said nothing, so it no longer takes the
+  // only line a row has; what the author wrote does.
+  await expect(row('Zulu described hook').locator('.hook-note')).toHaveText('Explains itself in a sentence')
+  await expect(row('Zulu bare hook').locator('.hook-note')).toHaveCount(0)
+  await expect(row('Zulu scoped hook').locator('.hook-note')).toHaveText(vehicle!.name)
+
+  // Past a handful of hooks the list is filtered rather than read through.
+  await expect(page.locator('.hook-filter input')).toBeVisible()
+  await page.locator('.hook-filter input').fill('Zulu described')
+  await expect(page.locator('.hook-row')).toHaveCount(1)
+  // It reads the description too, not only the name.
+  await page.locator('.hook-filter input').fill('Explains itself')
+  await expect(page.locator('.hook-row')).toHaveCount(1)
+  await page.locator('.hook-filter input').fill('')
+
+  // Deleting: behind the overflow, confirmed by name, and honest about the cost.
+  await row('Zulu described hook').click()
+  await expect(page.locator('.detail-identity h2')).toHaveText('Zulu described hook')
+  await page.locator('.detail-actions').getByRole('button', { name: /More actions/ }).click()
+  await page.getByRole('menuitem', { name: 'Delete' }).click()
+  const confirm = page.getByRole('dialog', { name: 'Delete hook' })
+  await expect(confirm).toContainText('Zulu described hook')
+  await expect(confirm).toContainText('revision history')
+  await confirm.getByRole('button', { name: 'Delete hook' }).click()
+
+  await expect(row('Zulu described hook')).toHaveCount(0)
+  const left = await browserJson<HookRecord[]>(page, 'get', '/api/v1/hooks')
+  expect(left.some((hook) => hook.id === described.id)).toBe(false)
+  expect(left.some((hook) => hook.id === bare.id)).toBe(true)
+  // The panel lands on a neighbour rather than emptying, which would read as
+  // the page having lost everything.
+  await expect(page.locator('.detail-identity h2')).toBeVisible()
+})
+
 test('every canonical key the interface names is one the server still knows', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('Email').fill('browser-owner@example.com')

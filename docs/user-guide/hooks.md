@@ -9,8 +9,8 @@ changes. Hooks run with server privileges, so only administrators can create the
 ## Quick start
 
 1. Open **Hooks**, create a hook, choose its vehicle and paste the example below.
-2. Select **Test with telemetry**. The test uses the vehicle's newest accepted data and
-   marks the run as a dry run.
+2. Select **Test with telemetry**. The test uses the vehicle's newest data-carrying
+   sample and marks the run as a dry run.
 3. Check the execution log, save the hook and enable it.
 
 This hook writes a warning below 20% and rearms only above 23%, avoiding repeated alerts

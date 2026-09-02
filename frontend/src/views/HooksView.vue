@@ -4,9 +4,11 @@ import { useI18n } from 'vue-i18n'
 import { formatInstant } from '../vehicleDisplay'
 import { api, errorMessage } from '../api/client'
 import { useLiveRefresh } from '../api/live'
-import type { History, Hook, HookExecution, HookRevision, Vehicle } from '../api/types'
+import type { HistoryObservationSample, HistoryObservations, Hook, HookExecution, HookRevision, Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
+import RowMenu from '../components/RowMenu.vue'
+import { isAdmin } from '../access'
 import HookEditorForm, { type HookDraft } from '../components/HookEditorForm.vue'
 import MetricKeyReference from '../components/MetricKeyReference.vue'
 
@@ -32,6 +34,31 @@ const form = ref<HookDraft>(emptyDraft())
 const selected = computed(() => hooks.value.find((row) => row.id === selectedId.value))
 const vehicleNames = computed(() => Object.fromEntries(vehicles.value.map((row) => [row.id, row.name])))
 const lastRun = computed(() => executions.value[0] ?? null)
+const hookFilter = ref('')
+const deleteTarget = ref<Hook | null>(null)
+const deleteBusy = ref(false)
+
+const listedHooks = computed(() => {
+  const needle = hookFilter.value.trim().toLowerCase()
+  if (!needle) return hooks.value
+  return hooks.value.filter((hook) =>
+    hook.name.toLowerCase().includes(needle) || hook.description.toLowerCase().includes(needle))
+})
+
+/**
+ * The one line under a hook's name, or nothing.
+ *
+ * "All vehicles" was under almost every row and is the default, so it said
+ * nothing while taking the only line there was. What an author wrote to explain
+ * the hook is worth more, and a vehicle is worth naming only when it narrows
+ * the hook to one. A row with neither gets no second line rather than a filler.
+ */
+function hookNote(hook: Hook): string {
+  const scope = hook.vehicle_id ? vehicleNames.value[hook.vehicle_id] ?? t('hooks.oneVehicle') : ''
+  const described = hook.description.trim()
+  if (scope && described) return `${scope} · ${described}`
+  return scope || described
+}
 
 function runDuration(execution: HookExecution): string {
   return execution.duration_seconds === null ? '—' : `${Math.round(execution.duration_seconds * 1000)} ms`
@@ -102,14 +129,34 @@ async function restoreRevision(revision: number): Promise<void> {
   select(hook.id)
 }
 
+/**
+ * Which stored sample makes a useful dry run.
+ *
+ * A sample is a transport envelope, not a snapshot, so a parked vehicle's newest
+ * one is usually a bare heartbeat carrying nothing at all. Handing that to a
+ * test run gives the hook an empty ctx.telemetry.triggering, and a hook that
+ * guards on it returns immediately and logs nothing, which reads as the test
+ * being broken. Triggering is built from a sample's observations and its
+ * position, so either one is enough to make the run mean something; readings
+ * come first because they are what a hook usually reasons about.
+ * The samples arrive newest first, so the first match is the newest match.
+ */
+function sampleWorthTesting(samples: HistoryObservationSample[]): HistoryObservationSample | undefined {
+  return samples.find((sample) => sample.observations.length > 0)
+    ?? samples.find((sample) => sample.position !== null)
+    // Nothing in the window carried anything: the newest is still the honest
+    // answer, and the run will show what that means.
+    ?? samples[0]
+}
+
 async function testHook(): Promise<void> {
   if (!selectedId.value) return
   testing.value = true
   try {
     const vehicleId = form.value.vehicle_id ?? vehicles.value[0]?.id
     if (!vehicleId) throw new Error(t('hooks.createVehicleFirst'))
-    const history = await api<History>(`/vehicles/${vehicleId}/history?max_points=20`)
-    const telemetry = history.points.at(-1)
+    const recent = await api<HistoryObservations>(`/vehicles/${vehicleId}/history/observations?limit=100`)
+    const telemetry = sampleWorthTesting(recent.samples)
     if (!telemetry) throw new Error(t('hooks.noTelemetry'))
     await api(`/hooks/${selectedId.value}/test`, { method:'POST', body:JSON.stringify({ telemetry_id:telemetry.id, dry_run:true }) })
     await loadExecutions()
@@ -117,6 +164,31 @@ async function testHook(): Promise<void> {
     error.value = errorMessage(reason, t('common.error'))
   } finally {
     testing.value = false
+  }
+}
+
+async function deleteHook(): Promise<void> {
+  const hook = deleteTarget.value
+  if (!hook) return
+  deleteBusy.value = true
+  error.value = ''
+  try {
+    await api<void>(`/hooks/${hook.id}`, { method:'DELETE' })
+    deleteTarget.value = null
+    // Land on the neighbour rather than on nothing, so deleting one of several
+    // does not empty the panel and make the page look like it lost everything.
+    const removed = hooks.value.findIndex((row) => row.id === hook.id)
+    const remaining = hooks.value.filter((row) => row.id !== hook.id)
+    const next = remaining[Math.min(Math.max(removed, 0), remaining.length - 1)]
+    selectedId.value = ''
+    executions.value = []
+    revisions.value = []
+    await load()
+    if (next) select(next.id)
+  } catch (reason) {
+    error.value = errorMessage(reason, t('common.error'))
+  } finally {
+    deleteBusy.value = false
   }
 }
 
@@ -149,7 +221,7 @@ onMounted(load)
     <header class="page-header">
       <div>
         <h1>{{ t('hooks.title') }}</h1>
-        <p class="privilege-warning"><strong>{{ t('hooks.trusted') }}</strong> — {{ t('hooks.trustedHint') }}</p>
+        <p class="privilege-warning"><strong>{{ t('hooks.trusted') }}</strong>: {{ t('hooks.trustedHint') }}</p>
       </div>
       <div class="header-actions">
         <button class="button" @click="openCreate"><AppIcon name="plus" :size="15" />{{ t('hooks.new') }}</button>
@@ -162,15 +234,21 @@ onMounted(load)
              group repeating it under an empty heading reads as a second, broken
              list rather than as the same message. -->
         <section v-if="hooks.length" class="rail-group">
-          <h2 class="rail-title">{{ t('hooks.yours') }}</h2>
+          <h2 class="rail-title">{{ t('hooks.yours') }}<span class="rail-count">{{ hooks.length }}</span></h2>
+          <!-- Past a handful, reading the list stops being how you find one. -->
+          <label v-if="hooks.length > 6" class="hook-filter">
+            <span class="sr-only">{{ t('hooks.filter') }}</span>
+            <input v-model="hookFilter" class="input" type="search" :placeholder="t('hooks.filter')" />
+          </label>
           <div class="hook-list">
-            <button v-for="hook in hooks" :key="hook.id" :class="{ active:selectedId===hook.id }" @click="select(hook.id)">
-              <strong>{{ hook.name }}</strong>
-              <small>
-                <span :class="{ 'is-off':!hook.enabled }">{{ hook.enabled ? t('hooks.enabledLabel') : t('hooks.disabledLabel') }}</span>
-                · {{ hook.vehicle_id ? vehicleNames[hook.vehicle_id] ?? t('hooks.oneVehicle') : t('hooks.allVehicles') }}
-              </small>
+            <button v-for="hook in listedHooks" :key="hook.id" :class="['hook-row', { active:selectedId===hook.id, off:!hook.enabled }]" @click="select(hook.id)">
+              <span class="hook-state" aria-hidden="true" />
+              <span class="hook-name">{{ hook.name }}</span>
+              <!-- The dot carries this visually; nothing is left to colour alone. -->
+              <span class="sr-only">{{ hook.enabled ? t('hooks.enabledLabel') : t('hooks.disabledLabel') }}</span>
+              <small v-if="hookNote(hook)" class="hook-note">{{ hookNote(hook) }}</small>
             </button>
+            <p v-if="!listedHooks.length" class="rail-note">{{ t('hooks.noMatch') }}</p>
           </div>
         </section>
 
@@ -210,6 +288,9 @@ onMounted(load)
             </label>
             <button class="button secondary" type="button" :disabled="testing" @click="testHook">{{ t('hooks.test') }}</button>
             <button class="button" type="submit" form="hook-detail-form" :disabled="saving">{{ t('common.save') }}</button>
+            <RowMenu v-if="isAdmin" :label="t('dataSources.moreActions', { name: selected.name })">
+              <button type="button" role="menuitem" class="danger" @click="deleteTarget = selected">{{ t('common.delete') }}</button>
+            </RowMenu>
           </div>
         </header>
 
@@ -236,7 +317,9 @@ onMounted(load)
                       <summary>{{ execution.error ? t('hooks.viewError') : t('hooks.logCount', { count:execution.logs.length }) }}</summary>
                       <pre :class="['execution-output', { 'is-error':execution.error }]">{{ execution.error || JSON.stringify(execution.logs, null, 2) }}</pre>
                     </details>
-                    <span v-else class="muted">—</span>
+                    <!-- A run that logged nothing is a fact about the run, and
+                         an empty cell reads as the page having failed to draw. -->
+                    <span v-else class="muted quiet-run">{{ t('hooks.noOutput') }}</span>
                   </td>
                 </tr>
               </tbody>
@@ -258,6 +341,17 @@ onMounted(load)
     </AppModal>
 
     <MetricKeyReference :open="referenceOpen" @close="referenceOpen = false" />
+
+    <AppModal :open="Boolean(deleteTarget)" :title="t('hooks.deleteTitle')" @close="deleteTarget = null">
+      <div v-if="deleteTarget" class="stack-form delete-warning">
+        <p class="delete-question">{{ t('hooks.deleteQuestion', { name: deleteTarget.name }) }}</p>
+        <p class="field-hint">{{ t('hooks.deleteWarning') }}</p>
+        <div class="form-actions delete-actions">
+          <button class="button danger" type="button" :disabled="deleteBusy" @click="deleteHook">{{ deleteBusy ? t('hooks.deleting') : t('hooks.deleteAction') }}</button>
+          <button class="button ghost" type="button" :disabled="deleteBusy" @click="deleteTarget = null">{{ t('common.cancel') }}</button>
+        </div>
+      </div>
+    </AppModal>
   </div>
 </template>
 
@@ -274,21 +368,35 @@ onMounted(load)
 /* Secrets are a form, and a form standing on the page beside a panel reads as
    something that fell out of one. */
 .rail-card{padding:13px 14px;background:var(--panel);border-radius:var(--radius-lg);box-shadow:0 0 0 1px var(--panel-line),var(--shadow-soft)}
-.rail-title{margin:0;color:var(--muted);font-size:var(--font-caption);font-weight:600}
+.rail-title{display:flex;align-items:baseline;gap:6px;margin:0;color:var(--muted);font-size:var(--font-caption);font-weight:600}
+.rail-count{color:var(--muted-2);font-variant-numeric:tabular-nums;font-weight:500}
+
+/* The same two rules the vehicle and data-source delete dialogs carry; both
+   are scoped, so this one states them rather than reaching across. */
+.stack-form{display:grid;gap:14px}
+.delete-question{margin:0;font-size:var(--font-body);font-weight:500}
 .rail-note{margin:0;color:var(--muted);font-size:var(--font-caption);line-height:1.45}
 
-.hook-list{display:grid;gap:2px}
-.hook-list button{
-  width:100%;display:grid;gap:2px;padding:8px 10px;color:var(--text);background:transparent;
+.hook-filter .input{min-height:30px;padding:5px 8px;font-size:var(--font-caption)}
+/* Twenty hooks used to push the secrets card off the bottom of the page. The
+   list keeps its own scroll so everything beside it stays reachable. */
+.hook-list{display:grid;gap:2px;max-height:min(52vh,420px);overflow-y:auto;overscroll-behavior:contain}
+.hook-row{
+  width:100%;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:baseline;
+  gap:1px 8px;padding:7px 10px;color:var(--text);background:transparent;
   border:1px solid transparent;border-radius:var(--radius);text-align:left;cursor:pointer;
   transition:background-color .12s,border-color .12s;
 }
-.hook-list button:hover{background:var(--panel-2)}
-.hook-list button.active{background:var(--panel);border-color:var(--line);box-shadow:var(--shadow-soft)}
-.hook-list button strong{overflow:hidden;font-size:var(--font-body);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
-.hook-list button small{overflow:hidden;color:var(--muted);font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}
-.hook-list button small span{color:var(--success)}
-.hook-list button small span.is-off{color:var(--muted)}
+.hook-row:hover{background:var(--panel-2)}
+.hook-row.active{background:var(--panel);border-color:var(--line);box-shadow:var(--shadow-soft)}
+/* Whether a hook is on was the loudest word on the row and the least useful.
+   A dot says it without competing with the name. */
+.hook-state{width:7px;height:7px;align-self:center;background:var(--success);border-radius:50%}
+.hook-row.off .hook-state{background:transparent;box-shadow:inset 0 0 0 1.5px var(--muted-2)}
+.hook-name{overflow:hidden;font-size:var(--font-body);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+/* A hook that is off should recede rather than announce itself. */
+.hook-row.off .hook-name{color:var(--muted)}
+.hook-note{grid-column:2;overflow:hidden;color:var(--muted);font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}
 
 .secret-list{list-style:none;margin:0;padding:0;display:grid;gap:1px}
 .secret-list li{display:grid;grid-template-columns:minmax(0,1fr) 22px;align-items:center;padding:5px 2px 5px 0}
@@ -338,10 +446,15 @@ onMounted(load)
 .runs-table summary:hover{color:var(--text)}
 .execution-output{max-width:620px;max-height:220px;margin:8px 0 0;overflow:auto;font-family:var(--mono);font-size:var(--font-caption);white-space:pre-wrap;overflow-wrap:anywhere}
 .execution-output.is-error{color:var(--danger)}
+.quiet-run{font-size:var(--font-caption);font-style:italic}
 
 @media(max-width:900px){
   .hooks-layout{grid-template-columns:1fr}
   .hooks-rail{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+  /* The list is the thing being chosen from, so it gets the full width and the
+     secrets form sits under it rather than competing for half the row. */
+  .hooks-rail>.rail-group:first-child{grid-column:1/-1}
+  .hook-list{max-height:min(38vh,300px)}
   .detail-bar{position:static;flex-wrap:wrap}
   /* The bar wraps, but this row did not: three items that each refuse to shrink
      below their own text overflow the page in any locale whose labels are
