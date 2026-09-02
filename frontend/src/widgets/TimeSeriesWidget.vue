@@ -32,7 +32,7 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days, runtime.data
 <template>
   <article class="widget-card history-widget">
     <div class="widget-head"><h2>{{ widget.title||metricLabel(definition,t) }}</h2><small>{{ vehicle?.name }}</small></div>
-    <div v-if="hasData" class="chart"><TimeSeriesChart :series="series" height="100%" /></div>
+    <div v-if="hasData" class="chart"><TimeSeriesChart :series="series" :y-unit="widget.unit||definition.unit" :y-name="widget.title ? metricLabel(definition,t) : ''" :label="widget.title||metricLabel(definition,t)" height="100%" /></div>
     <DashboardWidgetEmpty v-else :icon="definition.icon" :loading="Boolean(vehicle)&&history===null" />
   </article>
 </template>

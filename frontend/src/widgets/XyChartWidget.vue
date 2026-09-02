@@ -164,7 +164,18 @@ watch(
       <small v-if="hasData && peak !== undefined">{{ t('insights.peakAverage', { peak: peak.toFixed(1), average: (average ?? 0).toFixed(1) }) }}</small>
     </div>
     <div v-if="hasData" class="chart">
-      <TimeSeriesChart :series="series" x-type="value" :x-unit="xDefinition.unit" height="100%" />
+      <!-- A custom title need not name the metrics, so the axes say which they
+           are only then; by default the heading has already said it. -->
+      <TimeSeriesChart
+        :series="series"
+        x-type="value"
+        :x-unit="xDefinition.unit"
+        :y-unit="yDefinition.unit"
+        :x-name="widget.title ? metricLabel(xDefinition, t) : ''"
+        :y-name="widget.title ? metricLabel(yDefinition, t) : ''"
+        :label="heading"
+        height="100%"
+      />
     </div>
     <DashboardWidgetEmpty
       v-else

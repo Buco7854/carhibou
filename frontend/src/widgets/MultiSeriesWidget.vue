@@ -26,7 +26,7 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days, runtime.data
 <template>
   <article class="widget-card">
     <div class="widget-head"><h2>{{ title }}</h2><small>{{ vehicle?.name }}</small></div>
-    <div v-if="hasData" class="chart"><TimeSeriesChart :series="series" height="100%" /></div>
+    <div v-if="hasData" class="chart"><TimeSeriesChart :series="series" :label="title" height="100%" /></div>
     <DashboardWidgetEmpty v-else icon="history" :loading="Boolean(vehicle)&&history===null" />
   </article>
 </template>
