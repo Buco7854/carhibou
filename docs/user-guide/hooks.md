@@ -139,10 +139,11 @@ for row in rows:
     }
     if ctx.dry_run:
         ctx.log.info("Would forward position to Traccar", **params)
-    else:
-        response = ctx.http.get(ctx.secrets["traccar_url"], params=params, timeout=8)
-        if response.status_code >= 400:
-            raise RuntimeError(f"Traccar request failed with HTTP {response.status_code}")
+        continue
+    response = ctx.http.get(ctx.secrets["traccar_url"], params=params, timeout=8)
+    if response.status_code >= 400:
+        raise RuntimeError(f"Traccar request failed with HTTP {response.status_code}")
+    ctx.log.info("Forwarded position to Traccar", **params)
 ```
 
 A manual retry can repeat an external side effect, so configure the receiver to tolerate
