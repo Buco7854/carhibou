@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from backend.app.access.constants import OPERATE, VehicleAccessLevel, level_allows
-from backend.app.access.dependencies import OperateVehicle
+from backend.app.access.dependencies import OperateVehicle, RequireAdmin
 from backend.app.access.services import access_level, visible_vehicle_ids
 from backend.app.agents.models import Agent
 from backend.app.agents.protocol import (
@@ -22,15 +22,18 @@ from backend.app.agents.schemas import (
     EnrollmentCreated,
     EnrollRequest,
     EnrollResponse,
+    RetiredSource,
     RotateCredentialResponse,
 )
 from backend.app.agents.services import (
     EnrollmentError,
     agent_config,
     create_enrollment,
-    delete_agent,
     enroll,
     enrollment_implementation,
+    purge_agent,
+    retire_agent,
+    retired_source_accounting,
     rotate_credential,
     update_agent,
 )
@@ -117,6 +120,7 @@ def list_agents(db: Db, auth: CurrentUser) -> list[AgentResponse]:
     agents = db.scalars(
         select(Agent).where(
             Agent.vehicle_id.in_(visible),
+            Agent.retired_at.is_(None),
             ~Agent.implementation_id.startswith(CONNECTOR_IMPLEMENTATION_PREFIX),
         )
     )
@@ -136,16 +140,41 @@ def edit_agent(agent_id: str, data: AgentSettings, db: Db, auth: CurrentUserWrit
     return _agent_response(agent)
 
 
-@human_router.delete("/agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_agent(agent_id: str, db: Db, auth: CurrentUserWrite) -> None:
-    """Delete an agent outright, with the telemetry it recorded.
+@human_router.get("/agents/retired", response_model=list[RetiredSource])
+def list_retired_sources(db: Db, auth: RequireAdmin) -> list[RetiredSource]:
+    """Every retired source and what it still holds.
 
-    Revoking is for hardware that exists but must stop reporting; this is for
-    hardware that is gone, or that was enrolled by mistake and should leave
-    nothing behind.
+    Orphaned telemetry is exactly this: readings whose source is retired, so
+    nothing will ever add to them again. They are kept because they remain the
+    vehicle's history, and listed because keeping them should be a decision
+    rather than an accident.
     """
 
-    delete_agent(db, _ordinary_agent(_authorized_agent(db, auth.user, agent_id, OPERATE)))
+    del auth
+    return retired_source_accounting(db)
+
+
+@human_router.delete("/agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_agent(
+    agent_id: str,
+    db: Db,
+    auth: CurrentUserWrite,
+    purge_telemetry: bool = False,
+) -> None:
+    """Retire an agent, or purge it and everything it reported.
+
+    Retiring is the default because the other option cannot be undone. A retired
+    source stops reporting and leaves the active lists, and every reading it ever
+    made still names it, so history keeps answering where it came from. Purging
+    is for an agent enrolled by mistake, or one whose readings were wrong: it
+    takes the telemetry with it.
+    """
+
+    agent = _ordinary_agent(_authorized_agent(db, auth.user, agent_id, OPERATE))
+    if purge_telemetry:
+        purge_agent(db, agent)
+    else:
+        retire_agent(db, agent)
     db.commit()
 
 

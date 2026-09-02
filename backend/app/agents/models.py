@@ -50,6 +50,11 @@ class Agent(TimestampMixin, Base):
         server_default=str(STANDARD_CADENCE.parked_upload_seconds),
     )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Retirement removes a source from service without removing what it reported.
+    # A revoked agent is one that must stop talking; a retired one is gone for
+    # good, and its readings still have to answer "who reported this" for as long
+    # as they exist.
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
     vehicle = relationship("Vehicle", back_populates="agents")
 

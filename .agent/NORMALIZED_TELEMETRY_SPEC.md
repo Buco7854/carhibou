@@ -263,6 +263,23 @@ Registry, not vehicle-scoped:
   heading and accuracy. That descriptor and the position wire model are defined
   from one source and must list exactly the same fields.
 
+Source lifecycle, because provenance outlives the hardware:
+
+- Removing an agent retires it by default: `DELETE /agents/{id}` revokes the
+  credential and stamps `retired_at`, and deletes nothing. Every sample,
+  observation and candidate it produced survives, so a reading keeps answering
+  which source made it long after that source is gone. A retired source leaves
+  the active agent list, cannot authenticate, and stops counting towards whether
+  a vehicle is online.
+- `DELETE /agents/{id}?purge_telemetry=true` is the destructive form: it deletes
+  the agent row, and everything it sourced cascades away with it. It is never the
+  default, because it cannot be undone.
+- Orphaned telemetry is exactly the data of retired sources: nothing will add to
+  it again. `GET /agents/retired` (admin) accounts for it per source as
+  `{source_id, name, retired_at, samples, oldest, newest}`, with `samples` zero
+  and the bounds null for a source that reported nothing. Purging one is the same
+  route as purging any agent.
+
 Hook context (implemented in `backend/app/hooks/context.py`; the v1
 `ctx.telemetry.metrics` and `ctx.telemetry_batch` no longer exist):
 

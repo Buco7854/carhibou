@@ -261,6 +261,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("vehicle_profile", sa.String(length=120), nullable=True),
+        sa.Column("retired_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_config_sync_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("config_version", sa.Integer(), nullable=False),
@@ -281,6 +282,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_agents_credential_hash"), "agents", ["credential_hash"], unique=True)
     op.create_index(op.f("ix_agents_last_seen_at"), "agents", ["last_seen_at"], unique=False)
+    op.create_index(op.f("ix_agents_retired_at"), "agents", ["retired_at"], unique=False)
     op.create_index(op.f("ix_agents_vehicle_id"), "agents", ["vehicle_id"], unique=False)
     op.create_table(
         "connectors",
@@ -821,6 +823,7 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_connectors_vehicle_id"), table_name="connectors")
     op.drop_table("connectors")
     op.drop_index(op.f("ix_agents_vehicle_id"), table_name="agents")
+    op.drop_index(op.f("ix_agents_retired_at"), table_name="agents")
     op.drop_index(op.f("ix_agents_last_seen_at"), table_name="agents")
     op.drop_index(op.f("ix_agents_credential_hash"), table_name="agents")
     op.drop_table("agents")

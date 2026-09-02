@@ -76,7 +76,7 @@ def current_agent(
         )
     raw = authorization.removeprefix("Agent ").strip()
     agent = db.scalar(select(Agent).where(Agent.credential_hash == hash_token(raw)))
-    if not agent or agent.revoked_at is not None:
+    if not agent or agent.revoked_at is not None or agent.retired_at is not None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid agent credential"
         )

@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import cast
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from backend.app.agents.schemas import (
     EnrollmentCreate,
     EnrollRequest,
     EnrollResponse,
+    RetiredSource,
 )
 from backend.app.auth.security import hash_token, new_opaque_token
 from backend.app.common.time import as_utc, utcnow
@@ -146,16 +147,67 @@ def update_agent(db: Session, agent: Agent, data: AgentSettings) -> bool:
     return changed
 
 
-def delete_agent(db: Session, agent: Agent) -> None:
-    """Remove an agent and the telemetry it recorded.
+def retire_agent(db: Session, agent: Agent) -> None:
+    """Take a source out of service without taking its readings with it.
 
-    Revoking keeps an agent's history and stops it reporting; deleting is for
-    hardware that is gone. Telemetry cascades from the agent, so what the agent
-    recorded goes with it, which is the point: an agent enrolled by mistake should
-    leave nothing behind.
+    This is what removing an agent means by default. The row survives because
+    every observation, candidate and history disclosure it produced names it as
+    the source, and a reading that cannot say where it came from is worth less
+    than one that can. The credential is revoked in the same breath: retirement
+    is permanent, so the hardware must not be able to come back on its own.
+    """
+
+    del db
+    now = utcnow()
+    agent.retired_at = now
+    if agent.revoked_at is None:
+        agent.revoked_at = now
+
+
+def purge_agent(db: Session, agent: Agent) -> None:
+    """Remove an agent and everything it ever reported.
+
+    Deliberately destructive and never the default. Telemetry, observations and
+    candidates cascade from the agent row, which is the point: an agent enrolled
+    by mistake, or one whose readings were nonsense, should leave nothing behind.
     """
 
     db.delete(agent)
+
+
+def retired_source_accounting(db: Session) -> list[RetiredSource]:
+    """What each retired source still holds, in one query.
+
+    Retired sources are where orphaned telemetry lives: data nothing will add to
+    again, kept because it is still the vehicle's history. Somebody deciding
+    whether to purge one needs to know how much of it there is and how old.
+    """
+
+    rows = db.execute(
+        select(
+            Agent.id,
+            Agent.name,
+            Agent.retired_at,
+            func.count(Telemetry.id),
+            func.min(Telemetry.recorded_at),
+            func.max(Telemetry.recorded_at),
+        )
+        .outerjoin(Telemetry, Telemetry.agent_id == Agent.id)
+        .where(Agent.retired_at.is_not(None))
+        .group_by(Agent.id, Agent.name, Agent.retired_at)
+        .order_by(Agent.retired_at.desc(), Agent.id)
+    ).all()
+    return [
+        RetiredSource(
+            source_id=source_id,
+            name=name,
+            retired_at=as_utc(retired_at),
+            samples=samples,
+            oldest=as_utc(oldest) if oldest else None,
+            newest=as_utc(newest) if newest else None,
+        )
+        for source_id, name, retired_at, samples, oldest, newest in rows
+    ]
 
 
 def reset_vehicle_telemetry(db: Session, vehicle_id: str) -> int:

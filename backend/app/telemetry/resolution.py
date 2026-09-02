@@ -271,7 +271,13 @@ def vehicle_source_online(
     now: datetime | None = None,
 ) -> bool:
     resolved_at = as_utc(now or utcnow())
-    source_ids = set(db.scalars(select(Agent.id).where(Agent.vehicle_id == vehicle_id)))
+    # A retired source cannot come back, so its last contact must not keep a
+    # vehicle looking online for as long as the window lasts.
+    source_ids = set(
+        db.scalars(
+            select(Agent.id).where(Agent.vehicle_id == vehicle_id, Agent.retired_at.is_(None))
+        )
+    )
     contacts = latest_contact_periods(db, source_ids).values()
     return any(
         as_utc(contact.last_contact_at)

@@ -148,3 +148,15 @@ class AgentResponse(BaseModel):
     config_version: int
     revoked_at: datetime | None
     created_at: datetime
+
+
+class RetiredSource(BaseModel):
+    """What a retired source still holds. Oldest and newest are null when it
+    reported nothing before it was retired."""
+
+    source_id: str
+    name: str
+    retired_at: datetime
+    samples: int
+    oldest: datetime | None
+    newest: datetime | None
