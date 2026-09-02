@@ -1,6 +1,6 @@
 import textwrap
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.common.time import utcnow
@@ -95,3 +95,36 @@ def queue_manual_execution(
     db.flush()
     db.add(Job(type="hook.execute", payload={"execution_id": execution.id}))
     return execution
+
+
+def latest_executions(db: Session, hook_ids: list[str]) -> dict[str, HookExecution]:
+    """The newest execution of each hook, in one query rather than one per hook.
+
+    The list page shows a run indicator on every row, which asked for a query per
+    hook and grew with the number of hooks somebody wrote.
+    """
+
+    if not hook_ids:
+        return {}
+    ranked = (
+        select(
+            HookExecution.id.label("id"),
+            func.row_number()
+            .over(
+                partition_by=HookExecution.hook_id,
+                # created_at alone is not a total order: several executions of one
+                # hook can share an instant, and the row shown would then vary
+                # between requests.
+                order_by=(HookExecution.created_at.desc(), HookExecution.id.desc()),
+            )
+            .label("rank"),
+        )
+        .where(HookExecution.hook_id.in_(hook_ids))
+        .subquery()
+    )
+    newest = db.scalars(
+        select(HookExecution)
+        .join(ranked, ranked.c.id == HookExecution.id)
+        .where(ranked.c.rank == 1)
+    )
+    return {execution.hook_id: execution for execution in newest}

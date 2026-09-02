@@ -6,6 +6,7 @@ from backend.app.auth.dependencies import Db
 from backend.app.hooks.models import Hook, HookExecution, HookRevision
 from backend.app.hooks.schemas import (
     HookExecutionResponse,
+    HookExecutionSummary,
     HookResponse,
     HookRevisionResponse,
     HookTestRequest,
@@ -14,6 +15,7 @@ from backend.app.hooks.schemas import (
 from backend.app.hooks.services import (
     HookValidationError,
     create_hook,
+    latest_executions,
     queue_manual_execution,
     update_hook,
 )
@@ -30,9 +32,17 @@ def _hook(db: Db, hook_id: str) -> Hook:
 
 
 @router.get("", response_model=list[HookResponse])
-def hooks(db: Db, auth: RequireAdmin) -> list[Hook]:
+def hooks(db: Db, auth: RequireAdmin) -> list[HookResponse]:
     del auth
-    return list(db.scalars(select(Hook).order_by(Hook.name)))
+    rows = list(db.scalars(select(Hook).order_by(Hook.name)))
+    newest = latest_executions(db, [hook.id for hook in rows])
+    responses = []
+    for hook in rows:
+        response = HookResponse.model_validate(hook)
+        if execution := newest.get(hook.id):
+            response.last_execution = HookExecutionSummary.model_validate(execution)
+        responses.append(response)
+    return responses
 
 
 @router.post("", response_model=HookResponse, status_code=status.HTTP_201_CREATED)

@@ -14,6 +14,13 @@ class HookWrite(BaseModel):
     timeout_seconds: int = Field(default=10, ge=1, le=120)
 
 
+class HookExecutionSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    status: str
+    created_at: datetime
+
+
 class HookResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -28,6 +35,10 @@ class HookResponse(BaseModel):
     revision: int
     created_at: datetime
     updated_at: datetime
+    # Null until a hook has run. A hook that has never run and one whose last run
+    # failed are different things, and the list has to show the difference
+    # without asking after each hook separately.
+    last_execution: HookExecutionSummary | None = None
 
 
 class HookRevisionResponse(BaseModel):
