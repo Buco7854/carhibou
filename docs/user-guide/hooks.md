@@ -140,8 +140,10 @@ for row in rows:
         "id": TRACCAR_DEVICE_ID,
         "lat": point.latitude,
         "lon": point.longitude,
+        "altitude": getattr(point, "altitude", None),
         "speed": getattr(point, "speed", None),
         "bearing": getattr(point, "heading", None),
+        "accuracy": getattr(point, "accuracy", None),
         "timestamp": int(row.observed_at.timestamp()),
     }
     if ctx.dry_run:
