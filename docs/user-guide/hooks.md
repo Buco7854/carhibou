@@ -149,6 +149,9 @@ for row in rows:
         "batt": battery,
         "timestamp": int(row.observed_at.timestamp()),
     }
+    # Absent fields stay home: an empty speed= can make older Traccar
+    # versions drop the connection without a response.
+    params = {key: value for key, value in params.items() if value is not None}
     if ctx.dry_run:
         ctx.log.info("Would forward position to Traccar", **params)
         continue
