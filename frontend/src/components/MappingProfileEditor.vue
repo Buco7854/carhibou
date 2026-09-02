@@ -6,7 +6,8 @@ import type { MappingRule, MappingTransform, VehicleProfile } from '../api/types
 import AppIcon from './AppIcon.vue'
 import AppModal from './AppModal.vue'
 import MetricKeyReference from './MetricKeyReference.vue'
-import { loadMetricKeys, metricKeys } from '../metricRegistry'
+import { POSITION_TARGETS, loadMetricKeys, metricKeys } from '../metricRegistry'
+import { suggestCanonicalKey } from '../canonicalHints'
 import AppSelect from './AppSelect.vue'
 
 type TransformKind = 'none' | 'scale' | 'enum' | 'boolean' | 'json'
@@ -32,11 +33,15 @@ const form = ref({ name: '', description: '', passthrough_prefix: '', ignore: ''
 const rule = ref<RuleDraft>(blankRule())
 const editing = computed(() => Boolean(props.profile) && !props.clone)
 const transformKinds: TransformKind[] = ['none', 'scale', 'enum', 'boolean', 'json']
-const positionTargets = ['position.latitude', 'position.longitude', 'position.altitude', 'position.speed', 'position.heading', 'position.accuracy']
+const positionTargets = POSITION_TARGETS
 const referenceOpen = ref(false)
 /* Position targets are not metric keys and are not in the registry, so the
    field offers both lists it accepts. */
 const targetOptions = computed(() => [...metricKeys.value.map((entry) => entry.key), ...positionTargets])
+/* Advisory only: a custom key is a legitimate thing to write, so this never
+   stops a save. It exists because `battery_soc` looks right and is not. */
+const targetNearMiss = computed(() =>
+  suggestCanonicalKey(rule.value.target, metricKeys.value.map((entry) => entry.key)))
 
 function blankRule(): RuleDraft {
   return { match: '', target: '', kind: 'none', scale: 1, offset: 0, enumText: '' }
@@ -230,7 +235,11 @@ watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => {
         </header>
         <div class="signal-grid identity-grid">
           <label class="field"><span>{{ t('profiles.ruleMatch') }}</span><input v-model="rule.match" class="input mono" placeholder="battery_level" required autofocus /></label>
-          <label class="field"><span>{{ t('profiles.ruleTarget') }}</span><input v-model="rule.target" class="input mono" list="mapping-targets" placeholder="battery.soc" required /></label>
+          <label class="field">
+            <span>{{ t('profiles.ruleTarget') }}</span>
+            <input v-model="rule.target" class="input mono" list="mapping-targets" placeholder="battery.soc" required />
+            <small v-if="targetNearMiss" class="field-hint near-miss">{{ t('profiles.nearMiss', { key: targetNearMiss }) }}</small>
+          </label>
         </div>
         <datalist id="mapping-targets"><option v-for="target in targetOptions" :key="target" :value="target" /></datalist>
       </section>
@@ -273,6 +282,7 @@ watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => {
 /* Only the mapping section carries a trailing action, so the header stays a
    plain block until one is present. */
 .field-section header:has(.link-button){display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.near-miss{color:var(--warning)}
 .field-section header h3{margin:0;font-size:var(--font-body);font-weight:600}
 .field-section header p{margin:3px 0 0;color:var(--muted);font-size:var(--font-caption)}
 .signal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}

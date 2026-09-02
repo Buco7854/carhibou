@@ -439,7 +439,7 @@ describe('vehicle and dashboard management', () => {
     const body = JSON.parse(createCall?.[1]?.body as string)
     expect(body.name).toBe('Overview')
     expect(body.is_default).toBe(true)
-    expect(body.layout.preset).toBe('overview-v9')
+    expect(body.layout.preset).toBe('overview-v10')
     // Ordered by the questions an owner asks: what is it doing, how fast, how
     // much is left, where is it, what happened recently, what did it cost.
     expect(body.layout.widgets.map((row: {type:string}) => row.type)).toEqual([
@@ -461,15 +461,19 @@ describe('vehicle and dashboard management', () => {
     expect([curve.x_metric, curve.y_metric]).toEqual(['battery.soc', 'charging.power'])
     // The principle: a card stays only if it adapts to whatever the vehicle
     // reports. Anything bound to a named metric hides, speed included, because a
-    // GPS-only agent never sends vehicle.speed.
+    // GPS-only agent never sends vehicle.speed. The same applies to a card that
+    // only speaks once drives and charges can be derived: it names that
+    // dependency in its empty state, so it is opinionated and hides with it.
     const flagged = (want: boolean) => body.layout.widgets
       .filter((row: {settings?:{hide_when_empty?:boolean}}) => Boolean(row.settings?.hide_when_empty) === want)
       .map((row: {type:string}) => row.type)
     expect(flagged(false)).toEqual([
-      'vehicle-selector', 'online-status', 'metric-card', 'route-map', 'activity-feed',
-      'segment-stats', 'period-stats', 'time-series',
+      'vehicle-selector', 'online-status', 'metric-card', 'route-map', 'time-series',
     ])
-    expect(flagged(true)).toEqual(['battery-gauge', 'charging', 'telemetry-list', 'xy-chart'])
+    expect(flagged(true)).toEqual([
+      'battery-gauge', 'charging', 'activity-feed', 'telemetry-list',
+      'segment-stats', 'period-stats', 'xy-chart',
+    ])
     // The card ships with metrics chosen, so it works untouched and still says
     // which readings it is showing.
     const list = body.layout.widgets.find((row: {type:string}) => row.type === 'telemetry-list')
@@ -519,7 +523,7 @@ describe('vehicle and dashboard management', () => {
 
   it('updates dynamic widgets from the vehicle selector and persists card deletion', async () => {
     const secondVehicle = { ...vehicle, id:'vehicle-2', name:'Nimbus', state:{...vehicle.state,readings:readings({'fuel.level':25})} }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v9',widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{preset:'overview-v10',widgets:[
       {id:'selector',type:'vehicle-selector',x:0,y:0,w:12,h:1},
       {id:'fuel',type:'metric-card',metric:'fuel.level',x:0,y:1,w:3,h:2},
     ]}, created_at:'', updated_at:'' }
@@ -590,8 +594,11 @@ describe('vehicle and dashboard management', () => {
     await wrapper.get('.profile-editor').trigger('submit')
     await flushPromises()
 
-    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
-    expect(fetchMock.mock.calls[0]![0]).toBe('/api/v1/vehicle-profiles')
+    // The editor also fetches the metric registry, so the submission is found by
+    // what it is rather than by being first.
+    const posted = fetchMock.mock.calls.find((call) => call[1]?.method === 'POST')!
+    const body = JSON.parse(posted[1].body as string)
+    expect(posted[0]).toBe('/api/v1/vehicle-profiles')
     expect(body.name).toBe('My EV')
     expect(body.signals[0].source).toEqual({ type:'can', can_id:0x374 })
     expect(body.signals[0]).not.toHaveProperty('status')
@@ -610,7 +617,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('offers types only, so a soc-versus-power chart is configured not conjured', async () => {
-    const dashboard = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v9', widgets:[] }, created_at:'', updated_at:'' }
+    const dashboard = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v10', widgets:[] }, created_at:'', updated_at:'' }
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/dashboards')) return Promise.resolve(jsonResponse([dashboard]))
       if (url.endsWith('/vehicles')) return Promise.resolve(jsonResponse([vehicle]))
@@ -645,7 +652,7 @@ describe('vehicle and dashboard management', () => {
   })
 
   it('renders a saved charge-curve layout as the x-y chart that replaced it', async () => {
-    const legacy = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v9', widgets:[
+    const legacy = { id:'d1', name:'Overview', is_default:true, layout:{ preset:'overview-v10', widgets:[
       { id:'legacy', type:'charge-curve', x:0, y:0, w:6, h:3 },
     ] }, created_at:'', updated_at:'' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
@@ -672,7 +679,7 @@ describe('vehicle and dashboard management', () => {
     // The EV's charging card needs a resolved charging.active to have anything to
     // say: the server resolves that flag now, and no reading means unknown.
     const ev = { ...vehicle, state:{ ...vehicle.state!, readings:readings({ 'battery.soc':70, 'charging.active':false }) } }
-    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v9', widgets:[
+    const dashboard = { id:'overview', name:'Overview', is_default:true, layout:{ preset:'overview-v10', widgets:[
       { id:'selector', type:'vehicle-selector', x:0, y:0, w:12, h:1 },
       { id:'energy', type:'battery-gauge', x:0, y:1, w:4, h:2, settings:{ hide_when_empty:true } },
       { id:'charge', type:'charging', x:4, y:1, w:4, h:2, settings:{ hide_when_empty:true } },

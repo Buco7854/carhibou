@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatInstant } from '../vehicleDisplay'
 import { api, errorMessage } from '../api/client'
+import { useLiveRefresh } from '../api/live'
 import type { History, Hook, HookExecution, HookRevision, Vehicle } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
@@ -131,6 +132,15 @@ async function removeSecret(name: string): Promise<void> {
   secrets.value = secrets.value.filter((row) => row.name !== name)
 }
 
+/*
+ * A run started from here, or by telemetry arriving, appends a row the panel had
+ * no way to hear about: the page was only ever loaded once. Polling the open
+ * panel is the whole of what is needed, and the shared helper already stops
+ * while the tab is hidden and catches up on return. Nothing polls when no hook
+ * is selected, because there is nothing to ask about.
+ */
+useLiveRefresh(() => { if (selectedId.value) void loadExecutions() }, { pollMs: 5000 })
+
 onMounted(load)
 </script>
 
@@ -244,7 +254,7 @@ onMounted(load)
     </div>
 
     <AppModal :open="creating" :inactive="referenceOpen" :title="t('hooks.createTitle')" wide @close="cancelCreate">
-      <HookEditorForm v-model="form" :vehicles="vehicles" :error="error" :saving="saving" @save="save" @reference="referenceOpen = true" />
+      <HookEditorForm v-model="form" compact :vehicles="vehicles" :error="error" :saving="saving" @save="save" @reference="referenceOpen = true" />
     </AppModal>
 
     <MetricKeyReference :open="referenceOpen" @close="referenceOpen = false" />

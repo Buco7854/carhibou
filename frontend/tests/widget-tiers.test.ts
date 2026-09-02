@@ -26,7 +26,7 @@ function withMetrics(values: Record<string, unknown>, position: unknown = null):
 
 const dashboard = {
   id: 'd1', name: 'Overview', is_default: true,
-  layout: { preset: 'overview-v9', widgets: [] }, created_at: '', updated_at: '',
+  layout: { preset: 'overview-v10', widgets: [] }, created_at: '', updated_at: '',
 }
 
 function mountDashboards(vehicles: Vehicle[]) {
@@ -119,10 +119,18 @@ describe('the general and specific tiers', () => {
     expect(hidden(), 'route-map').toBe(false)
     await choose('metric-card')
     expect(hidden(), 'metric-card').toBe(true)
-    await choose('period-stats')
-    expect(hidden(), 'period-stats').toBe(false)
+    await choose('online-status')
+    expect(hidden(), 'online-status').toBe(false)
     await choose('xy-chart')
     expect(hidden(), 'xy-chart').toBe(true)
+    // Drives and charges are derived, not merely reported, so a card built out
+    // of them is data-bound however little configuration it takes.
+    await choose('period-stats')
+    expect(hidden(), 'period-stats').toBe(true)
+    await choose('activity-feed')
+    expect(hidden(), 'activity-feed').toBe(true)
+    await choose('segment-stats')
+    expect(hidden(), 'segment-stats').toBe(true)
 
     // Still per-card: the toggle stays visible and the reader can overrule it.
     await wrapper.get('.widget-toggle input').setValue(false)
@@ -264,7 +272,7 @@ describe('widget configuration after creation', () => {
   it('reopens the editor on an existing card with its own values', async () => {
     const dashboard = {
       id: 'd1', name: 'Overview', is_default: true,
-      layout: { preset: 'overview-v9', widgets: [
+      layout: { preset: 'overview-v10', widgets: [
         { id: 'w1', type: 'metric-card', metric: 'battery.soc', unit: '%', title: 'Charge', x: 0, y: 0, w: 3, h: 2 },
       ] },
       created_at: '', updated_at: '',

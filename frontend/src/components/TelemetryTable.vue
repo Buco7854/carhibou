@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { api, errorMessage } from '../api/client'
 import { loadSampleProvenance } from '../api/segments'
 import { useColumnPreference } from '../columnPreference'
+import { loadMetricKeys, metricKeys } from '../metricRegistry'
 import { useLiveRefresh } from '../api/live'
 import type { HistoryEntries, HistoryEntry, HistoryObservationSample } from '../api/types'
 import { formatInstant, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
@@ -131,14 +132,27 @@ function systemColumns(): string[] {
 
 
 
+/** The registry's own words for a canonical key, by key. */
+const registryMeanings = computed(
+  () => new Map(metricKeys.value.map((entry) => [entry.key, entry.meaning])),
+)
+
 /** What a label stands for: the canonical name, and a note where one exists.
+ *
+ * The registry is what a key means, so its meaning is the note. A locale entry
+ * is a translation of that, or a sharper phrasing of it, and wins where it
+ * exists; without one the server's English is still better than silence. Keys
+ * from the agent's own map are not registry metrics and are described here,
+ * which is why they are looked up separately rather than mixed in.
  *
  * The lookup key has its dots removed because vue-i18n reads a dot as a step into
  * a nested message, so a canonical name cannot be a key as it stands.
  */
 function columnHint(column: TableColumn): string {
-  const path = `metricNotes.${column.canonical.replaceAll('.', '_')}`
-  return te(path) ? `${column.canonical} — ${t(path)}` : column.canonical
+  const flattened = column.canonical.replaceAll('.', '_')
+  const note = [`metricNotes.${flattened}`, `agentNotes.${flattened}`].find((path) => te(path))
+  const meaning = note ? t(note) : registryMeanings.value.get(column.canonical)
+  return meaning ? `${column.canonical} — ${meaning}` : column.canonical
 }
 
 function sortBy(key: string): void {
@@ -312,6 +326,10 @@ function showNewRows(): void {
   staleRows.value = false
   void load()
 }
+
+// The column hints are the registry's meanings, so they need it fetched. It is
+// cached across the app, so asking here costs one request per session at most.
+void loadMetricKeys()
 
 </script>
 

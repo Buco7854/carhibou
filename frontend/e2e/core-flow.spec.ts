@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 
 interface VehicleRecord { id: string; name: string }
 interface Enrollment { token: string }
@@ -238,17 +239,21 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await expect(page.getByRole('option')).toHaveCount(1)
   await page.getByRole('option', { name:'Touring', exact:true }).click()
   // Only the cards needing non-standard data hide: battery state, charging, a
-  // charge curve, a photo. Speed is standard, so both speed cards stay.
-  for (const type of ['battery-gauge', 'charging', 'xy-chart', 'vehicle-media', 'telemetry-list']) {
+  // charge curve, a photo. Cards built out of drives and charges hide with them,
+  // because deriving either takes more than a vehicle merely reporting and a
+  // card that can only say it found none is claiming something about the car.
+  // Speed is standard, so both speed cards stay.
+  for (const type of ['battery-gauge', 'charging', 'xy-chart', 'vehicle-media', 'telemetry-list',
+    'activity-feed', 'segment-stats', 'period-stats']) {
     await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(0)
   }
   // This vehicle has neither a CAN reading nor a fix yet, so the speed card says
   // so like any other card rather than vanishing.
   await expect(page.locator('[data-widget-type="metric-card"] .dashboard-widget-empty')).toContainText('No data yet')
-  for (const type of ['vehicle-selector', 'online-status', 'metric-card', 'route-map', 'activity-feed', 'segment-stats', 'period-stats', 'time-series']) {
+  for (const type of ['vehicle-selector', 'online-status', 'metric-card', 'route-map', 'time-series']) {
     await expect(page.locator(`[data-widget-type="${type}"]`), type).toHaveCount(1)
   }
-  await expect(page.locator('.grid-stack-item')).toHaveCount(8)
+  await expect(page.locator('.grid-stack-item')).toHaveCount(5)
   await expect(page.locator('[data-widget-type="position-map"] .vehicle-map')).toHaveCount(0)
   await vehicleSelector.getByRole('combobox').click()
   await page.getByPlaceholder('Search vehicles…').fill('Éclair')
@@ -377,11 +382,13 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await page.getByRole('link', { name: 'Hooks' }).click()
   await hooksLoaded
   await page.locator('.page-header').getByRole('button', { name: 'New hook' }).click()
+  // Creation asks for what only a person can supply, and hands the rest to the
+  // detail panel: writing Python in a sheet is what the panel behind it is for.
   const hookModal = page.locator('.app-modal')
   await hookModal.getByLabel('Name', { exact:true }).fill('Browser state counter')
   await hookModal.getByLabel('Description').fill('Verifies persistent hook state through the browser flow')
-  await hookModal.locator('.cm-content').fill('ctx.state["runs"] = ctx.state.get("runs", 0) + 1\nctx.log.info("browser e2e", runs=ctx.state["runs"], dry_run=ctx.dry_run)')
-  await hookModal.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(hookModal.locator('.cm-content')).toHaveCount(0)
+  await hookModal.getByRole('button', { name: 'Create and edit' }).click()
   // The view closes this modal and refreshes its list only after the POST it
   // awaits resolves, so both are evidence the hook is committed. Reading the API
   // straight off the click raced the insert and saw an empty collection.
@@ -389,6 +396,12 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   await expect(page.locator('.hook-list').getByRole('button', { name: /Browser state counter/ })).toBeVisible()
   const [hook] = await browserJson<HookRecord[]>(page, 'get', '/api/v1/hooks')
   expect(hook?.id).toBeTruthy()
+
+  // The new hook is already selected, so the code goes in where there is room.
+  await expect(page.locator('.detail-identity h2')).toHaveText('Browser state counter')
+  await page.locator('.hook-detail .cm-content').fill('ctx.state["runs"] = ctx.state.get("runs", 0) + 1\nctx.log.info("browser e2e", runs=ctx.state["runs"], dry_run=ctx.dry_run)')
+  await page.locator('.detail-actions').getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByText('Saved')).toBeVisible()
 
   await page.getByRole('button', { name: 'Test with telemetry' }).click()
   await waitForExecutions(page, hook.id, 1)
@@ -474,6 +487,69 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(mobileGarageDimensions.scroll).toBeLessThanOrEqual(mobileGarageDimensions.viewport)
 })
 
+/**
+ * Every canonical key this build names in its own catalogues, so a note or a
+ * label kept for a key the server has dropped can be caught against the running
+ * registry rather than against another copy of the same assumption.
+ */
+function canonicalKeysNamedByTheInterface(): { notes: string[]; labels: string[] } {
+  const english = readFileSync(new URL('../src/i18n/locales/en.ts', import.meta.url), 'utf8')
+  const display = readFileSync(new URL('../src/vehicleDisplay.ts', import.meta.url), 'utf8')
+  const notesBlock = /metricNotes: \{(.*?)\},\n/s.exec(english)?.[1] ?? ''
+  // The notes are keyed with underscores because vue-i18n reads a dot as a step
+  // into a nested message. That flattening is lossy, so the comparison happens
+  // in the flattened space rather than by guessing where the dots were.
+  const notes = [...notesBlock.matchAll(/'([a-z0-9_]+)':/g)].map((match) => match[1]!)
+  const labels = [...display.matchAll(/key: '([a-z][a-z0-9_]*\.[a-z0-9_.]+)'/g)].map((match) => match[1]!)
+  return { notes, labels }
+}
+
+test('every canonical key the interface names is one the server still knows', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('browser-owner@example.com')
+  await page.getByLabel('Password').fill('browser-e2e-password-2026')
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page).toHaveURL('/')
+
+  const registry = await browserJson<{
+    metrics: Array<{ key: string }>
+    position?: { fields: Array<{ key: string }> }
+  }>(page, 'get', '/api/v1/metrics/registry')
+  const known = new Set<string>(registry.metrics.map((metric) => metric.key))
+  // A fix is described separately and is not a metric, but position.speed is a
+  // real thing to hold a note about, so its fields count as known.
+  for (const field of registry.position?.fields ?? []) known.add(`position.${field.key}`)
+  expect(known.size).toBeGreaterThan(20)
+
+  const { notes, labels } = canonicalKeysNamedByTheInterface()
+  expect(notes.length).toBeGreaterThan(0)
+  expect(labels.length).toBeGreaterThan(0)
+  // Agent-map keys are not registry metrics and live in their own catalogue, so
+  // anything left in the metric notes has to be a key the server publishes.
+  const knownFlat = new Set([...known].map((key) => key.replaceAll('.', '_')))
+  expect(notes.filter((key) => !knownFlat.has(key)), 'metric notes for keys the registry no longer has').toEqual([])
+
+  /*
+   * Keys the agent publishes today that the registry does not define yet: the
+   * OBD-II PIDs decoded in agent/internal/providers/obd.go, the readiness metric
+   * agent/internal/runtime/activity.go votes on, and the adapter's own supply
+   * voltage. A display name for them is the only thing that makes them readable,
+   * so the names stay and this list names the gap instead of hiding it. It is a
+   * list, not a pattern, so a name invented for a key nobody sends still fails.
+   */
+  const awaitingRegistry = new Set([
+    'fuel.level', 'vehicle.ready', 'engine.load', 'engine.throttle',
+    'engine.intake_temperature', 'engine.maf', 'agent.input_voltage',
+  ])
+  expect(
+    labels.filter((key) => !known.has(key) && !awaitingRegistry.has(key)),
+    'display names for keys neither the registry nor the known gap accounts for',
+  ).toEqual([])
+  // The gap is meant to shrink: once the server defines one of these, its entry
+  // here is dead and has to go.
+  expect([...awaitingRegistry].filter((key) => known.has(key)), 'gap entries the registry now covers').toEqual([])
+})
+
 test('mobile login keeps language, theme, keyboard access and reflow', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 })
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
@@ -538,8 +614,15 @@ test('mobile login keeps language, theme, keyboard access and reflow', async ({ 
   expect(firstField.top, 'the name label must not sit off the top of the screen').toBeGreaterThanOrEqual(0)
   expect(firstField.bottom).toBeLessThanOrEqual(firstField.height)
 
-  // The keys the source code below is about, without leaving the editor.
-  await page.getByRole('dialog', { name: 'Créer un hook' }).locator('.source-label .link-button').click()
+  // Creation asks for a name and a description and nothing else: the code, the
+  // vehicle filter and the run time are the detail panel's job.
+  await expect(sheet.locator('.cm-content')).toHaveCount(0)
+  await expect(sheet.getByLabel('Filtre véhicule')).toHaveCount(0)
+  await page.getByRole('dialog', { name: 'Créer un hook' }).getByRole('button', { name: 'Fermer' }).first().click()
+  await expect(sheet).toHaveCount(0)
+
+  // The keys the source code is about, reached from the editor that has it.
+  await page.locator('.hook-detail .source-label .link-button').click()
   await expect(page.getByRole('dialog', { name: 'Clés de mesure' })).toBeVisible()
   await expect(page.locator('.key-list li').first()).toBeVisible()
   const keyCount = await page.locator('.key-list li').count()
@@ -550,9 +633,12 @@ test('mobile login keeps language, theme, keyboard access and reflow', async ({ 
   await expect(page.locator('.key-list .key-name')).toHaveText(['battery.soc'])
   const referenceFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   expect(referenceFits, 'the key reference overflows the phone viewport').toBe(true)
+  // Position is a fix, not a metric, and the server's own words describe it.
+  await page.locator('.key-reference input[type="search"]').fill('position')
+  await expect(page.locator('.position-entry')).toBeVisible()
+  await expect(page.locator('.position-entry .position-fields code').first()).toHaveText('position.latitude')
   await page.getByRole('dialog', { name: 'Clés de mesure' }).getByRole('button', { name: 'Fermer' }).first().click()
-  await page.getByRole('dialog', { name: 'Créer un hook' }).getByRole('button', { name: 'Fermer' }).first().click()
-  await expect(sheet).toHaveCount(0)
+  await expect(page.locator('.key-reference')).toHaveCount(0)
 
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations).toEqual([])

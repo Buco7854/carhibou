@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AppSelect from '../src/components/AppSelect.vue'
 import i18n from '../src/i18n'
 import TelemetryTable from '../src/components/TelemetryTable.vue'
+import { resetMetricKeys } from '../src/metricRegistry'
 import { jsonResponse } from './helpers'
 
 const entries = [
@@ -25,8 +26,10 @@ function mountTable() {
   })
 }
 
+/** The table also asks for the metric registry, which carries no query at all. */
 function lastRequest(fetchMock: ReturnType<typeof vi.fn>): URLSearchParams {
-  return new URL(String(fetchMock.mock.calls.at(-1)?.[0]), 'http://localhost').searchParams
+  const url = fetchMock.mock.calls.map((call) => String(call[0])).filter((path) => path.includes('/entries')).at(-1)
+  return new URL(String(url), 'http://localhost').searchParams
 }
 
 describe('telemetry table', () => {
@@ -144,6 +147,39 @@ describe('telemetry table', () => {
     await wrapper.get('.entries-tools button').trigger('click')
     const agentColumn = wrapper.findAll('.columns-menu label').find((item) => item.text().includes('Mobile signal'))!
     expect(agentColumn.attributes('title')).toContain('mobile_signal')
+  })
+
+  it('takes a metric note from the server, and lets a locale sharpen it', async () => {
+    resetMetricKeys()
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/metrics/registry')) return Promise.resolve(jsonResponse({ metrics: [
+        { key:'battery.soc', unit:'%', meaning:'traction-battery state of charge from zero to one hundred', kind:'state', value_type:'number', retained:true, freshness_seconds:900 },
+        { key:'vehicle.range', unit:'km', meaning:'estimated remaining vehicle range', kind:'state', value_type:'number', retained:true, freshness_seconds:900 },
+      ] }))
+      return Promise.resolve(jsonResponse({
+        vehicle_id:'vehicle-1', start:'', end:'', total:2, limit:50, offset:0,
+        metric_keys:['battery.soc', 'vehicle.range'], agent_keys:['queue_depth'], entries,
+      }))
+    }))
+    const wrapper = mountTable()
+    await flushPromises()
+    // Found by canonical name rather than by label, because the point of the
+    // title is that the canonical name stays reachable.
+    const titleFor = (key: string) => wrapper.findAll('thead th button')
+      .map((button) => button.attributes('title') ?? '')
+      .find((title) => title.startsWith(key)) ?? ''
+
+    // battery.soc has a note of its own, which is a sharper sentence than the
+    // registry's wording, so the note wins.
+    expect(titleFor('battery.soc')).toContain('Charge remaining in the traction battery.')
+    // vehicle.range has none, so rather than showing the bare key the column
+    // says what the server says it means.
+    expect(titleFor('vehicle.range')).toContain('estimated remaining vehicle range')
+
+    // An agent key is not a registry metric and keeps its own note.
+    await wrapper.get('.entries-tools button').trigger('click')
+    const queue = wrapper.findAll('.columns-menu label').find((item) => item.text().includes('Queue'))
+    expect(queue?.attributes('title')).toContain('still holding until Carhibou confirms')
   })
 
   it('closes the column menu when the page is clicked elsewhere', async () => {

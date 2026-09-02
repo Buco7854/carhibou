@@ -6,6 +6,8 @@ import type { ProfileDataType, VehicleProfile } from '../api/types'
 import AppIcon from './AppIcon.vue'
 import AppModal from './AppModal.vue'
 import AppSelect from './AppSelect.vue'
+import { suggestCanonicalKey } from '../canonicalHints'
+import { loadMetricKeys, metricKeys } from '../metricRegistry'
 
 interface SignalDraft {
   name: string
@@ -31,6 +33,10 @@ const signalOpen = ref(false)
 const signalIndex = ref<number | null>(null)
 const form = ref({ name: '', description: '', signals: [] as SignalDraft[] })
 const signal = ref<SignalDraft>(blankSignal())
+/* Advisory only: a profile may publish any key it likes and this never stops
+   a save. It exists because `battery_soc` looks right and is not. */
+const signalNearMiss = computed(() =>
+  suggestCanonicalKey(signal.value.name, metricKeys.value.map((entry) => entry.key)))
 const editing = computed(() => Boolean(props.profile) && !props.clone)
 const dataTypes: ProfileDataType[] = ['uint8', 'uint16', 'uint32', 'int8', 'int16', 'int32', 'boolean', 'bytes']
 
@@ -132,7 +138,7 @@ async function save(): Promise<void> {
   }
 }
 
-watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => { if (open) reset() }, { immediate: true })
+watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => { if (open) { reset(); void loadMetricKeys() } }, { immediate: true })
 </script>
 
 <template>
@@ -169,7 +175,11 @@ watch(() => [props.open, props.profile?.id, props.clone] as const, ([open]) => {
       <section class="field-section">
         <header><h3>{{ t('profiles.signalIdentity') }}</h3><p>{{ t('profiles.signalIdentityHint') }}</p></header>
         <div class="signal-grid identity-grid">
-          <label class="field"><span>{{ t('profiles.metricName') }}</span><input v-model="signal.name" class="input mono" placeholder="battery.soc" pattern="[a-z][a-z0-9_.-]*" required autofocus /></label>
+          <label class="field">
+            <span>{{ t('profiles.metricName') }}</span>
+            <input v-model="signal.name" class="input mono" placeholder="battery.soc" pattern="[a-z][a-z0-9_.-]*" required autofocus />
+            <small v-if="signalNearMiss" class="field-hint near-miss">{{ t('profiles.nearMiss', { key: signalNearMiss }) }}</small>
+          </label>
           <label class="field"><span>{{ t('profiles.displayName') }}</span><input v-model="signal.display_name" class="input" /></label>
         </div>
       </section>

@@ -52,10 +52,10 @@ const definitions: DashboardWidgetDefinition[] = [
   { type:'online-status', titleKey:'dashboards.onlineStatus', component:OnlineStatusWidget, defaultSize:{w:3,h:2}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title']}, isEmpty:(_widget, vehicle) => !vehicle?.state },
   { type:'agent-health', titleKey:'dashboards.agentHealth', component:AgentHealthWidget, defaultSize:{w:3,h:4}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title']}, isEmpty:(_widget, vehicle) => Object.keys(vehicle?.state?.agent ?? {}).length === 0 },
   { type:'route-map', titleKey:'dashboards.routeMap', component:RouteMapWidget, defaultSize:{w:8,h:6}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => !vehicle?.state },
-  { type:'activity-feed', titleKey:'dashboards.activityFeed', component:ActivityFeedWidget, defaultSize:{w:4,h:5}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => neverReported(vehicle) },
-  { type:'segment-stats', titleKey:'dashboards.segmentStats', component:SegmentStatsWidget, defaultSize:{w:4,h:3}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => neverReported(vehicle) },
+  { type:'activity-feed', titleKey:'dashboards.activityFeed', component:ActivityFeedWidget, defaultSize:{w:4,h:5}, general:false, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => neverReported(vehicle) },
+  { type:'segment-stats', titleKey:'dashboards.segmentStats', component:SegmentStatsWidget, defaultSize:{w:4,h:3}, general:false, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => neverReported(vehicle) },
   { type:'xy-chart', titleKey:'dashboards.xyChart', component:XyChartWidget, defaultSize:{w:6,h:3}, general:false, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days','x_metric','y_metric']}, isEmpty:(widget, vehicle) => neverReported(vehicle) || !(widget.x_metric && widget.y_metric) },
-  { type:'period-stats', titleKey:'dashboards.periodStats', component:PeriodStatsWidget, defaultSize:{w:6,h:3}, general:true, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => neverReported(vehicle) },
+  { type:'period-stats', titleKey:'dashboards.periodStats', component:PeriodStatsWidget, defaultSize:{w:6,h:3}, general:false, needsMetric:false, configSchema:{fields:['vehicle_id','title','time_range_days']}, isEmpty:(_widget, vehicle) => neverReported(vehicle) },
   { type:'hook-activity', titleKey:'dashboards.hookActivity', component:HookActivityWidget, defaultSize:{w:4,h:3}, general:true, needsMetric:false, configSchema:{fields:['title']} },
 ]
 
@@ -94,7 +94,10 @@ export const STANDARD_METRICS: ReadonlySet<string> = new Set([SPEED_KEY])
  * because choosing it means choosing a metric, yet an instance bound to speed
  * asks only for standard data and shows unconditionally. An instance bound to
  * battery state does not. A type with no metric field at all (energy, charging,
- * the photo) is bound by its own nature and always counts as specific.
+ * the photo) is bound by its own nature and always counts as specific. So is a
+ * card built out of drives and charges: deriving either takes more than a
+ * vehicle merely reporting, and a card that can only ever say it found none is
+ * making a claim about the vehicle rather than showing it no data.
  */
 export function needsSpecificData(widget: DashboardWidget): boolean {
   const definition = widgetRegistry[widget.type]

@@ -11,7 +11,18 @@ const REGISTRY = {
     { key: 'vehicle.speed', unit: 'km/h', meaning: 'road speed', kind: 'measurement', value_type: 'number', retained: false, freshness_seconds: 180 },
     { key: 'site.custom', unit: null, meaning: 'a kind this build has no word for', kind: 'ledger', value_type: 'number', retained: false, freshness_seconds: 60 },
   ],
+  position: {
+    meaning: 'the GNSS fix: reported and stored as one indivisible observation - fields are never combined across instants',
+    fields: [
+      { key: 'latitude', unit: '\u00b0', meaning: 'north-positive angular distance from the equator' },
+      { key: 'longitude', unit: '\u00b0', meaning: 'east-positive angular distance from the prime meridian' },
+      { key: 'speed', unit: 'km/h', meaning: 'GNSS ground speed; a candidate for vehicle.speed' },
+    ],
+  },
 }
+
+/** What a server that predates the descriptor answers. */
+const REGISTRY_WITHOUT_POSITION = { metrics: REGISTRY.metrics }
 
 function open() {
   return mount(MetricKeyReference, { props: { open: true }, global: { plugins: [i18n], stubs: { Teleport: true } } })
@@ -82,6 +93,46 @@ describe('metric key reference', () => {
     expect(page.text()).toContain('not available from this server')
   })
 
+  it('pins the fix above the metrics, in the words the server chose', async () => {
+    mockApi({ '/metrics/registry': REGISTRY })
+    const page = open()
+    await flushPromises()
+    const entry = page.get('.position-entry')
+    // The rule editor takes these namespaced, so the reference offers them that
+    // way even though the registry names the bare field.
+    expect(entry.findAll('.position-fields code').map((field) => field.text())).toEqual([
+      'position.latitude', 'position.longitude', 'position.speed',
+    ])
+    expect(entry.get('.key-kind').text()).toBe('Fix')
+    // Atomicity and the speed candidacy are the server's words, not ours.
+    expect(entry.get('.key-meaning').text()).toContain('never combined across instants')
+    expect(entry.text()).toContain('a candidate for vehicle.speed')
+    expect(entry.text()).toContain('north-positive angular distance')
+    // A fix is not a registry metric and must not be counted as one.
+    expect(page.get('.reference-count').text()).toBe('3 keys')
+    expect(page.findAll('.key-list li')).toHaveLength(3)
+  })
+
+  it('says nothing about position when the server does not describe it', async () => {
+    mockApi({ '/metrics/registry': REGISTRY_WITHOUT_POSITION })
+    const page = open()
+    await flushPromises()
+    expect(page.find('.position-entry').exists()).toBe(false)
+    // The metrics still list, so absence of the descriptor costs nothing else.
+    expect(page.findAll('.key-list li')).toHaveLength(3)
+  })
+
+  it('leaves the fix out when the search is about something else', async () => {
+    mockApi({ '/metrics/registry': REGISTRY })
+    const page = open()
+    await flushPromises()
+    await page.get('input[type="search"]').setValue('latitude')
+    expect(page.find('.position-entry').exists()).toBe(true)
+    expect(page.findAll('.key-list li')).toHaveLength(0)
+    await page.get('input[type="search"]').setValue('battery')
+    expect(page.find('.position-entry').exists()).toBe(false)
+  })
+
   it('keeps its own words in French', async () => {
     mockApi({ '/metrics/registry': REGISTRY })
     i18n.global.locale.value = 'fr'
@@ -91,5 +142,8 @@ describe('metric key reference', () => {
     expect(facts).toContain('État')
     expect(facts).toContain('Nombre')
     expect(facts).toContain('reste affichée')
+    // The fix's own words stay as the server sent them; only the chrome around
+    // them is translated.
+    expect(page.get('.position-entry').get('.key-kind').text()).toBe('Point')
   })
 })

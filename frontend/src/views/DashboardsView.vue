@@ -64,7 +64,7 @@ let grid: GridStack | undefined
 let resizeObserver: ResizeObserver | undefined
 let canvasColumns = 12
 let editSnapshot: Dashboard[] | null = null
-const OVERVIEW_PRESET = 'overview-v9'
+const OVERVIEW_PRESET = 'overview-v10'
 
 function cloneDashboards(value: Dashboard[]): Dashboard[] {
   return JSON.parse(JSON.stringify(value)) as Dashboard[]
@@ -169,12 +169,14 @@ function premadeLayout(vehicleId?: string): Dashboard['layout'] {
     // Where is it, and what has it been up to. The map is the one hero card, and
     // the two lists beside it stack to exactly its height.
     widget(clientId('widget'), 'route-map', undefined, 0, 3, 8, 6, { time_range_days:1 }),
-    widget(clientId('widget'), 'activity-feed', undefined, 8, 3, 4, 3, { time_range_days:7 }),
+    widget(clientId('widget'), 'activity-feed', undefined, 8, 3, 4, 3, { time_range_days:7, ...hideWhenEmpty }),
     widget(clientId('widget'), 'telemetry-list', undefined, 8, 6, 4, 3, { metrics:['vehicle.speed', 'battery.soc', 'battery.power', 'battery.pack_voltage', 'vehicle.odometer'], ...hideWhenEmpty }),
     // What did it cost. Half and half: both hold a grid of readings that wrapped
-    // badly at a third of the width.
-    widget(clientId('widget'), 'segment-stats', undefined, 0, 9, 6, 2, { time_range_days:7 }),
-    widget(clientId('widget'), 'period-stats', undefined, 6, 9, 6, 2, { time_range_days:7 }),
+    // badly at a third of the width. Everything on this row is derived from
+    // drives and charges, so on a vehicle that yields neither all three of these
+    // cards hide rather than each repeating that there is nothing to total.
+    widget(clientId('widget'), 'segment-stats', undefined, 0, 9, 6, 2, { time_range_days:7, ...hideWhenEmpty }),
+    widget(clientId('widget'), 'period-stats', undefined, 6, 9, 6, 2, { time_range_days:7, ...hideWhenEmpty }),
     // How it has moved. The charge curve trails, being the one that may hide.
     widget(clientId('widget'), 'time-series', undefined, 0, 11, 6, 4, { metric:'vehicle.speed', time_range_days:1 }),
     widget(clientId('widget'), 'xy-chart', undefined, 6, 11, 6, 4, { x_metric:'battery.soc', y_metric:'charging.power', time_range_days:7, ...hideWhenEmpty }),

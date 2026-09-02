@@ -430,6 +430,23 @@ export interface MetricRegistryEntry {
   freshness_seconds: number
 }
 
+/**
+ * A fix is one observation rather than six metrics, so the registry describes it
+ * separately. Optional because a server that predates the descriptor answers
+ * without it, and the reference then says nothing rather than inventing a copy.
+ */
+export interface PositionFieldDescriptor {
+  key: string
+  unit: string
+  meaning: string
+}
+
+export interface PositionDescriptor {
+  meaning: string
+  fields: PositionFieldDescriptor[]
+}
+
 export interface MetricRegistry {
   metrics: MetricRegistryEntry[]
+  position?: PositionDescriptor
 }
