@@ -27,6 +27,10 @@ PID_DECODERS: dict[int, tuple[str, Callable[[bytes], float], str]] = {
     # Control module voltage is the vehicle's reading of the same accessory rail
     # the adapter measures with ATRV, so it carries the same canonical key.
     0x42: ("battery.aux_voltage", lambda data: _ab(data) / 1000, "V"),
+    # The only standard route to hybrid/EV pack charge, and unverified against a
+    # car: few vehicles answer it, and one that does not simply returns no data.
+    # A vehicle profile remains the accurate source wherever one exists.
+    0x5B: ("battery.soc", lambda data: _a(data) * 100 / 255, "%"),
 }
 
 
