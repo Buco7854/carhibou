@@ -26,8 +26,17 @@ const (
 // readinessMetrics are the canonical names that state outright whether the
 // vehicle is in use. A profile declares one by decoding a frame to that name, so
 // this needs no field in the profile format: the canonical name is the
-// declaration. Charging counts as in use, because watching a charge is exactly
-// when a slow cadence is least wanted.
+// declaration.
+//
+// charging.active was one of these, on the reasoning that watching a charge is
+// when a slow cadence is least wanted. It is not: a car on a charger is parked,
+// and treating it as in use ran the driving cadence all evening for a vehicle
+// that had not moved. The endpoints of a charge are reported by the charge
+// start and stop events, which are bonus deliveries and do not depend on the
+// cadence at all. Its absence here also restores the sources below: a stated
+// charging.active=false short-circuited this loop, and since "not charging" says
+// nothing whatever about motion, the only thing that veto ever did was discard
+// the speed and engine readings of a car that was plainly driving.
 //
 // vehicle.ready covers a combustion vehicle with its ignition on and an electric
 // one showing READY. There was a separate vehicle.ignition, treated identically
@@ -39,7 +48,7 @@ const (
 // those names would need updating for every vehicle it met. A profile translates
 // its own raw values into these three meanings and the agent recognises nothing
 // else, so a vehicle nobody has seen before is a profile, not a release.
-var readinessMetrics = []string{"vehicle.ready", "charging.active"}
+var readinessMetrics = []string{"vehicle.ready"}
 
 const (
 	// Below this a GPS fix is reporting its own noise rather than motion.

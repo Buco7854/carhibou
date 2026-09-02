@@ -37,11 +37,53 @@ func TestReadinessOutranksEverythingWeaker(t *testing.T) {
 	}
 }
 
-func TestChargingCountsAsInUse(t *testing.T) {
+// A car on a charger is a parked car. Counting the charge as use ran the driving
+// cadence all evening for a vehicle sitting on a driveway; the endpoints of the
+// charge are reported by its start and stop events, which owe nothing to cadence.
+func TestChargingIsParked(t *testing.T) {
 	detector := &ActivityDetector{}
 	active, source := detector.Observe(metrics(map[string]any{"charging.active": true}), time.Now())
-	if !active || source != SourceReadiness {
-		t.Fatalf("a charging vehicle must keep the fast cadence, got active=%v source=%s", active, source)
+	if active || source != SourceIdle {
+		t.Fatalf("a charging vehicle must be parked, got active=%v source=%s", active, source)
+	}
+}
+
+// Charging stops being evidence on its own; it does not stop a vehicle that is
+// plainly in use from being recognised.
+func TestAReadyVehicleIsInUseWhileCharging(t *testing.T) {
+	detector := &ActivityDetector{}
+	sample := metrics(map[string]any{"vehicle.ready": true, "charging.active": true})
+	if active, source := detector.Observe(sample, time.Now()); !active || source != SourceReadiness {
+		t.Fatalf("readiness must still decide, got active=%v source=%s", active, source)
+	}
+}
+
+// "Not charging" says nothing about whether a vehicle is moving, so it must not
+// discard the readings of one that is. It used to: charging.active was treated as
+// a readiness claim, and a stated false short-circuited every source below it. On
+// a profile that decodes charging but not readiness - the C-Zero - that made a car
+// doing ninety read as parked.
+func TestNotChargingDoesNotOverruleMotion(t *testing.T) {
+	now := time.Now()
+	for _, test := range []struct {
+		name    string
+		metrics map[string]any
+		want    ActivitySource
+	}{
+		{"speed", map[string]any{"charging.active": false, "vehicle.speed": 90.0}, SourceSpeed},
+		{"engine", map[string]any{"charging.active": false, "engine.rpm": 900.0}, SourceEngine},
+	} {
+		detector := &ActivityDetector{}
+		active, source := detector.Observe(metrics(test.metrics), now)
+		if !active || source != test.want {
+			t.Fatalf("%s: active=%v source=%s, want %s", test.name, active, source, test.want)
+		}
+	}
+
+	// With nothing moving, a stated false is still a parked vehicle.
+	detector := &ActivityDetector{}
+	if active, _ := detector.Observe(metrics(map[string]any{"charging.active": false}), now); active {
+		t.Fatal("a vehicle that is neither charging nor moving is parked")
 	}
 }
 

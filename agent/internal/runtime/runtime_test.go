@@ -497,3 +497,39 @@ func TestCollectRetractsCachedChannelValuesOnceAndResumesAfterRevival(t *testing
 		t.Fatalf("revived observations=%#v, want the cached value again", revived.Observations)
 	}
 }
+
+// The evening that prompted the ruling: a C-Zero plugged in at home uploaded
+// every fifteen seconds until it was full, because the charge was counted as
+// use. A charging car is a parked car, and parked cadence is what it gets.
+func TestAChargingVehicleKeepsTheParkedCadence(t *testing.T) {
+	now := time.Now().UTC()
+	vehicle := &switchingVehicle{
+		live: true,
+		observations: model.MetricObservations{
+			"charging.active": observation(true, now),
+			"charging.power":  observation(3.2, now),
+			"battery.soc":     observation(64.0, now),
+		},
+	}
+	agent := newAgent(t, EmptyPosition{})
+	agent.Vehicle = vehicle
+	agent.DrivingReportingInterval = 15
+	agent.ParkedReportingInterval = 600
+
+	sample, err := agent.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sample.Agent["vehicle_in_use"] != false {
+		t.Fatalf("vehicle_in_use=%v, want a charging car parked", sample.Agent["vehicle_in_use"])
+	}
+	if sample.Agent["activity_source"] != string(SourceIdle) {
+		t.Fatalf("activity_source=%v, want %q", sample.Agent["activity_source"], SourceIdle)
+	}
+	if sample.ReportingInterval == nil || *sample.ReportingInterval != 600 {
+		t.Fatalf("reporting interval=%v, want the parked cadence", sample.ReportingInterval)
+	}
+	if agent.InUse {
+		t.Fatal("a charging vehicle must not hold the agent in use")
+	}
+}

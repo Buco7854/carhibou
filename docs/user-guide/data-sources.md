@@ -77,9 +77,10 @@ about 30 seconds. Estimates use the selected CAN profile's signal count and expe
 driving hours.
 
 The agent reports its decision as `vehicle_in_use`, with `activity_source` naming the
-evidence. It considers, in order, profile readiness or charging, whether the vehicle bus
-answered, decoded or GPS speed above 3 km/h, and displacement above 60 m. Any source may
-be absent. Driving cadence remains active for three minutes after the last evidence to
+evidence: `readiness`, `engine`, `speed`, `movement`, `grace` or `idle`. It considers, in
+order, profile readiness, engine speed above zero, decoded or GPS speed above 3 km/h, and
+displacement above 60 m. Any source may be absent. Charging is not among them: a car on a
+charger is parked, and its charge is reported by the start and stop events instead. Driving cadence remains active for three minutes after the last evidence to
 avoid slowing down at brief stops; a newly started agent begins parked.
 
 ## Custom agents
