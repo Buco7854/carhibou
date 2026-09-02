@@ -106,13 +106,17 @@ policy.
 
 ### Forward recorded positions to Traccar
 
-Store the complete OsmAnd endpoint as `traccar_url`. This example forwards every
-position in the triggering upload, including buffered positions recorded while the
-agent was offline:
+This example forwards every position in the triggering upload, including buffered
+positions recorded while the agent was offline:
 
 ```python
 # hook-example: forward-positions-to-traccar
 from datetime import timedelta
+
+# A LAN URL with no token is not a secret. If Traccar is reachable from the
+# internet, the URL is the only lock: store it as a secret and read
+# ctx.secrets["traccar_url"] instead.
+TRACCAR_URL = "http://192.168.1.50:5055"
 
 if not ctx.telemetry.triggering:
     return
@@ -140,7 +144,7 @@ for row in rows:
     if ctx.dry_run:
         ctx.log.info("Would forward position to Traccar", **params)
         continue
-    response = ctx.http.get(ctx.secrets["traccar_url"], params=params, timeout=8)
+    response = ctx.http.get(TRACCAR_URL, params=params, timeout=8)
     if response.status_code >= 400:
         raise RuntimeError(f"Traccar request failed with HTTP {response.status_code}")
     ctx.log.info("Forwarded position to Traccar", **params)
