@@ -117,6 +117,9 @@ from datetime import timedelta
 # internet, the URL is the only lock: store it as a secret and read
 # ctx.secrets["traccar_url"] instead.
 TRACCAR_URL = "http://192.168.1.50:5055"
+# Must equal the device identifier registered in Traccar; ctx.vehicle.id only
+# works if you registered the device under it.
+TRACCAR_DEVICE_ID = ctx.vehicle.id
 
 if not ctx.telemetry.triggering:
     return
@@ -134,7 +137,7 @@ for row in rows:
         continue
     point = row.value
     params = {
-        "id": ctx.vehicle.id,
+        "id": TRACCAR_DEVICE_ID,
         "lat": point.latitude,
         "lon": point.longitude,
         "speed": getattr(point, "speed", None),
