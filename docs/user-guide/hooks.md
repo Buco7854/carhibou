@@ -124,6 +124,8 @@ TRACCAR_DEVICE_ID = ctx.vehicle.id
 if not ctx.telemetry.triggering:
     return
 
+soc = ctx.telemetry.current.readings.get("battery.soc")
+battery = soc.value if soc and isinstance(soc.value, (int, float)) else None
 times = [row.observed_at for row in ctx.telemetry.triggering]
 telemetry_ids = {row.telemetry_id for row in ctx.telemetry.triggering}
 rows = ctx.telemetry.history(
@@ -144,6 +146,7 @@ for row in rows:
         "speed": getattr(point, "speed", None),
         "bearing": getattr(point, "heading", None),
         "accuracy": getattr(point, "accuracy", None),
+        "batt": battery,
         "timestamp": int(row.observed_at.timestamp()),
     }
     if ctx.dry_run:
@@ -236,6 +239,13 @@ Secrets are instance-wide, administrator-managed and write-only. Stored values a
 encrypted under `CARHIBOU_MASTER_KEY`; logs and tracebacks are redacted against current
 values, but hook code can still transmit them. Back up the master key with the database
 or the secrets cannot be recovered.
+
+A request that never reaches a server - a refused connection, a timeout, or a port
+that answers with something other than HTTP - raises a `RuntimeError` naming the
+method and the host and port it tried, and nothing else from the URL. The path,
+the query and any credentials are left out because they carry tokens. The
+underlying transport error stays chained, so the detail is still in the traceback
+below the summary.
 
 The standard library and application dependencies, including `httpx`, are available.
 Prefer bounded `ctx.http` calls because they inherit secret redaction. Extra packages
