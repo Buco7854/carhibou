@@ -101,3 +101,30 @@ def test_position_fields_are_not_offered_as_metrics(
     keys = {metric["key"] for metric in payload["metrics"]}
     assert keys.isdisjoint({field["key"] for field in payload["position"]["fields"]})
     assert keys == set(CANONICAL_METRICS)
+
+
+def test_every_standard_pid_the_agent_decodes_is_a_defined_metric() -> None:
+    """The agent published seven keys the registry had never heard of, which is
+    how a reading important enough to decode ends up in the namespaced space
+    where nothing understands it. The decoder table is the contract's other end."""
+    from agent.vehicle_agent.providers.standard_obd import PID_DECODERS
+
+    for pid, (key, _decode, unit) in PID_DECODERS.items():
+        definition = CANONICAL_METRICS.get(key)
+        assert definition is not None, f"PID {pid:#04x} publishes undefined key {key!r}"
+        assert definition.unit == unit, f"{key} decodes {unit!r}, registry says {definition.unit!r}"
+        assert not key.startswith("agent."), f"{key} is vehicle data, not agent host health"
+
+
+def test_the_supply_reading_has_exactly_one_canonical_key() -> None:
+    """The adapter measures the accessory rail with ATRV and the vehicle reports
+    the same rail as control module voltage. One quantity, one key: publishing it
+    twice under two names is what the standard exists to prevent."""
+    from agent.vehicle_agent.providers.standard_obd import PID_DECODERS
+
+    assert PID_DECODERS[0x42][0] == "battery.aux_voltage"
+    assert "agent.input_voltage" not in CANONICAL_METRICS
+    voltages = {key for key in CANONICAL_METRICS if CANONICAL_METRICS[key].unit == "V"}
+    # Pack voltage and charger input voltage are different nodes; the accessory
+    # rail is named once.
+    assert voltages == {"battery.aux_voltage", "battery.pack_voltage", "charging.voltage"}

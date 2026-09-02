@@ -24,7 +24,9 @@ PID_DECODERS: dict[int, tuple[str, Callable[[bytes], float], str]] = {
     0x10: ("engine.maf", lambda data: _ab(data) / 100, "g/s"),
     0x11: ("engine.throttle", lambda data: _a(data) * 100 / 255, "%"),
     0x2F: ("fuel.level", lambda data: _a(data) * 100 / 255, "%"),
-    0x42: ("agent.input_voltage", lambda data: _ab(data) / 1000, "V"),
+    # Control module voltage is the vehicle's reading of the same accessory rail
+    # the adapter measures with ATRV, so it carries the same canonical key.
+    0x42: ("battery.aux_voltage", lambda data: _ab(data) / 1000, "V"),
 }
 
 

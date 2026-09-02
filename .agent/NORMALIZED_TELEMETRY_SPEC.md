@@ -65,6 +65,15 @@ Canonical keys cover only semantics Carhibou can prove. Extension keys remain
 namespaced. Registry validation is per value and fail-open for the containing
 sample: one invalid observation is rejected without discarding unrelated data.
 
+Anything a first-party source decodes on purpose is a semantics Carhibou has
+proved, so it is defined rather than left namespaced: every standard OBD-II PID
+the agent reads has a canonical key, and a decoder publishing an undefined one
+is a defect the registry tests catch. One physical quantity has exactly one key,
+whatever measured it: the accessory rail read by the adapter's own supply
+reading and by the vehicle's control-module voltage is `battery.aux_voltage`
+from both, distinguished by provenance rather than by a second name. The `agent.`
+namespace is the host's own health and never carries vehicle data.
+
 Initial cross-source rules:
 
 - `vehicle.speed`: choose among fresh candidates; direct CAN/OBD speed wins over

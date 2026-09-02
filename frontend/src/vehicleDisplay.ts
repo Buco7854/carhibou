@@ -103,9 +103,6 @@ const metricDefinitions: Record<string, MetricDefinition> = {
   'vehicle.speed': {
     key: 'vehicle.speed', labelKey: 'metrics.vehicleSpeed', unit: 'km/h', icon: 'speed', decimals: 0, kind: 'number',
   },
-  'agent.input_voltage': {
-    key: 'agent.input_voltage', labelKey: 'metrics.inputVoltage', unit: 'V', icon: 'battery', decimals: 1, kind: 'number',
-  },
 }
 
 /**
@@ -258,7 +255,6 @@ const conventionalOrder = [
   'engine.intake_temperature',
   'engine.maf',
   'fuel.level',
-  'agent.input_voltage',
   'battery.soc',
   'battery.pack_voltage',
   'battery.power',

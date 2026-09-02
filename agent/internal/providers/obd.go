@@ -838,7 +838,11 @@ var StandardPIDs = map[int]PIDDefinition{
 	0x10: {"engine.maf", "g/s", func(data []byte) (float64, error) { value, err := bytesAB(data); return value / 100, err }},
 	0x11: {"engine.throttle", "%", func(data []byte) (float64, error) { value, err := byteA(data); return value * 100 / 255, err }},
 	0x2F: {"fuel.level", "%", func(data []byte) (float64, error) { value, err := byteA(data); return value * 100 / 255, err }},
-	0x42: {"agent.input_voltage", "V", func(data []byte) (float64, error) { value, err := bytesAB(data); return value / 1000, err }},
+	// Control module voltage: the vehicle's own reading of the accessory rail the
+	// adapter measures with ATRV. Same quantity, second opinion, so it publishes
+	// the same canonical key rather than a parallel one. Read after the supply, so
+	// on a car that answers it the vehicle's own figure is the one that survives.
+	0x42: {AuxVoltageMetric, "V", func(data []byte) (float64, error) { value, err := bytesAB(data); return value / 1000, err }},
 	// Mode 01 PID 5B is the only standard route to hybrid/EV pack charge. SAE J1979 names
 	// it "hybrid battery pack remaining life" and scan tools read it as pack charge, but
 	// few vehicles answer it and the reading is unverified against a car. A vehicle

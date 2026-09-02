@@ -89,3 +89,45 @@ func TestStandardOBDVehicleWithNoAnswersPublishesNothingAndSaysWhy(t *testing.T)
 		t.Fatal("a silent adapter must say why it published nothing")
 	}
 }
+
+// Control module voltage and the adapter's own ATRV reading are the same
+// accessory rail seen from two places, so they publish one canonical key. They
+// used to be agent.input_voltage and battery.aux_voltage: one quantity, two
+// names, and an agent. prefix on a reading that is not about the agent.
+func TestControlModuleVoltagePublishesTheAuxVoltageKey(t *testing.T) {
+	if name := StandardPIDs[0x42].Name; name != AuxVoltageMetric {
+		t.Fatalf("PID 0x42 publishes %q, want %q", name, AuxVoltageMetric)
+	}
+	for pid, definition := range StandardPIDs {
+		if strings.HasPrefix(definition.Name, "agent.") {
+			t.Fatalf("PID %#04x publishes %q; the agent namespace is host health, not vehicle data", pid, definition.Name)
+		}
+	}
+}
+
+// A vehicle that answers the control-module PID gets the reading it made itself;
+// one that is asleep still has the adapter's, because ATRV answers either way.
+func TestTheVehiclesOwnVoltageWinsOverTheAdaptersWhenBothAnswer(t *testing.T) {
+	port := &pidPort{replies: map[string]string{
+		"ATRV": "12.6V\r>",
+		"0142": "7E8 04 41 42 36 B0\r>",
+	}}
+	adapter := NewOBDAdapter("scripted")
+	adapter.port = port
+	adapter.CommandWindow = 200 * time.Millisecond
+
+	provider := NewStandardOBDProvider(adapter)
+	provider.connected = true
+	observations, err := provider.ReadObservations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 0x36B0 is 14000 millivolts: the engine is running and the alternator is
+	// charging, which the adapter's resting 12.6 would have hidden.
+	if got := observations[AuxVoltageMetric].Value; got != 14.0 {
+		t.Fatalf("%s=%v, want the vehicle's own 14.0", AuxVoltageMetric, got)
+	}
+	if _, present := observations["agent.input_voltage"]; present {
+		t.Fatal("the retired key is still being published")
+	}
+}

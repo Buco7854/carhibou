@@ -537,10 +537,7 @@ test('every canonical key the interface names is one the server still knows', as
    * so the names stay and this list names the gap instead of hiding it. It is a
    * list, not a pattern, so a name invented for a key nobody sends still fails.
    */
-  const awaitingRegistry = new Set([
-    'fuel.level', 'vehicle.ready', 'engine.load', 'engine.throttle',
-    'engine.intake_temperature', 'engine.maf', 'agent.input_voltage',
-  ])
+  const awaitingRegistry = new Set<string>([])
   expect(
     labels.filter((key) => !known.has(key) && !awaitingRegistry.has(key)),
     'display names for keys neither the registry nor the known gap accounts for',
