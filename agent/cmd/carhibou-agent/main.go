@@ -1375,6 +1375,11 @@ func commandRun(locations paths, arguments []string) error {
 		// next cadence deadline, and the upload that carries it is flushed with
 		// it: a charge that started at 02:00 is of no use first seen at 02:10.
 		event := agent.PendingEvent()
+		if event == "" {
+			// A vehicle whose source reports no speed still moves, and the only
+			// witness to that is its own displacement.
+			event = agent.MotionEvent(now)
+		}
 		if event != "" || !now.Before(nextSample) {
 			var collectErr error
 			nextSample, nextUpload, collectErr = collectAtCadence(agent, configuration, now, nextUpload)

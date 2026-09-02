@@ -63,6 +63,11 @@ const (
 	// broadcasts. A car that is awake repeats within milliseconds, so anything
 	// this long means it had stopped.
 	busWakeQuiet = time.Minute
+	// motionOnsetKMH is the speed at which a decoded reading stops being receiver
+	// or sensor noise and becomes a vehicle that has started moving. It matches
+	// the threshold the activity detector uses, so the event and the cadence
+	// change it triggers agree about what motion is.
+	motionOnsetKMH = 3.0
 	// quietSettleMargin is added to the liveness window before a gap in frames is
 	// called sleep. A momentary pause between broadcasts is not the ignition
 	// going off, and reporting it as one would park a moving car.
@@ -118,6 +123,8 @@ type ProfileProvider struct {
 	contradictions   int
 	lastAnyFrame     time.Time
 	monitorStartedAt time.Time
+	lastSpeed        float64
+	lastSpeedSeen    bool
 	quietSettle      time.Duration
 	quietPoll        time.Duration
 	busQuiet         bool
@@ -336,6 +343,7 @@ func (provider *ProfileProvider) record(frame model.CANFrame) {
 			},
 		}
 	}
+	provider.noteMotionOnset(next, observedAt)
 	provider.noteEvents(next, observedAt)
 	provider.observations = next
 }
@@ -622,6 +630,44 @@ func (provider *ProfileProvider) noteQuietOnset(at time.Time) {
 	}
 	provider.busQuiet = true
 	provider.raiseEvent(at, fmt.Sprintf("vehicle bus went quiet after %s", quiet.Round(time.Second)))
+}
+
+// noteMotionOnset turns a standing vehicle starting to move into an event.
+//
+// A state flip cannot cover this: speed is a number, and the car that matters is
+// the one whose speed went from nothing to something between two samples. On a
+// parked cadence that gap is ten minutes, which is how an entire first leg of a
+// journey happened inside one sampling interval and was never recorded at all.
+// The caller holds the mutex.
+func (provider *ProfileProvider) noteMotionOnset(next model.MetricObservations, at time.Time) {
+	observation, present := next["vehicle.speed"]
+	if !present {
+		return
+	}
+	speed, ok := numeric(observation.Value)
+	if !ok {
+		return
+	}
+	previous, seen := provider.lastSpeed, provider.lastSpeedSeen
+	provider.lastSpeed, provider.lastSpeedSeen = speed, true
+	if !seen || previous >= motionOnsetKMH || speed < motionOnsetKMH {
+		return
+	}
+	provider.raiseEvent(at, fmt.Sprintf("vehicle started moving at %.0f km/h", speed))
+}
+
+func numeric(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	}
+	return 0, false
 }
 
 // noteEvents records a state change worth reporting before the cadence would.

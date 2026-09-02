@@ -230,3 +230,62 @@ func TestLeavingAStreamDiscardsWhatTheStreamLeftBehind(t *testing.T) {
 		t.Fatalf("pending=%q, want the residue discarded", adapter.pending)
 	}
 }
+
+// A car that is switched on and then driven off flips no state this profile
+// decodes: readiness is not in its signal list, and speed is a number rather
+// than a state. The first leg of a journey therefore happened entirely inside
+// one parked sampling interval and was never recorded.
+func TestSpeedLeavingZeroRaisesAMotionEvent(t *testing.T) {
+	provider := wakeProvider(t)
+	at := time.Now().UTC()
+	moving := func(speed float64) model.MetricObservations {
+		return model.MetricObservations{
+			"vehicle.speed": {Value: speed, Metadata: model.ObservationMetadata{ObservedAt: at}},
+		}
+	}
+
+	// The first reading is a baseline, not a departure.
+	provider.noteMotionOnset(moving(0), at)
+	if reason := provider.TakeEvent(); reason != "" {
+		t.Fatalf("the first speed reading raised an event: %q", reason)
+	}
+	// Sensor noise below the threshold is not motion either.
+	provider.noteMotionOnset(moving(1), at)
+	if reason := provider.TakeEvent(); reason != "" {
+		t.Fatalf("noise raised a departure: %q", reason)
+	}
+
+	provider.noteMotionOnset(moving(24), at)
+	reason := provider.TakeEvent()
+	if !strings.Contains(reason, "started moving") {
+		t.Fatalf("reason=%q, want the departure reported", reason)
+	}
+
+	// Continuing to drive is not a fresh departure every frame.
+	for speed := 25.0; speed < 35; speed++ {
+		provider.noteMotionOnset(moving(speed), at)
+		if second := provider.TakeEvent(); second != "" {
+			t.Fatalf("a moving vehicle raised another departure: %q", second)
+		}
+	}
+
+	// Stopping and pulling away again is, once the debounce has passed.
+	later := at.Add(2 * eventDebounce)
+	provider.noteMotionOnset(moving(0), later)
+	provider.noteMotionOnset(moving(20), later)
+	if reason := provider.TakeEvent(); reason == "" {
+		t.Fatal("a second departure after a stop should be reported")
+	}
+}
+
+// A profile that decodes no speed must not have one invented for it.
+func TestAbsentSpeedRaisesNoMotionEvent(t *testing.T) {
+	provider := wakeProvider(t)
+	at := time.Now().UTC()
+	provider.noteMotionOnset(model.MetricObservations{
+		"battery.soc": {Value: 55.0, Metadata: model.ObservationMetadata{ObservedAt: at}},
+	}, at)
+	if reason := provider.TakeEvent(); reason != "" {
+		t.Fatalf("reason=%q, want silence when there is no speed to read", reason)
+	}
+}

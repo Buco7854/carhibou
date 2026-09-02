@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
-from backend.app.telemetry.registry import CANONICAL_METRICS
+from backend.app.telemetry.registry import CANONICAL_METRICS, POSITION_FIELDS
+from backend.app.telemetry.schemas import Position
 
 REGISTRY = "/api/v1/metrics/registry"
 
@@ -64,3 +65,39 @@ def test_registry_describes_metrics_only(registered: tuple[TestClient, str]) -> 
     keys = [metric["key"] for metric in client.get(REGISTRY).json()["metrics"]]
     assert "position" not in keys
     assert not any(key.startswith("position.") for key in keys)
+
+
+def test_position_descriptor_matches_the_wire_model_exactly(
+    registered: tuple[TestClient, str],
+) -> None:
+    """The descriptor is what the interface renders, so a field the fix carries
+    and the descriptor omits is a field nobody can see, and one the descriptor
+    invents is a column that is always empty."""
+    client, _csrf = registered
+    position = client.get(REGISTRY).json()["position"]
+
+    described = [field["key"] for field in position["fields"]]
+    assert described == [field.key for field in POSITION_FIELDS]
+    # Both directions, excluding none: the descriptor and the fix agree on the
+    # whole set, not merely overlap.
+    assert set(described) == set(Position.model_fields)
+
+    assert all(set(field) == {"key", "unit", "meaning"} for field in position["fields"])
+    assert all(field["unit"] and field["meaning"] for field in position["fields"])
+    assert "indivisible observation" in position["meaning"]
+
+    speed = next(field for field in position["fields"] if field["key"] == "speed")
+    assert speed["unit"] == "km/h"
+    assert speed["meaning"] == "GNSS ground speed; a candidate for vehicle.speed"
+
+
+def test_position_fields_are_not_offered_as_metrics(
+    registered: tuple[TestClient, str],
+) -> None:
+    """A fix is one observation. Its fields must not appear where a metric key is
+    expected, or a hook author will reach for a latitude that does not exist."""
+    client, _csrf = registered
+    payload = client.get(REGISTRY).json()
+    keys = {metric["key"] for metric in payload["metrics"]}
+    assert keys.isdisjoint({field["key"] for field in payload["position"]["fields"]})
+    assert keys == set(CANONICAL_METRICS)

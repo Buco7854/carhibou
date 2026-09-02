@@ -68,12 +68,14 @@ type ActivityDetector struct {
 // Observe reports whether the vehicle is in use and what decided it.
 func (detector *ActivityDetector) Observe(sample model.Sample, now time.Time) (bool, ActivitySource) {
 	source, found := detector.evidence(sample)
-	// The anchor is the place the vehicle was last seen. It has to be set while
-	// parked too, or an agent that starts up beside a parked car never has one,
-	// and displacement — the only source left for a vehicle with no profile and a
-	// receiver that reports no speed — can never fire. A sample without a fix
-	// leaves the previous anchor alone rather than forgetting it.
-	if sample.Position != nil && (found || detector.anchor == nil) {
+	// The anchor is where the vehicle was at the previous fix, so displacement
+	// always means "since the last sample". Updating it only when evidence fired
+	// froze it at the last moving position: a car that travelled on and parked
+	// left a gap between that anchor and where it came to rest, and the first
+	// parked sample then measured the end of the drive as fresh movement and
+	// armed a full grace period at a standstill. A sample without a fix leaves
+	// the previous anchor alone rather than forgetting it.
+	if sample.Position != nil {
 		detector.anchor = &sample.Position.Value
 	}
 	if found {
@@ -121,11 +123,26 @@ func (detector *ActivityDetector) evidence(sample model.Sample) (ActivitySource,
 		if sample.Position.Value.Speed != nil && *sample.Position.Value.Speed >= movingKMH {
 			return SourceSpeed, true
 		}
-		if detector.anchor != nil && distanceMeters(*detector.anchor, sample.Position.Value) >= movedMeters {
-			return SourceMovement, true
+		if detector.anchor != nil {
+			moved := distanceMeters(*detector.anchor, sample.Position.Value)
+			// A fix cannot report more movement than it can locate. Believing
+			// sixty metres from a fix that admits to a hundred is reading the
+			// receiver's own uncertainty as travel.
+			if moved >= movedMeters && moved >= reportedAccuracy(sample.Position.Value) {
+				return SourceMovement, true
+			}
 		}
 	}
 	return SourceIdle, false
+}
+
+// reportedAccuracy is the horizontal uncertainty the receiver claims, or zero
+// when it claims none and the reading has to be taken at face value.
+func reportedAccuracy(fix model.PositionFix) float64 {
+	if fix.Accuracy == nil || *fix.Accuracy < 0 {
+		return 0
+	}
+	return *fix.Accuracy
 }
 
 func truthy(value any) bool {

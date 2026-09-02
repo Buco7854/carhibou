@@ -166,3 +166,86 @@ func withMetrics(sample model.Sample, values map[string]any) model.Sample {
 	sample.Observations = metrics(values).Observations
 	return sample
 }
+
+// The field case: a C-Zero whose CAN bus lingers awake for minutes after the
+// ignition is switched off. It re-delivered an odometer and a lights state at a
+// standstill and the agent ran the driving cadence for a full grace period at
+// home. Metrics arriving is not evidence of motion; only motion is.
+func TestALingeringBusAtAStandstillStaysParked(t *testing.T) {
+	still := 0.0
+	now := time.Now()
+	detector := &ActivityDetector{Grace: time.Minute}
+
+	parked := at(48.8000, 2.3000, &still)
+	if active, _ := detector.Observe(parked, now); active {
+		t.Fatal("a stationary vehicle with no evidence must start parked")
+	}
+
+	// The bus wakes and re-publishes what it knows. None of it is motion.
+	lingering := withMetrics(at(48.8000, 2.3000, &still), map[string]any{
+		"vehicle.odometer": 72066.0,
+		"vehicle.lights":   "sidelights",
+		"vehicle.speed":    0.0,
+	})
+	for round := 0; round < 4; round++ {
+		if active, source := detector.Observe(lingering, now.Add(time.Duration(round)*time.Minute)); active {
+			t.Fatalf("a lingering bus made a parked car active via %s", source)
+		}
+	}
+}
+
+// The mechanism that armed it: the anchor used to be frozen at the last sample
+// where evidence fired, so the distance a car covered while coming to a stop was
+// measured again, once, as new movement after it had already parked.
+func TestParkingDoesNotReplayTheEndOfTheDriveAsMovement(t *testing.T) {
+	moving := 50.0
+	still := 0.0
+	now := time.Now()
+	detector := &ActivityDetector{Grace: time.Minute}
+
+	// Driving: speed is the evidence, and the anchor tracks the vehicle.
+	if active, source := detector.Observe(at(48.8000, 2.3000, &moving), now); !active || source != SourceSpeed {
+		t.Fatalf("active=%v source=%s, want the drive recognised", active, source)
+	}
+	// It travels on for the last few hundred metres and stops.
+	if active, _ := detector.Observe(at(48.8030, 2.3000, &still), now.Add(30*time.Second)); !active {
+		t.Fatal("the grace period should still hold immediately after a drive")
+	}
+	// Well past the grace period, sitting still at the place it parked.
+	resting := at(48.8030, 2.3000, &still)
+	if active, source := detector.Observe(resting, now.Add(10*time.Minute)); active {
+		t.Fatalf("a parked car was re-activated by its own arrival via %s", source)
+	}
+}
+
+// A receiver that cannot locate itself to better than a hundred metres has not
+// witnessed sixty metres of travel.
+func TestMovementIsNotBelievedBeyondTheFixesOwnAccuracy(t *testing.T) {
+	still := 0.0
+	vague := 150.0
+	now := time.Now()
+	detector := &ActivityDetector{Grace: time.Minute}
+
+	anchor := at(48.8000, 2.3000, &still)
+	anchor.Position.Value.Accuracy = &vague
+	detector.Observe(anchor, now)
+
+	// A hundred metres away, from a fix admitting to a hundred and fifty.
+	drifted := at(48.8009, 2.3000, &still)
+	drifted.Position.Value.Accuracy = &vague
+	if active, source := detector.Observe(drifted, now.Add(10*time.Minute)); active {
+		t.Fatalf("uncertainty was read as travel via %s", source)
+	}
+
+	// The same displacement from a receiver that knows where it is, is motion.
+	sharp := 5.0
+	confident := at(48.8009, 2.3000, &still)
+	confident.Position.Value.Accuracy = &sharp
+	fresh := &ActivityDetector{Grace: time.Minute}
+	base := at(48.8000, 2.3000, &still)
+	base.Position.Value.Accuracy = &sharp
+	fresh.Observe(base, now)
+	if active, source := fresh.Observe(confident, now.Add(10*time.Minute)); !active || source != SourceMovement {
+		t.Fatalf("active=%v source=%s, want a confident fix believed", active, source)
+	}
+}

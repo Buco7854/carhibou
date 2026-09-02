@@ -1,11 +1,17 @@
 from fastapi import APIRouter
 
 from backend.app.auth.dependencies import CurrentAgent, CurrentUser, Db
-from backend.app.telemetry.registry import CANONICAL_METRICS
+from backend.app.telemetry.registry import (
+    CANONICAL_METRICS,
+    POSITION_FIELDS,
+    POSITION_MEANING,
+)
 from backend.app.telemetry.schemas import (
     BatchResponse,
     MetricDefinitionResponse,
     MetricRegistryResponse,
+    PositionDescriptorResponse,
+    PositionFieldResponse,
     TelemetryBatch,
 )
 from backend.app.telemetry.services import ingest_batch
@@ -36,6 +42,13 @@ def metric_registry(auth: CurrentUser) -> MetricRegistryResponse:
 
     del auth
     return MetricRegistryResponse(
+        position=PositionDescriptorResponse(
+            meaning=POSITION_MEANING,
+            fields=[
+                PositionFieldResponse(key=field.key, unit=field.unit, meaning=field.meaning)
+                for field in POSITION_FIELDS
+            ],
+        ),
         metrics=[
             MetricDefinitionResponse(
                 key=definition.key,
@@ -47,5 +60,5 @@ def metric_registry(auth: CurrentUser) -> MetricRegistryResponse:
                 freshness_seconds=int(definition.freshness.total_seconds()),
             )
             for definition in sorted(CANONICAL_METRICS.values(), key=lambda item: item.key)
-        ]
+        ],
     )

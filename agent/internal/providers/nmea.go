@@ -275,6 +275,11 @@ func (provider *NMEAProvider) Read() (*model.PositionFix, error) {
 	return provider.Fix(), nil
 }
 
+// PollFix drains the receiver and returns the current fix. It is Read under
+// another name, declared separately so a source that cannot be read cheaply does
+// not accidentally satisfy the interface that promises it can.
+func (provider *NMEAProvider) PollFix() (*model.PositionFix, error) { return provider.Read() }
+
 // Fix reports the last decoded position while it is still fresh enough to describe
 // where the vehicle is now.
 func (provider *NMEAProvider) Fix() *model.PositionFix {

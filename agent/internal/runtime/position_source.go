@@ -85,6 +85,18 @@ func (provider *RetryingPositionProvider) Read() (*model.PositionFix, error) {
 	return fix, nil
 }
 
+// PollFix forwards a cheap read to a source that offers one, so motion between
+// samples stays noticeable through the retrying owner.
+func (provider *RetryingPositionProvider) PollFix() (*model.PositionFix, error) {
+	provider.mutex.Lock()
+	poller, ok := provider.current.(PositionPoll)
+	provider.mutex.Unlock()
+	if !ok {
+		return nil, nil
+	}
+	return poller.PollFix()
+}
+
 // Age reports the current source's fix age so a republished position stays
 // distinguishable from a freshly measured one.
 func (provider *RetryingPositionProvider) Age() time.Duration {

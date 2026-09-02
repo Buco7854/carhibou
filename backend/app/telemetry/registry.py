@@ -261,6 +261,31 @@ CANONICAL_METRICS = {
 }
 
 
+@dataclass(frozen=True)
+class PositionField:
+    key: str
+    unit: str
+    meaning: str
+
+
+# A fix is one observation, not six metrics: its fields are only true together,
+# so they are described here rather than in CANONICAL_METRICS and must never be
+# resolved, aggregated or carried forward independently of one another.
+POSITION_MEANING = (
+    "the GNSS fix: reported and stored as one indivisible observation - "
+    "fields are never combined across instants"
+)
+
+POSITION_FIELDS = (
+    PositionField("latitude", "°", "north-positive angular distance from the equator"),
+    PositionField("longitude", "°", "east-positive angular distance from the prime meridian"),
+    PositionField("altitude", "m", "height above the reference ellipsoid"),
+    PositionField("speed", "km/h", "GNSS ground speed; a candidate for vehicle.speed"),
+    PositionField("heading", "°", "clockwise course over ground from true north"),
+    PositionField("accuracy", "m", "radius of the reported horizontal uncertainty"),
+)
+
+
 def definition_for(key: str) -> MetricDefinition | None:
     return CANONICAL_METRICS.get(key)
 

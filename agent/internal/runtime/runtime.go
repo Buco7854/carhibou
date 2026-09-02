@@ -31,6 +31,14 @@ type AgedPosition interface {
 // that stopped reporting its position was indistinguishable from one parked in a
 // tunnel. Read returns what it has rather than an error, so the explanation has
 // to travel separately.
+// PositionPoll is implemented by a source whose current fix can be taken as
+// often as anyone likes, because reading it costs a buffer drain rather than a
+// command exchange. A modem answering +CGPSINFO is not one of these: asking it
+// four times a second would spend the whole interval on the serial line.
+type PositionPoll interface {
+	PollFix() (*model.PositionFix, error)
+}
+
 type PositionStatus interface {
 	Status() string
 }
@@ -121,7 +129,24 @@ type Agent struct {
 	vehicleKeys              map[string]map[string]rememberedVehicleKey
 	positionObservedAt       *time.Time
 	eventReason              string
+	motionAnchor             *model.PositionFix
+	motionAnchoredAt         time.Time
+	motionReportedAt         time.Time
 }
+
+const (
+	// motionOnsetMeters is how far a parked vehicle must be seen to have gone
+	// before its own displacement is called a departure. Far enough that a fix
+	// wandering under cover cannot reach it, near enough that a car pulling away
+	// crosses it within seconds.
+	motionOnsetMeters = 150.0
+	// motionAnchorWindow bounds how long displacement is measured over, so slow
+	// drift cannot accumulate into a departure across a ten-minute parked gap.
+	motionAnchorWindow = time.Minute
+	// motionReportGap keeps a vehicle crossing the threshold repeatedly from
+	// asking for a sample each time.
+	motionReportGap = 30 * time.Second
+)
 
 // PendingEvent reports a state change that deserves a sample before the next
 // cadence deadline, consuming it so one transition causes one sample.
@@ -134,6 +159,49 @@ func (agent *Agent) PendingEvent() string {
 	if reason != "" {
 		agent.eventReason = reason
 	}
+	return reason
+}
+
+// MotionEvent notices a parked vehicle leaving, for a source that has no speed
+// to read.
+//
+// A vehicle with no profile, or one whose profile decodes no speed, is invisible
+// between samples: the only evidence it has left is that it is no longer where it
+// was, and on a parked cadence nobody looks for ten minutes. This is checked far
+// more often than a sample is taken, so departure is noticed in the seconds it
+// takes to cover the threshold rather than at the next deadline.
+func (agent *Agent) MotionEvent(now time.Time) string {
+	// A vehicle already known to be in use is on the fast cadence; there is
+	// nothing here for it to discover.
+	if agent.InUse {
+		return ""
+	}
+	poller, ok := agent.Position.(PositionPoll)
+	if !ok {
+		return ""
+	}
+	fix, err := poller.PollFix()
+	if err != nil || fix == nil {
+		return ""
+	}
+	current := *fix
+	if agent.motionAnchor == nil || now.Sub(agent.motionAnchoredAt) > motionAnchorWindow {
+		agent.motionAnchor = &current
+		agent.motionAnchoredAt = now
+		return ""
+	}
+	moved := distanceMeters(*agent.motionAnchor, current)
+	if moved < motionOnsetMeters || moved < reportedAccuracy(current) {
+		return ""
+	}
+	agent.motionAnchor = &current
+	agent.motionAnchoredAt = now
+	if !agent.motionReportedAt.IsZero() && now.Sub(agent.motionReportedAt) < motionReportGap {
+		return ""
+	}
+	agent.motionReportedAt = now
+	reason := fmt.Sprintf("vehicle moved %.0f m while parked", moved)
+	agent.eventReason = reason
 	return reason
 }
 

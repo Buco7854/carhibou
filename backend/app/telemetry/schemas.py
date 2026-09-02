@@ -135,5 +135,17 @@ class MetricDefinitionResponse(BaseModel):
     freshness_seconds: int
 
 
+class PositionFieldResponse(BaseModel):
+    key: str
+    unit: str
+    meaning: str
+
+
+class PositionDescriptorResponse(BaseModel):
+    meaning: str
+    fields: list[PositionFieldResponse]
+
+
 class MetricRegistryResponse(BaseModel):
     metrics: list[MetricDefinitionResponse]
+    position: PositionDescriptorResponse

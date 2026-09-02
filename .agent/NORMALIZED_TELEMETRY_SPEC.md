@@ -247,8 +247,12 @@ Registry, not vehicle-scoped:
   freshness_seconds}`, sorted by key, so profile and hook authors can see which
   keys carry an agreed meaning rather than guessing one into the namespaced
   extension space. `retained` is the definition's stale-retention behaviour and
-  `freshness_seconds` its registry window; position is one atomic observation
-  rather than a registry metric, so it does not appear.
+  `freshness_seconds` its registry window. Position is one atomic observation
+  rather than a registry metric, so it never appears among them; it is described
+  separately in the same response as `position`: a `meaning` and a `fields` list
+  of `{key, unit, meaning}` covering latitude, longitude, altitude, speed,
+  heading and accuracy. That descriptor and the position wire model are defined
+  from one source and must list exactly the same fields.
 
 Hook context (implemented in `backend/app/hooks/context.py`; the v1
 `ctx.telemetry.metrics` and `ctx.telemetry_batch` no longer exist):
