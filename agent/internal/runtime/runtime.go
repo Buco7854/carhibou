@@ -24,6 +24,21 @@ type PositionProvider interface {
 type AgedPosition interface {
 	Age() time.Duration
 }
+
+// PositionStatus and PositionState mirror the vehicle-source pair. A position
+// source fails in exactly the ways a vehicle source does — no device, a port that
+// will not open, a receiver that went quiet — and until it could say so a vehicle
+// that stopped reporting its position was indistinguishable from one parked in a
+// tunnel. Read returns what it has rather than an error, so the explanation has
+// to travel separately.
+type PositionStatus interface {
+	Status() string
+}
+
+type PositionState interface {
+	State() string
+}
+
 type VehicleProvider interface {
 	ReadObservations() (model.MetricObservations, error)
 	Close()
@@ -184,6 +199,16 @@ func (agent *Agent) Collect() (model.Sample, error) {
 		// One decimal is the useful precision for a staleness figure; the rest is
 		// noise that widens every column showing it.
 		health["gps_fix_age_seconds"] = float64(aged.Age()/(100*time.Millisecond)) / 10
+	}
+	if reporter, ok := agent.Position.(PositionStatus); ok {
+		if status := reporter.Status(); status != "" {
+			health["position_source_error"] = status
+		}
+	}
+	if reporter, ok := agent.Position.(PositionState); ok {
+		if state := reporter.State(); state != "" {
+			health["position_source_state"] = state
+		}
 	}
 	if reporter, ok := agent.Vehicle.(VehicleStatus); ok {
 		if status := reporter.Status(); status != "" {

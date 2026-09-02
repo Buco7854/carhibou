@@ -29,6 +29,7 @@ type ModemPort struct {
 	MaxAge     time.Duration
 	lastReport *time.Time
 	lastChange time.Time
+	failure    string
 }
 
 func NewModemPort(device string) *ModemPort {
@@ -150,8 +151,18 @@ func (modem *ModemPort) GNSSEnabled() (bool, error) {
 // included, once the receiver stops tracking. The reported UTC field is therefore
 // used as the liveness signal, and a reading whose clock has stopped advancing for
 // longer than MaxAge is treated as no position rather than as the current one.
+// Status explains why the control port is publishing no position. The modem is
+// the position source itself when the module exposes no NMEA interface, so its
+// failures have to reach the heartbeat the same way a receiver's do.
+func (modem *ModemPort) Status() string { return modem.failure }
+
 func (modem *ModemPort) Read() (*model.PositionFix, error) {
 	lines, err := modem.Command("AT+CGPSINFO", 2*time.Second)
+	if err != nil {
+		modem.failure = fmt.Sprintf("modem %s stopped answering: %v", modem.device, err)
+	} else {
+		modem.failure = ""
+	}
 	if err != nil {
 		return nil, err
 	}

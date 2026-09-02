@@ -890,7 +890,14 @@ func detectionStore(locations paths) store.DetectionStore {
 // used while the ports it was made against are still the ports that are there.
 // Diagnostics always ask for a fresh one: they are run precisely when something
 // has changed or broken, which is when a remembered answer is worth least.
+// serialSweep serialises port enumeration. The vehicle and position sources both
+// reacquire in the background now, and two sweeps at once would open the same
+// ports from two goroutines and split every reply between them.
+var serialSweep sync.Mutex
+
 func resolveDevices(hardware store.Hardware, locations paths, refresh bool) resolvedDevices {
+	serialSweep.Lock()
+	defer serialSweep.Unlock()
 	result := resolvedDevices{gps: hardware.GPS, obd: hardware.OBD, modem: hardware.Modem}
 	if hardware.GPS == store.Auto || hardware.OBD == store.Auto {
 		candidates := store.SerialCandidates()
@@ -947,6 +954,8 @@ func resolveDevices(hardware store.Hardware, locations paths, refresh bool) reso
 }
 
 func reprobeVehicleDevice(locations paths, gpsDevice string) (string, error) {
+	serialSweep.Lock()
+	defer serialSweep.Unlock()
 	allCandidates := store.SerialCandidates()
 	candidates := make([]string, 0, len(allCandidates))
 	for _, candidate := range allCandidates {
@@ -1142,6 +1151,72 @@ func startPosition(devices resolvedDevices, samplingSeconds int) (agentruntime.P
 	return provider, provider.Close, nil
 }
 
+// servicePositionAcquirer keeps the position source replaceable for the life of
+// the service.
+//
+// A cellular module can wedge, cold-boot, and come back on different interface
+// numbers with its receiver switched off. Resolving the device once at startup
+// meant that took the agent's position away until somebody restarted it, and the
+// heartbeat never said so. Every retry re-probes and switches the receiver back
+// on before trying again.
+func servicePositionAcquirer(
+	hardware store.Hardware,
+	locations paths,
+	initial resolvedDevices,
+	samplingSeconds int,
+) agentruntime.PositionAcquirer {
+	devices := initial
+	firstAttempt := true
+	return func() (agentruntime.PositionProvider, error) {
+		if !firstAttempt {
+			if hardware.GPS == store.Auto {
+				devices = resolveDevices(hardware, locations, true)
+			}
+			// Whatever the last probe concluded about the stream is out of date:
+			// the source it described has just stopped working.
+			ensureGNSSEnabled(devices)
+		}
+		firstAttempt = false
+		if devices.gps == "" {
+			if hardware.GPS == store.Off {
+				return nil, fmt.Errorf("position source is disabled in hardware configuration")
+			}
+			return nil, fmt.Errorf(
+				"no GPS device found while probing /dev/serial/by-id/*, /dev/ttyUSB*, /dev/ttyACM*",
+			)
+		}
+		provider, _, err := startPosition(devices, samplingSeconds)
+		return provider, err
+	}
+}
+
+// ensureGNSSEnabled switches the receiver back on through the control port.
+//
+// A module that cold-boots comes up with GNSS powered down. Nothing else turns
+// it on again: the startup path deliberately leaves a plainly working stream
+// alone, which is right until the stream stops, and then leaves a mute receiver
+// mute for as long as the service runs.
+func ensureGNSSEnabled(devices resolvedDevices) {
+	if devices.modem == "" {
+		return
+	}
+	modem := providers.NewModemPort(devices.modem)
+	defer modem.Close()
+	enabled, err := modem.GNSSEnabled()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "GNSS state could not be read:", err)
+		return
+	}
+	if enabled {
+		return
+	}
+	if _, enableErr := modem.EnableGNSS(); enableErr != nil {
+		fmt.Fprintln(os.Stderr, "GNSS enable failed:", enableErr)
+		return
+	}
+	fmt.Fprintln(os.Stderr, "GNSS was off and has been switched back on via", devices.modem)
+}
+
 // commandConfig prints the accepted configuration, and with --pull fetches the
 // server's current one first.
 //
@@ -1232,15 +1307,15 @@ func commandRun(locations paths, arguments []string) error {
 		return err
 	}
 	defer queue.Close()
-	position, closePosition, err := startPosition(devices, configuration.Sampling.Longest())
-	if err != nil {
-		// What the stored answer named did not open, so it is no longer an answer.
-		// Discarding it is what lets the next start find the hardware again rather
-		// than fail identically for as long as the file survives.
-		detectionStore(locations).Forget()
-		return err
-	}
-	defer closePosition()
+	// The position source is acquired the way the vehicle source is: a failure
+	// to find it is a state the agent reports and keeps retrying, not a reason to
+	// exit. A module that wedges overnight and re-enumerates in the morning is
+	// picked up without anybody restarting the service.
+	position := agentruntime.NewRetryingPositionProvider(
+		servicePositionAcquirer(hardware, locations, devices, configuration.Sampling.Longest()),
+	)
+	position.Start()
+	defer position.Close()
 	if err := validateVehicleConfiguration(configuration); err != nil {
 		return err
 	}

@@ -163,6 +163,15 @@ func (parser *NMEAAccumulator) Consume(sentence string) (*model.PositionFix, err
 // means the antenna lost the sky rather than that the vehicle stopped moving.
 const DefaultFixMaxAge = 10 * time.Second
 
+// QuietWindow is how long a receiver may publish nothing decodable before the
+// silence is worth saying out loud, and DeadWindow is how long before it is
+// treated as a source that has to be reacquired. A receiver searching for a fix
+// under cover is quiet; one whose module has wedged never comes back on its own.
+const (
+	QuietWindow = 30 * time.Second
+	DeadWindow  = 3 * time.Minute
+)
+
 // maxPending bounds the reassembly buffer so a port emitting noise without any
 // newline cannot grow it without limit on a 512 MB agent.
 const maxPending = 4096
@@ -177,6 +186,11 @@ type NMEAProvider struct {
 	buffer  []byte
 	pending string
 	lastFix time.Time
+	// opened stamps when this provider first held the port, so a receiver that
+	// has never produced a fix can be told from one that just did. Age alone
+	// cannot: a zero lastFix and a fresh one both read as no elapsed time.
+	opened  time.Time
+	failure string
 }
 
 func NewNMEAProvider(device string) *NMEAProvider {
@@ -197,7 +211,49 @@ func (provider *NMEAProvider) open() error {
 		return err
 	}
 	provider.port = port
+	provider.opened = time.Now()
+	provider.failure = ""
 	return nil
+}
+
+// Status explains why the provider is publishing no position, and is empty while
+// it has nothing to explain. A receiver that stops for longer than any search
+// plausibly takes is treated as gone so its owner reacquires it, because a
+// SIMCom module that has wedged does not recover by being read from again.
+func (provider *NMEAProvider) Status() string {
+	if provider.failure != "" {
+		return provider.failure
+	}
+	if quiet := provider.quietFor(); quiet > DeadWindow {
+		return fmt.Sprintf("no NMEA sentences from %s for %s", provider.device, quiet.Round(time.Second))
+	}
+	return ""
+}
+
+// State names a receiver that is quiet but not yet presumed gone: under cover or
+// still searching, which is ordinary and not a fault.
+func (provider *NMEAProvider) State() string {
+	if provider.failure != "" {
+		return ""
+	}
+	quiet := provider.quietFor()
+	if quiet <= QuietWindow || quiet > DeadWindow {
+		return ""
+	}
+	return fmt.Sprintf("receiver quiet for %s", quiet.Round(time.Second))
+}
+
+// quietFor is how long the receiver has published nothing decodable, measured
+// from the last fix or, when there has never been one, from opening the port.
+func (provider *NMEAProvider) quietFor() time.Duration {
+	since := provider.lastFix
+	if since.IsZero() {
+		since = provider.opened
+	}
+	if since.IsZero() {
+		return 0
+	}
+	return time.Since(since)
 }
 
 // Read returns the newest fix the receiver published since the previous call.
@@ -208,10 +264,12 @@ func (provider *NMEAProvider) open() error {
 // buffered byte is consumed and only the newest fix survives.
 func (provider *NMEAProvider) Read() (*model.PositionFix, error) {
 	if err := provider.open(); err != nil {
+		provider.failure = fmt.Sprintf("device %s failed to open: %v", provider.device, err)
 		return nil, err
 	}
 	if err := provider.drain(); err != nil {
 		provider.Close()
+		provider.failure = fmt.Sprintf("device %s stopped answering: %v", provider.device, err)
 		return nil, err
 	}
 	return provider.Fix(), nil
