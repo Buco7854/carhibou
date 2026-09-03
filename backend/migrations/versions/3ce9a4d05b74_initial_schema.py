@@ -708,6 +708,8 @@ def upgrade() -> None:
             sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
             nullable=False,
         ),
+        sa.Column("log_count", sa.Integer(), nullable=False),
+        sa.Column("logs_truncated", sa.Boolean(), nullable=False),
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
@@ -740,9 +742,27 @@ def upgrade() -> None:
     op.create_index(
         op.f("ix_hook_executions_trigger_id"), "hook_executions", ["trigger_id"], unique=False
     )
+    op.create_table(
+        "hook_execution_logs",
+        sa.Column("execution_id", sa.String(length=36), nullable=False),
+        sa.Column("sequence", sa.Integer(), nullable=False),
+        sa.Column(
+            "record",
+            sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(
+            ["execution_id"],
+            ["hook_executions.id"],
+            name=op.f("fk_hook_execution_logs_execution_id_hook_executions"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("execution_id", "sequence", name=op.f("pk_hook_execution_logs")),
+    )
 
 
 def downgrade() -> None:
+    op.drop_table("hook_execution_logs")
     op.drop_index(op.f("ix_hook_executions_trigger_id"), table_name="hook_executions")
     op.drop_index(op.f("ix_hook_executions_telemetry_id"), table_name="hook_executions")
     op.drop_index(op.f("ix_hook_executions_status"), table_name="hook_executions")

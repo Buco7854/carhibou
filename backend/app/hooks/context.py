@@ -1,11 +1,12 @@
 import io
+import json
 import math
-from collections.abc import Iterator, MutableMapping, Sequence
+from collections.abc import Callable, Iterator, MutableMapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
-from typing import Any
+from typing import Any, TextIO
 
 import httpx
 from sqlalchemy import create_engine, select, text
@@ -13,6 +14,15 @@ from sqlalchemy.orm import Session
 
 from backend.app.common import model_registry  # noqa: F401
 from backend.app.common.time import as_utc
+
+MAX_HTTP_RESPONSE_BYTES = 1_000_000
+# A normal maximum-sized telemetry trigger may legitimately log once for each
+# of its 200 samples. Leave room for those records; this limit catches floods,
+# not the documented Traccar forwarding pattern.
+MAX_LOG_RECORDS = 250
+MAX_LOG_VALUE_BYTES = 16_000
+_LOG_MARKER_RESERVE_BYTES = 512
+_TRUNCATED_SUFFIX = "... [truncated]"
 
 
 class ReadOnlyObject:
@@ -75,19 +85,113 @@ class HookStateMapping(MutableMapping[str, Any]):
         return dict(self._values)
 
 
+def _bounded_text(
+    value: object, limit: int = MAX_LOG_VALUE_BYTES, secret_values: Sequence[str] = ()
+) -> str:
+    text = str(value)
+    for secret in sorted((item for item in secret_values if item), key=len, reverse=True):
+        text = text.replace(secret, "[REDACTED]")
+    encoded = text.encode(errors="replace")
+    if len(encoded) <= limit:
+        return text
+    suffix = _TRUNCATED_SUFFIX.encode()
+    return encoded[: max(0, limit - len(suffix))].decode(errors="ignore") + _TRUNCATED_SUFFIX
+
+
+def _bounded_log_value(value: object, secret_values: Sequence[str], depth: int = 0) -> object:
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return _bounded_text(value, secret_values=secret_values)
+    if depth >= 4:
+        return "<nested value omitted>"
+    if isinstance(value, dict):
+        mapped: dict[str, object] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= 50:
+                mapped["..."] = f"{len(value) - index} entries omitted"
+                break
+            mapped[_bounded_text(key, 256, secret_values)] = _bounded_log_value(
+                item, secret_values, depth + 1
+            )
+        return mapped
+    if isinstance(value, (list, tuple)):
+        sequence = [_bounded_log_value(item, secret_values, depth + 1) for item in value[:50]]
+        if len(value) > 50:
+            sequence.append(f"{len(value) - 50} entries omitted")
+        return sequence
+    return _bounded_text(value, secret_values=secret_values)
+
+
 class CapturedLog:
-    def __init__(self, records: list[dict[str, object]]):
+    def __init__(
+        self,
+        records: list[dict[str, object]],
+        byte_limit: int,
+        secret_values: Sequence[str],
+        archive: TextIO | None = None,
+    ):
         self._records = records
+        self._secret_values = secret_values
+        self._archive = archive
+        self._byte_limit = max(byte_limit, _LOG_MARKER_RESERVE_BYTES * 2)
+        self._used_bytes = 0
+        self._omitted = 0
+        self._marker: dict[str, object] | None = None
+
+    def _omit_from_preview(self) -> None:
+        self._omitted += 1
+        if self._marker is None:
+            self._marker = {
+                "level": "warning",
+                "message": "1 hook log entry omitted from preview; full log available",
+                "fields": {"omitted": 1, "full_log": True},
+                "truncated": True,
+            }
+            self._records.append(self._marker)
+        else:
+            noun = "entry" if self._omitted == 1 else "entries"
+            self._marker["message"] = (
+                f"{self._omitted} hook log {noun} omitted from preview; full log available"
+            )
+            self._marker["fields"] = {"omitted": self._omitted, "full_log": True}
+
+    def _archive_record(self, record: dict[str, object]) -> None:
+        if self._archive is None:
+            return
+        encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"), default=str)
+        self._archive.write(encoded + "\n")
+        self._archive.flush()
+
+    def _append(self, record: dict[str, object], *, archive: bool = True) -> None:
+        if archive:
+            self._archive_record(record)
+        try:
+            encoded = json.dumps(
+                record, ensure_ascii=False, separators=(",", ":"), default=str
+            ).encode()
+        except (MemoryError, TypeError, ValueError):
+            self._omit_from_preview()
+            return
+        available = self._byte_limit - _LOG_MARKER_RESERVE_BYTES
+        if len(self._records) >= MAX_LOG_RECORDS - 1 or self._used_bytes + len(encoded) > available:
+            self._omit_from_preview()
+            return
+        self._records.append(record)
+        self._used_bytes += len(encoded)
 
     def _write(self, level: str, message: object, **fields: object) -> None:
-        self._records.append(
-            {
+        try:
+            record: dict[str, object] = {
                 "timestamp": datetime.now().astimezone().isoformat(),
                 "level": level,
-                "message": str(message),
-                "fields": fields,
+                "message": _bounded_text(message, secret_values=self._secret_values),
+                "fields": _bounded_log_value(fields, self._secret_values),
             }
-        )
+        except MemoryError:
+            self._omit_from_preview()
+            return
+        self._append(record)
 
     def info(self, message: object, **fields: object) -> None:
         self._write("info", message, **fields)
@@ -98,6 +202,30 @@ class CapturedLog:
     def error(self, message: object, **fields: object) -> None:
         self._write("error", message, **fields)
 
+    def output(self, message: str, *, truncated: bool) -> None:
+        self._append(
+            {
+                "level": "output",
+                "message": _bounded_text(message, secret_values=self._secret_values),
+                "truncated": truncated,
+            },
+            archive=False,
+        )
+
+    def archive_output(self, message: str) -> None:
+        redacted = message
+        for secret in sorted((item for item in self._secret_values if item), key=len, reverse=True):
+            redacted = redacted.replace(secret, "[REDACTED]")
+        encoded = redacted.encode(errors="replace")
+        offset = 0
+        while offset < len(encoded):
+            end = min(offset + MAX_LOG_VALUE_BYTES, len(encoded))
+            while end < len(encoded) and end > offset and encoded[end] & 0xC0 == 0x80:
+                end -= 1
+            chunk = encoded[offset:end].decode()
+            self._archive_record({"level": "output", "message": chunk})
+            offset = end
+
 
 @dataclass(frozen=True)
 class HookHTTPResponse:
@@ -106,8 +234,6 @@ class HookHTTPResponse:
     text: str
 
     def json(self) -> Any:
-        import json
-
         return json.loads(self.text)
 
 
@@ -175,8 +301,9 @@ class HookHTTP:
         if json is not None and text is not None:
             raise ValueError("provide either json or text, not both")
         seconds = min(max(timeout, 0.1), 60)
+        response_too_large = False
         try:
-            response = httpx.request(
+            with httpx.stream(
                 method,
                 url,
                 headers=headers,
@@ -185,17 +312,42 @@ class HookHTTP:
                 content=text,
                 timeout=seconds,
                 follow_redirects=False,
-            )
+            ) as response:
+                chunks: list[bytes] = []
+                received = 0
+                for chunk in response.iter_bytes(chunk_size=64 * 1024):
+                    remaining = MAX_HTTP_RESPONSE_BYTES - received
+                    if remaining <= 0:
+                        response_too_large = True
+                        break
+                    chunks.append(chunk[:remaining])
+                    received += min(len(chunk), remaining)
+                    if len(chunk) > remaining:
+                        response_too_large = True
+                        break
+                status_code = response.status_code
+                response_headers = MappingProxyType(dict(response.headers))
+                encoding = response.encoding or "utf-8"
         except httpx.TimeoutException as exc:
             raise HookHTTPError(f"{_endpoint(method, url)} timed out after {seconds:g}s") from exc
         except httpx.TransportError as exc:
             raise HookHTTPError(
                 f"{_endpoint(method, url)} failed: {_one_line(exc)}{_hint(exc)}"
             ) from exc
+        if response_too_large:
+            raise HookHTTPError(
+                f"{_endpoint(method, url)} response exceeded "
+                f"{MAX_HTTP_RESPONSE_BYTES // 1_000_000} MB"
+            )
+        content = b"".join(chunks)
+        try:
+            response_text = content.decode(encoding, errors="replace")
+        except LookupError:
+            response_text = content.decode("utf-8", errors="replace")
         return HookHTTPResponse(
-            status_code=response.status_code,
-            headers=MappingProxyType(dict(response.headers)),
-            text=response.text[:1_000_000],
+            status_code=status_code,
+            headers=response_headers,
+            text=response_text,
         )
 
     def get(self, url: str, **kwargs: Any) -> HookHTTPResponse:
@@ -248,20 +400,39 @@ class Geometry:
 
 
 class CappedWriter(io.TextIOBase):
-    def __init__(self, limit: int):
+    def __init__(
+        self,
+        limit: int,
+        secret_values: Sequence[str] = (),
+        archive_output: Callable[[str], None] | None = None,
+    ):
         self.limit = limit
-        self.value = ""
+        self._secret_values = secret_values
+        self._archive_output = archive_output
+        self._chunks: list[str] = []
+        self._used_bytes = 0
         self.truncated = False
 
     def write(self, value: str) -> int:
-        remaining = max(0, self.limit - len(self.value.encode()))
+        original_length = len(value)
+        for secret in sorted((item for item in self._secret_values if item), key=len, reverse=True):
+            value = value.replace(secret, "[REDACTED]")
+        if value and self._archive_output is not None:
+            self._archive_output(value)
+        remaining = max(0, self.limit - self._used_bytes)
         encoded = value.encode()
         if len(encoded) > remaining:
-            self.value += encoded[:remaining].decode(errors="replace")
+            self._chunks.append(encoded[:remaining].decode(errors="ignore"))
+            self._used_bytes = self.limit
             self.truncated = True
         else:
-            self.value += value
-        return len(value)
+            self._chunks.append(value)
+            self._used_bytes += len(encoded)
+        return original_length
+
+    @property
+    def value(self) -> str:
+        return "".join(self._chunks)
 
     def writable(self) -> bool:
         return True
@@ -408,7 +579,13 @@ class HookTelemetry:
 
 
 class HookContext:
-    def __init__(self, data: dict[str, Any], records: list[dict[str, object]]):
+    def __init__(
+        self,
+        data: dict[str, Any],
+        records: list[dict[str, object]],
+        log_limit: int,
+        log_archive: TextIO | None = None,
+    ):
         self.sdk_version = int(data.get("sdk_version", 1))
         event = dict(data["event"])
         event["payload"] = MappingProxyType(event.get("payload", {}))
@@ -422,4 +599,9 @@ class HookContext:
         self.dry_run = bool(data.get("dry_run", False))
         self.http = HookHTTP()
         self.geo = Geometry()
-        self.log = CapturedLog(records)
+        self.log = CapturedLog(
+            records,
+            log_limit,
+            [str(value) for value in self.secrets.values()],
+            log_archive,
+        )

@@ -23,6 +23,8 @@ from backend.app.telemetry.schemas import Observation, TelemetryBatch, Telemetry
 from backend.app.vehicle_state.models import VehicleState
 from backend.app.vehicles.models import Vehicle
 
+HOOK_TRIGGER_SAMPLE_LIMIT = 200
+
 
 @dataclass
 class IngestionResult:
@@ -195,38 +197,42 @@ def _enqueue_hooks(db: Session, samples: list[Telemetry]) -> None:
     if not samples:
         return
     latest = samples[-1]
-    trigger = Trigger(
-        type="telemetry.received",
-        version=2,
-        occurred_at=latest.recorded_at,
-        vehicle_id=latest.vehicle_id,
-        agent_id=latest.agent_id,
-        telemetry_id=latest.id,
-        payload={
-            "telemetry_id": latest.id,
-            "telemetry_ids": [row.id for row in samples],
-            "boot_id": latest.boot_id,
-        },
-    )
-    db.add(trigger)
-    db.flush()
     hooks = db.scalars(
         select(Hook).where(
             Hook.enabled.is_(True),
-            Hook.trigger_type == trigger.type,
+            Hook.trigger_type == "telemetry.received",
             (Hook.vehicle_id.is_(None) | (Hook.vehicle_id == latest.vehicle_id)),
         )
     )
-    for hook in hooks:
-        execution = HookExecution(
-            hook_id=hook.id,
-            trigger_id=trigger.id,
-            telemetry_id=latest.id,
-            status="pending",
+    enabled_hooks = list(hooks)
+    for offset in range(0, len(samples), HOOK_TRIGGER_SAMPLE_LIMIT):
+        trigger_samples = samples[offset : offset + HOOK_TRIGGER_SAMPLE_LIMIT]
+        trigger_latest = trigger_samples[-1]
+        trigger = Trigger(
+            type="telemetry.received",
+            version=2,
+            occurred_at=trigger_latest.recorded_at,
+            vehicle_id=trigger_latest.vehicle_id,
+            agent_id=trigger_latest.agent_id,
+            telemetry_id=trigger_latest.id,
+            payload={
+                "telemetry_id": trigger_latest.id,
+                "telemetry_ids": [row.id for row in trigger_samples],
+                "boot_id": trigger_latest.boot_id,
+            },
         )
-        db.add(execution)
+        db.add(trigger)
         db.flush()
-        db.add(Job(type="hook.execute", payload={"execution_id": execution.id}))
+        for hook in enabled_hooks:
+            execution = HookExecution(
+                hook_id=hook.id,
+                trigger_id=trigger.id,
+                telemetry_id=trigger_latest.id,
+                status="pending",
+            )
+            db.add(execution)
+            db.flush()
+            db.add(Job(type="hook.execute", payload={"execution_id": execution.id}))
 
 
 class RetiredSourceError(RuntimeError):

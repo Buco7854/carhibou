@@ -1391,7 +1391,7 @@ func commandRun(locations paths, arguments []string) error {
 			}
 		}
 		if !now.Before(nextUpload) {
-			if _, err := agent.Upload(500); err != nil {
+			if _, err := agent.Upload(); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}
 			nextUpload = now.Add(time.Duration(configuration.Upload.Seconds(agent.InUse)) * time.Second)

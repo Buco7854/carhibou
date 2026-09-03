@@ -63,3 +63,14 @@ func TestServerURLValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestUploadRejectsAnOversizedBatch(t *testing.T) {
+	api, err := New("http://localhost:8000", "secret", "test", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	samples := make([]model.Sample, MaxTelemetryBatchSize+1)
+	if _, err := api.Upload(model.NewUUID(), samples); err == nil {
+		t.Fatal("oversized telemetry batch was accepted")
+	}
+}

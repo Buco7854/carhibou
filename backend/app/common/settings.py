@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     hook_timeout_seconds: int = Field(default=10, ge=1, le=120)
     hook_memory_mb: int = Field(default=128, ge=32, le=1024)
     hook_log_bytes: int = Field(default=64_000, ge=1024, le=1_000_000)
+    hook_log_archive_bytes: int = Field(
+        default=64 * 1024 * 1024, ge=1024 * 1024, le=1024 * 1024 * 1024
+    )
     worker_id: str = "worker-1"
     agent_release_dir: str = "/opt/carhibou-agent-releases"
     frontend_dir: str = ""

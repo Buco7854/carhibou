@@ -193,8 +193,9 @@ ctx.log.info("Current state of charge", percent=soc.value, observed_at=soc.obser
 `ctx.telemetry.triggering` is the tuple of immutable observations that caused this run.
 Each item includes `telemetry_id`, `key`, `value`, `observed_at`, source identity,
 channel, and method. Atomic position observations use the key `position` and an object
-value. One accepted upload batch creates one hook run, so this tuple may contain several
-samples recorded at different times.
+value. A hook run contains at most 200 samples, so a long offline backlog becomes several
+bounded runs in recorded order rather than one process large enough to exhaust memory.
+The tuple may therefore contain several samples recorded at different times.
 
 Use `triggering` when every newly recorded observation matters, as in the Traccar
 example. Use `current` when the decision should be based on the vehicle's resolved state.

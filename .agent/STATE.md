@@ -122,11 +122,16 @@ Updated: 2026-08-29
 - Durable PostgreSQL jobs invoke trusted hooks in limited child processes outside API
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,
   HTTP/geometry helpers, manual dry-run and execution history.
-- Ingestion queues one hook execution per accepted batch, not per sample. SDK version 3
-  exposes the triggering observations, the current resolved state, shared state-at-time
-  reconstruction and bounded raw history queries, so a buffered upload still costs one
-  child process without pretending each sparse sample is a complete vehicle snapshot.
-  Batch identifiers ride in the trigger payload.
+- Catch-up uploads drain the durable agent outbox in independently acknowledged chunks of
+  at most 200 samples. Ingestion applies the same 200-sample ceiling to hook triggers even
+  for another client sending a larger accepted request, so a long outage cannot turn into
+  one unbounded hook process. SDK version 3 exposes the triggering observations, the
+  current resolved state, shared state-at-time reconstruction and bounded raw history
+  queries without pretending each sparse sample is a complete vehicle snapshot. Hook
+  previews are bounded, complete structured logs are persisted separately and exposed
+  through a paginated admin endpoint, HTTP response bodies and errors are capped, and an
+  emergency result path reports memory exhaustion without trying to serialize the object
+  that exhausted memory.
 - The deployed vehicle agent is a standalone CGO-free Go executable. Versioned Linux
   builds cover ARMv6, ARMv7, ARM64 and AMD64; the bootstrap downloads the matching
   checksum-verified artifact without running `apt`, Python or a compiler on the tracker.

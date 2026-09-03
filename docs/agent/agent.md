@@ -61,7 +61,9 @@ a working configuration.
 Sampling and uploading are independent, though presets keep them equal. A longer upload
 interval batches durable SQLite rows and saves request overhead while making the server
 lag behind. Network loss never discards samples: only IDs acknowledged by the server are
-deleted, and retries keep the same stable IDs.
+deleted, and retries keep the same stable IDs. Catch-up drains the outbox in requests of
+at most 200 samples; every successful request is acknowledged before the next one, so a
+later network failure leaves that chunk and everything after it queued for another try.
 
 Inspect or fetch configuration immediately with:
 

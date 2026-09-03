@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -32,6 +33,95 @@ func newAgent(t *testing.T, position PositionProvider) *Agent {
 	}
 	t.Cleanup(func() { _ = queue.Close() })
 	return &Agent{Queue: queue, Position: position, Vehicle: EmptyVehicle{}, BootID: model.NewUUID()}
+}
+
+type recordingTelemetryClient struct {
+	batches     [][]model.Sample
+	failRequest int
+}
+
+func (client *recordingTelemetryClient) Upload(_ string, samples []model.Sample) ([]string, error) {
+	batch := append([]model.Sample(nil), samples...)
+	client.batches = append(client.batches, batch)
+	if client.failRequest == len(client.batches) {
+		return nil, errors.New("network unavailable")
+	}
+	acknowledged := make([]string, 0, len(samples))
+	for _, sample := range samples {
+		acknowledged = append(acknowledged, sample.ID)
+	}
+	return acknowledged, nil
+}
+
+func TestUploadRetainsTheFailedChunkAndEverythingAfterIt(t *testing.T) {
+	agent := newAgent(t, EmptyPosition{})
+	transport := &recordingTelemetryClient{failRequest: 2}
+	agent.Client = transport
+	for sequence := int64(1); sequence <= 450; sequence++ {
+		if err := agent.Queue.Enqueue(model.NewSample(sequence, nil, nil, nil)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	uploaded, err := agent.Upload()
+	if err == nil || uploaded != 200 {
+		t.Fatalf("first flush uploaded=%d, error=%v; want 200 and the network error", uploaded, err)
+	}
+	depth, err := agent.Queue.Depth()
+	if err != nil || depth != 250 {
+		t.Fatalf("queue depth=%d, want 250 after the failed request (error=%v)", depth, err)
+	}
+
+	transport.failRequest = 0
+	uploaded, err = agent.Upload()
+	if err != nil || uploaded != 250 {
+		t.Fatalf("retry uploaded=%d, want 250 (error=%v)", uploaded, err)
+	}
+	depth, err = agent.Queue.Depth()
+	if err != nil || depth != 0 {
+		t.Fatalf("queue depth=%d, want 0 after retry (error=%v)", depth, err)
+	}
+}
+
+func TestUploadFlushesALargeOutboxInBoundedRequests(t *testing.T) {
+	agent := newAgent(t, EmptyPosition{})
+	transport := &recordingTelemetryClient{}
+	agent.Client = transport
+	for sequence := int64(1); sequence <= 650; sequence++ {
+		sample := model.NewSample(sequence, nil, nil, map[string]any{"sequence": sequence})
+		if err := agent.Queue.Enqueue(sample); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	uploaded, err := agent.Upload()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uploaded != 650 {
+		t.Fatalf("uploaded=%d, want 650", uploaded)
+	}
+
+	wantSizes := []int{200, 200, 200, 50}
+	if len(transport.batches) != len(wantSizes) {
+		t.Fatalf("requests=%d, want %d", len(transport.batches), len(wantSizes))
+	}
+	var sequence int64
+	for index, batch := range transport.batches {
+		if len(batch) != wantSizes[index] {
+			t.Fatalf("request %d has %d samples, want %d", index+1, len(batch), wantSizes[index])
+		}
+		for _, sample := range batch {
+			sequence++
+			if sample.Sequence != sequence {
+				t.Fatalf("sample sequence=%d, want %d", sample.Sequence, sequence)
+			}
+		}
+	}
+	depth, err := agent.Queue.Depth()
+	if err != nil || depth != 0 {
+		t.Fatalf("queue depth=%d, want 0 (error=%v)", depth, err)
+	}
 }
 
 // A republished fix must be distinguishable from a freshly measured one, because

@@ -86,5 +86,17 @@ class HookExecution(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_seconds: Mapped[float | None] = mapped_column(Float)
     logs: Mapped[list[JSONValue]] = mapped_column(JSONType, default=list)
+    log_count: Mapped[int] = mapped_column(Integer, default=0)
+    logs_truncated: Mapped[bool] = mapped_column(Boolean, default=False)
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class HookExecutionLog(Base):
+    __tablename__ = "hook_execution_logs"
+
+    execution_id: Mapped[str] = mapped_column(
+        ForeignKey("hook_executions.id", ondelete="CASCADE"), primary_key=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer, primary_key=True)
+    record: Mapped[JSONValue] = mapped_column(JSONType)

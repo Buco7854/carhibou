@@ -129,9 +129,11 @@ credential; channel and observation time travel with each value. A unique sample
 makes retries idempotent without changing history or rerunning hooks.
 
 One transaction stores immutable observations, advances newer per-source candidates,
-resolves the vehicle's live readings, creates a generic trigger and queues matching hook
-jobs. A delayed observation can update one metric without overwriting a newer unrelated
-one. Candidate freshness follows the source cadence recorded with the observation;
+resolves the vehicle's live readings, creates generic triggers of at most 200 samples and
+queues matching hook jobs. The Go agent also sends catch-up data in independently
+acknowledged requests of at most 200 samples; the server-side split protects other
+clients that use the larger transport limit. A delayed observation can update one metric
+without overwriting a newer unrelated one. Candidate freshness follows the source cadence recorded with the observation;
 safety-sensitive values expire to unknown while persistent values remain visibly stale.
 PostgreSQL is the time-series store at the intended scale.
 
@@ -156,10 +158,12 @@ immediately; route history refreshes only for a new sample, without fixed browse
 
 ## Trusted hook runtime
 
-Ingestion queues one execution per matching hook per accepted batch, then returns. The
+Ingestion queues one execution per matching hook per bounded trigger, then returns. The
 worker claims jobs with `FOR UPDATE SKIP LOCKED` and starts a fresh child process. Wall
-and CPU time, memory, file output and result size are bounded for reliability; privileged
-Python is not treated as hostile-code-safe.
+and CPU time, memory, file output, HTTP response bodies, error text and result previews
+are bounded for reliability; privileged Python is not treated as hostile-code-safe.
+Complete structured logs are streamed through a bounded temporary archive, persisted in
+batches outside the child result and exposed through a paginated admin endpoint.
 
 SDK v3 exposes immutable `ctx.event`, resolved `ctx.telemetry.current`, the observations
 that caused the run in `ctx.telemetry.triggering`, state-at-time reconstruction and

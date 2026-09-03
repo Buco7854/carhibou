@@ -3,8 +3,10 @@ import os
 import resource
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
-from tempfile import TemporaryFile
+from pathlib import Path
+from tempfile import TemporaryDirectory, TemporaryFile
 from typing import Any, BinaryIO
 
 from sqlalchemy import select
@@ -15,7 +17,7 @@ from backend.app.branding import HOOK_SDK_VERSION
 from backend.app.common.settings import get_settings
 from backend.app.common.time import as_utc
 from backend.app.connectors.models import Connector
-from backend.app.hooks.child import RESULT_MARKER
+from backend.app.hooks.child import MAX_HOOK_ERROR_BYTES, RESULT_MARKER
 from backend.app.hooks.models import Hook, HookExecution, HookState, Trigger
 from backend.app.secrets.crypto import decrypt_secret, redact_text
 from backend.app.secrets.models import Secret
@@ -29,7 +31,12 @@ class RuntimeResult:
     status: str
     state: dict[str, Any]
     logs: list[dict[str, object]]
+    log_count: int
+    logs_truncated: bool
     error: str | None
+
+
+LogSink = Callable[[list[dict[str, object]]], None]
 
 
 def _batch(db: Session, trigger: Trigger, latest: Telemetry) -> list[Telemetry]:
@@ -165,43 +172,122 @@ def _read_result(output: BinaryIO, limit: int) -> str:
     return output.read(limit).decode(errors="replace")
 
 
-def run_hook_process(data: dict[str, Any], timeout: int, secrets: list[str]) -> RuntimeResult:
+def _bounded_error(value: object) -> str:
+    encoded = str(value).encode(errors="replace")
+    if len(encoded) <= MAX_HOOK_ERROR_BYTES:
+        return encoded.decode(errors="replace")
+    suffix = b"\n[error truncated]"
+    return encoded[: MAX_HOOK_ERROR_BYTES - len(suffix)].decode(errors="ignore") + suffix.decode()
+
+
+def _redact_log_record(record: dict[str, object], secrets: list[str]) -> dict[str, object]:
+    record["message"] = redact_text(str(record.get("message", "")), secrets) or ""
+    if "fields" in record:
+        record["fields"] = json.loads(
+            redact_text(json.dumps(record["fields"], default=str), secrets) or "{}"
+        )
+    return record
+
+
+def _consume_log_archive(path: Path, secrets: list[str], sink: LogSink | None) -> int:
+    if not path.exists():
+        return 0
+    count = 0
+    batch: list[dict[str, object]] = []
+    with path.open(encoding="utf-8") as archive:
+        for line in archive:
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(value, dict):
+                continue
+            record = _redact_log_record(value, secrets)
+            count += 1
+            if sink is not None:
+                batch.append(record)
+                if len(batch) == 200:
+                    sink(batch)
+                    batch = []
+    if batch and sink is not None:
+        sink(batch)
+    return count
+
+
+def _has_preview_marker(logs: list[dict[str, object]]) -> bool:
+    return any(record.get("truncated") is True for record in logs)
+
+
+def run_hook_process(
+    data: dict[str, Any],
+    timeout: int,
+    secrets: list[str],
+    log_sink: LogSink | None = None,
+) -> RuntimeResult:
     settings = get_settings()
     max_output = max(settings.hook_log_bytes * 4, 1_000_000)
-    with TemporaryFile() as output:
+    with TemporaryDirectory(prefix="carhibou-hook-") as directory, TemporaryFile() as output:
+        archive_path = Path(directory) / "logs.jsonl"
+        child_data = {**data, "_log_archive_path": str(archive_path)}
         process = subprocess.Popen(
             [sys.executable, "-m", "backend.app.hooks.child"],
             stdin=subprocess.PIPE,
             stdout=output,
             stderr=output,
             start_new_session=False,
-            preexec_fn=lambda: _limits(settings.hook_memory_mb, max_output, timeout + 1),
+            preexec_fn=lambda: _limits(
+                settings.hook_memory_mb,
+                max(max_output, settings.hook_log_archive_bytes),
+                timeout + 1,
+            ),
         )
+        timed_out = False
         try:
-            process.communicate(json.dumps(data, default=str).encode(), timeout=timeout)
+            process.communicate(json.dumps(child_data, default=str).encode(), timeout=timeout)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, 9)
             process.wait(timeout=5)
-            return RuntimeResult("timeout", data.get("state", {}), [], "execution timed out")
+            timed_out = True
         raw = _read_result(output, max_output)
+        log_count = _consume_log_archive(archive_path, secrets, log_sink)
+    if timed_out:
+        return RuntimeResult(
+            "timeout", data.get("state", {}), [], log_count, log_count > 0, "execution timed out"
+        )
     marker = raw.rfind(RESULT_MARKER)
     if marker < 0:
-        error = redact_text(raw[-settings.hook_log_bytes :], secrets)
-        return RuntimeResult("failed", data.get("state", {}), [], error or "child exited")
+        error = _bounded_error(redact_text(raw, secrets) or "")
+        return RuntimeResult(
+            "failed",
+            data.get("state", {}),
+            [],
+            log_count,
+            log_count > 0,
+            error or "child exited",
+        )
     try:
         payload = json.loads(raw[marker + len(RESULT_MARKER) :].splitlines()[0])
     except (json.JSONDecodeError, IndexError) as exc:
-        return RuntimeResult("failed", data.get("state", {}), [], f"invalid child result: {exc}")
+        return RuntimeResult(
+            "failed",
+            data.get("state", {}),
+            [],
+            log_count,
+            log_count > 0,
+            f"invalid child result: {exc}",
+        )
     logs = payload.get("logs", [])
     for record in logs:
-        record["message"] = redact_text(str(record.get("message", "")), secrets) or ""
-        if "fields" in record:
-            record["fields"] = json.loads(
-                redact_text(json.dumps(record["fields"], default=str), secrets) or "{}"
-            )
+        _redact_log_record(record, secrets)
+    error = payload.get("error")
+    redacted_error = (
+        _bounded_error(redact_text(str(error), secrets) or "") if error is not None else None
+    )
     return RuntimeResult(
         status=payload.get("status", "failed"),
         state=payload.get("state", data.get("state", {})),
         logs=logs,
-        error=redact_text(payload.get("error"), secrets),
+        log_count=log_count,
+        logs_truncated=_has_preview_marker(logs) or log_count > len(logs),
+        error=redacted_error,
     )

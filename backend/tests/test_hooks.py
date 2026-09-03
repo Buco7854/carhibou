@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.auth.services import create_local_user
 from backend.app.common.time import utcnow
-from backend.app.hooks.models import HookExecution, HookState
+from backend.app.hooks.models import HookExecution, HookExecutionLog, HookState, Trigger
 from backend.app.jobs.models import Job
 from backend.app.jobs.services import LEASE_SECONDS, recover_expired_leases
 from backend.app.worker import execute_hook_job
@@ -156,6 +156,13 @@ def test_telemetry_hook_runs_outside_request_persists_state_and_redacts_secrets(
     assert "super-secret-value" not in str(execution.logs)
     assert "[REDACTED]" in str(execution.logs)
     with db_factory() as db:
+        archived_logs = list(
+            db.scalars(
+                select(HookExecutionLog).where(HookExecutionLog.execution_id == execution.id)
+            )
+        )
+        assert "super-secret-value" not in str([row.record for row in archived_logs])
+        assert "[REDACTED]" in str([row.record for row in archived_logs])
         state = db.get(HookState, hook.json()["id"])
         assert state is not None
         assert state.value == {"count": 1, "soc": 25}
@@ -317,6 +324,62 @@ def test_one_batch_queues_one_execution_that_can_iterate_every_sample(
         state = db.get(HookState, hook.json()["id"])
         assert state is not None
         assert state.value == {"runs": 1, "seen": [80, 60, 40], "latest": 40}
+
+
+def test_large_ingest_splits_hook_triggers_into_bounded_batches(
+    registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
+) -> None:
+    client, csrf = registered
+    _vehicle_id, credential = _prepare_agent(client, csrf)
+    hook = client.post(
+        "/api/v1/hooks",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "Bounded batches", "enabled": True, "source": "pass"},
+    )
+    assert hook.status_code == 201, hook.text
+
+    identifiers = _send_batch(client, credential, [float(index % 101) for index in range(450)])
+    with db_factory() as db:
+        triggers = list(db.scalars(select(Trigger).order_by(Trigger.occurred_at)))
+        jobs = list(db.scalars(select(Job).where(Job.status == "pending")))
+
+    trigger_ids = [
+        [str(value) for value in trigger.payload["telemetry_ids"]] for trigger in triggers
+    ]
+    assert [len(values) for values in trigger_ids] == [200, 200, 50]
+    assert [value for values in trigger_ids for value in values] == identifiers
+    assert len(jobs) == 3
+
+
+def test_complete_hook_log_is_available_in_bounded_pages(
+    registered: tuple[TestClient, str], db_factory: sessionmaker[Session]
+) -> None:
+    client, csrf = registered
+    _vehicle_id, credential = _prepare_agent(client, csrf)
+    hook = client.post(
+        "/api/v1/hooks",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "name": "Full logs",
+            "enabled": True,
+            "source": ('for index in range(400):\n    ctx.log.info("Archived entry", index=index)'),
+        },
+    )
+    assert hook.status_code == 201, hook.text
+    _send_sample(client, credential)
+    execution = _run_pending(db_factory)
+
+    assert execution.log_count == 400
+    assert execution.logs_truncated is True
+    page = client.get(
+        f"/api/v1/hooks/executions/{execution.id}/logs",
+        params={"limit": 150, "offset": 300},
+    )
+    assert page.status_code == 200, page.text
+    assert page.json()["total"] == 400
+    assert len(page.json()["logs"]) == 100
+    assert page.json()["logs"][0]["fields"] == {"index": 300}
+    assert page.json()["logs"][-1]["fields"] == {"index": 399}
 
 
 def test_manual_test_run_exposes_a_single_sample_batch(

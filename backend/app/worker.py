@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import insert, select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
@@ -17,7 +17,7 @@ from backend.app.common.logging import configure_logging
 from backend.app.common.settings import get_settings
 from backend.app.common.time import utcnow
 from backend.app.connectors.runtime import ConnectorSupervisor
-from backend.app.hooks.models import HookExecution, HookState
+from backend.app.hooks.models import HookExecution, HookExecutionLog, HookState
 from backend.app.hooks.runtime import build_runtime_input, run_hook_process
 from backend.app.jobs.models import Job, WorkerHeartbeat
 from backend.app.jobs.services import claim_job
@@ -97,7 +97,23 @@ def execute_hook_job(db: Session, job: Job) -> None:
         db.commit()
 
         started = time.monotonic()
-        result = run_hook_process(data, hook.timeout_seconds, secrets)
+        log_sequence = 0
+
+        def store_logs(records: list[dict[str, object]]) -> None:
+            nonlocal log_sequence
+            values = []
+            for record in records:
+                values.append(
+                    {
+                        "execution_id": execution_id,
+                        "sequence": log_sequence,
+                        "record": record,
+                    }
+                )
+                log_sequence += 1
+            db.execute(insert(HookExecutionLog), values)
+
+        result = run_hook_process(data, hook.timeout_seconds, secrets, store_logs)
         finished = utcnow()
 
         execution = db.get(HookExecution, execution_id)
@@ -106,6 +122,8 @@ def execute_hook_job(db: Session, job: Job) -> None:
             raise LookupError("execution state disappeared")
         execution.status = result.status
         execution.logs = result.logs
+        execution.log_count = result.log_count
+        execution.logs_truncated = result.logs_truncated
         execution.error = result.error
         execution.finished_at = finished
         execution.duration_seconds = time.monotonic() - started

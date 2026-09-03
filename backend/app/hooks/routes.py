@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from backend.app.access.dependencies import RequireAdmin, RequireAdminWrite
 from backend.app.auth.dependencies import Db
-from backend.app.hooks.models import Hook, HookExecution, HookRevision
+from backend.app.hooks.models import Hook, HookExecution, HookExecutionLog, HookRevision
 from backend.app.hooks.schemas import (
+    HookExecutionLogPage,
     HookExecutionResponse,
     HookExecutionSummary,
     HookResponse,
@@ -143,6 +144,40 @@ def executions(
             .order_by(HookExecution.created_at.desc())
             .limit(limit)
         )
+    )
+
+
+@router.get("/executions/{execution_id}/logs", response_model=HookExecutionLogPage)
+def execution_logs(
+    execution_id: str,
+    db: Db,
+    auth: RequireAdmin,
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> HookExecutionLogPage:
+    del auth
+    execution = db.get(HookExecution, execution_id)
+    if not execution:
+        raise HTTPException(status_code=404, detail="execution not found")
+    total = db.scalar(
+        select(func.count())
+        .select_from(HookExecutionLog)
+        .where(HookExecutionLog.execution_id == execution_id)
+    )
+    rows = list(
+        db.scalars(
+            select(HookExecutionLog)
+            .where(HookExecutionLog.execution_id == execution_id)
+            .order_by(HookExecutionLog.sequence)
+            .offset(offset)
+            .limit(limit)
+        )
+    )
+    return HookExecutionLogPage(
+        total=total or 0,
+        limit=limit,
+        offset=offset,
+        logs=[row.record for row in rows],
     )
 
 

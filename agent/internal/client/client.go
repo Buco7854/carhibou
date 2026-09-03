@@ -39,7 +39,14 @@ type enrollmentRequest struct {
 	Hardware         map[string]any `json:"hardware"`
 }
 
-const ProtocolVersion = 2
+const (
+	ProtocolVersion = 2
+	// MaxTelemetryBatchSize keeps one request, one ingest transaction, and the
+	// hook trigger produced from it small enough for a Pi and the server to hold
+	// comfortably. Two hundred samples still amortize HTTP overhead while a
+	// catch-up upload makes steady progress over unreliable links.
+	MaxTelemetryBatchSize = 200
+)
 
 func NormalizeServerURL(value string, allowInsecureHTTP bool) (string, error) {
 	parsed, err := url.Parse(value)
@@ -102,6 +109,9 @@ func (client *Client) FetchConfiguration() (store.Configuration, error) {
 }
 
 func (client *Client) Upload(bootID string, samples []model.Sample) ([]string, error) {
+	if len(samples) > MaxTelemetryBatchSize {
+		return nil, fmt.Errorf("telemetry batch has %d samples; maximum is %d", len(samples), MaxTelemetryBatchSize)
+	}
 	payload := struct {
 		BootID  string         `json:"boot_id"`
 		Samples []model.Sample `json:"samples"`

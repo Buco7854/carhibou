@@ -4,10 +4,12 @@ A user pointed a Traccar hook at a non-HTTP protocol port and read sixty lines o
 httpx and httpcore frames to discover that nothing had answered.
 """
 
+from contextlib import contextmanager
+
 import httpx
 import pytest
 
-from backend.app.hooks.context import HookHTTP, HookHTTPError
+from backend.app.hooks.context import MAX_HTTP_RESPONSE_BYTES, HookHTTP, HookHTTPError
 
 # A path and a query that must never reach the message: the identifier locates a
 # record and the token authenticates to it.
@@ -22,11 +24,16 @@ def _failing(error: Exception) -> httpx.MockTransport:
 
 
 def _request(monkeypatch: pytest.MonkeyPatch, error: Exception, url: str = URL) -> HookHTTPError:
-    def scripted(*args: object, **kwargs: object) -> httpx.Response:
-        with httpx.Client(transport=_failing(error)) as client:
-            return client.request("GET", url)
+    @contextmanager
+    def scripted(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        del args, kwargs
+        with (
+            httpx.Client(transport=_failing(error)) as client,
+            client.stream("GET", url) as response,
+        ):
+            yield response
 
-    monkeypatch.setattr(httpx, "request", scripted)
+    monkeypatch.setattr(httpx, "stream", scripted)
     with pytest.raises(HookHTTPError) as raised:
         HookHTTP().get(url, timeout=8)
     return raised.value
@@ -130,12 +137,31 @@ def test_responses_still_come_back_when_the_transport_works(
 ) -> None:
     """The wrapper must not swallow the ordinary path."""
 
-    def scripted(*args: object, **kwargs: object) -> httpx.Response:
+    @contextmanager
+    def scripted(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        del args, kwargs
         transport = httpx.MockTransport(lambda _r: httpx.Response(204, text="fine"))
-        with httpx.Client(transport=transport) as client:
-            return client.request("GET", URL)
+        with httpx.Client(transport=transport) as client, client.stream("GET", URL) as response:
+            yield response
 
-    monkeypatch.setattr(httpx, "request", scripted)
+    monkeypatch.setattr(httpx, "stream", scripted)
     response = HookHTTP().get(URL)
     assert response.status_code == 204
     assert response.text == "fine"
+
+
+def test_an_oversized_response_fails_instead_of_returning_partial_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @contextmanager
+    def scripted(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        del args, kwargs
+        content = b"x" * (MAX_HTTP_RESPONSE_BYTES + 100_000)
+        transport = httpx.MockTransport(lambda _r: httpx.Response(200, content=content))
+        with httpx.Client(transport=transport) as client, client.stream("GET", URL) as response:
+            yield response
+
+    monkeypatch.setattr(httpx, "stream", scripted)
+    with pytest.raises(HookHTTPError) as raised:
+        HookHTTP().get(URL)
+    assert str(raised.value) == "GET http://tracker.example.com:5013 response exceeded 1 MB"

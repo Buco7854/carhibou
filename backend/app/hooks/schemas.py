@@ -69,5 +69,14 @@ class HookExecutionResponse(BaseModel):
     finished_at: datetime | None
     duration_seconds: float | None
     logs: list[dict[str, object]]
+    log_count: int
+    logs_truncated: bool
     error: str | None
     created_at: datetime
+
+
+class HookExecutionLogPage(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    logs: list[dict[str, object]]

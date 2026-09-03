@@ -97,6 +97,10 @@ type VehicleEvents interface {
 	TakeEvent() string
 }
 
+type TelemetryClient interface {
+	Upload(bootID string, samples []model.Sample) ([]string, error)
+}
+
 type EmptyPosition struct{}
 
 func (EmptyPosition) Read() (*model.PositionFix, error) { return nil, nil }
@@ -115,7 +119,7 @@ type rememberedVehicleKey struct {
 
 type Agent struct {
 	Queue    *store.Queue
-	Client   *client.Client
+	Client   TelemetryClient
 	Position PositionProvider
 	Vehicle  VehicleProvider
 	BootID   string
@@ -331,16 +335,29 @@ func (agent *Agent) Collect() (model.Sample, error) {
 	return sample, agent.Queue.Enqueue(sample)
 }
 
-func (agent *Agent) Upload(limit int) (int64, error) {
-	samples, err := agent.Queue.Pending(limit)
-	if err != nil || len(samples) == 0 {
-		return 0, err
+func (agent *Agent) Upload() (int64, error) {
+	var uploaded int64
+	for {
+		samples, err := agent.Queue.Pending(client.MaxTelemetryBatchSize)
+		if err != nil || len(samples) == 0 {
+			return uploaded, err
+		}
+		acknowledged, err := agent.Client.Upload(agent.BootID, samples)
+		if err != nil {
+			return uploaded, err
+		}
+		deleted, err := agent.Queue.Acknowledge(acknowledged)
+		uploaded += deleted
+		if err != nil {
+			return uploaded, err
+		}
+		if deleted != int64(len(samples)) {
+			return uploaded, fmt.Errorf("server acknowledged %d of %d telemetry samples", deleted, len(samples))
+		}
+		if len(samples) < client.MaxTelemetryBatchSize {
+			return uploaded, nil
+		}
 	}
-	acknowledged, err := agent.Client.Upload(agent.BootID, samples)
-	if err != nil {
-		return 0, err
-	}
-	return agent.Queue.Acknowledge(acknowledged)
 }
 
 func SystemHealth(queueDepth int) map[string]any {

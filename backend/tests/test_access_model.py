@@ -402,6 +402,7 @@ def test_four_personas_enforce_the_complete_access_model(
         ("post", f"/api/v1/hooks/{hook_id}/revisions/1/restore", None),
         ("post", f"/api/v1/hooks/{hook_id}/test", {"telemetry_id": str(uuid4())}),
         ("get", f"/api/v1/hooks/{hook_id}/executions", None),
+        ("get", f"/api/v1/hooks/executions/{uuid4()}/logs", None),
         ("post", f"/api/v1/hooks/executions/{uuid4()}/retry", None),
         ("get", "/api/v1/secrets", None),
         (

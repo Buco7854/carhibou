@@ -5,7 +5,14 @@ from backend.app.agents.models import Agent, AgentEnrollmentToken
 from backend.app.auth.models import AuthenticationIdentity, BrowserSession
 from backend.app.connectors.models import Connector
 from backend.app.dashboards.models import Dashboard
-from backend.app.hooks.models import Hook, HookExecution, HookRevision, HookState, Trigger
+from backend.app.hooks.models import (
+    Hook,
+    HookExecution,
+    HookExecutionLog,
+    HookRevision,
+    HookState,
+    Trigger,
+)
 from backend.app.jobs.models import Job, WorkerHeartbeat
 from backend.app.secrets.models import Secret
 from backend.app.telemetry.models import (
@@ -31,6 +38,7 @@ __all__ = [
     "AgentEnrollmentToken",
     "Hook",
     "HookExecution",
+    "HookExecutionLog",
     "HookRevision",
     "HookState",
     "Job",
