@@ -50,7 +50,7 @@ def test_registry_publishes_every_canonical_metric_in_the_agreed_shape(
     assert soc == {
         "key": "battery.soc",
         "unit": "%",
-        "meaning": "traction-battery state of charge from zero to one hundred",
+        "meaning": "how much charge is left in the main battery, from zero to one hundred",
         "kind": "state",
         "value_type": "number",
         "retained": True,
@@ -84,11 +84,13 @@ def test_position_descriptor_matches_the_wire_model_exactly(
 
     assert all(set(field) == {"key", "unit", "meaning"} for field in position["fields"])
     assert all(field["unit"] and field["meaning"] for field in position["fields"])
-    assert "indivisible observation" in position["meaning"]
+    assert "same moment" in position["meaning"]
 
     speed = next(field for field in position["fields"] if field["key"] == "speed")
     assert speed["unit"] == "km/h"
-    assert speed["meaning"] == "GNSS ground speed; a candidate for vehicle.speed"
+    assert speed["meaning"] == (
+        "how fast the vehicle is moving, measured by the receiver rather than the vehicle"
+    )
 
 
 def test_position_fields_are_not_offered_as_metrics(

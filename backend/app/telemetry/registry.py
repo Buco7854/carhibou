@@ -73,7 +73,7 @@ CANONICAL_METRICS = {
         _number(
             "vehicle.speed",
             "km/h",
-            "non-negative instantaneous road speed",
+            "how fast the vehicle is moving",
             freshness=FAST_FRESHNESS,
             minimum=0,
             maximum=1000,
@@ -81,7 +81,7 @@ CANONICAL_METRICS = {
         _number(
             "vehicle.odometer",
             "km",
-            "cumulative vehicle distance",
+            "total distance the vehicle has travelled",
             kind="counter",
             retain_stale=True,
             minimum=0,
@@ -89,7 +89,7 @@ CANONICAL_METRICS = {
         _number(
             "vehicle.range",
             "km",
-            "estimated remaining vehicle range",
+            "how far the vehicle estimates it can still go",
             kind="state",
             retain_stale=True,
             minimum=0,
@@ -98,7 +98,7 @@ CANONICAL_METRICS = {
             "vehicle.state",
             "string",
             None,
-            "source-reported vehicle operating state",
+            "the operating state the vehicle reports for itself",
             "state",
             SLOW_FRESHNESS,
             True,
@@ -122,7 +122,7 @@ CANONICAL_METRICS = {
         _number(
             "battery.soc",
             "%",
-            "traction-battery state of charge from zero to one hundred",
+            "how much charge is left in the main battery, from zero to one hundred",
             kind="state",
             retain_stale=True,
             minimum=0,
@@ -131,20 +131,20 @@ CANONICAL_METRICS = {
         _number(
             "battery.current",
             "A",
-            "traction-battery current using the source profile sign convention",
+            "current flowing into or out of the main battery",
             freshness=FAST_FRESHNESS,
         ),
         _number(
             "battery.pack_voltage",
             "V",
-            "traction-battery pack voltage",
+            "voltage of the main battery that drives the wheels",
             freshness=FAST_FRESHNESS,
             minimum=0,
         ),
         _number(
             "battery.aux_voltage",
             "V",
-            "auxiliary battery voltage powering the vehicle's accessory system",
+            "voltage of the small battery that powers the lights, locks and electronics",
             kind="state",
             retain_stale=True,
             minimum=0,
@@ -153,7 +153,7 @@ CANONICAL_METRICS = {
         _number(
             "battery.power",
             "kW",
-            "positive while discharging and negative while absorbing energy",
+            "power the main battery is delivering, negative while it is charging",
             freshness=FAST_FRESHNESS,
         ),
         MetricDefinition(
@@ -167,14 +167,14 @@ CANONICAL_METRICS = {
         _number(
             "charging.power",
             "kW",
-            "non-negative power entering the vehicle",
+            "power coming from the charger into the vehicle",
             freshness=FAST_FRESHNESS,
             minimum=0,
         ),
         _number(
             "charging.energy_added",
             "kWh",
-            "cumulative energy added during a charging process",
+            "energy added so far in this charge",
             kind="counter",
             retain_stale=True,
             minimum=0,
@@ -182,28 +182,28 @@ CANONICAL_METRICS = {
         _number(
             "charging.voltage",
             "V",
-            "charger input voltage",
+            "voltage coming from the charger",
             freshness=FAST_FRESHNESS,
             minimum=0,
         ),
         _number(
             "charging.current",
             "A",
-            "charger input current",
+            "current coming from the charger",
             freshness=FAST_FRESHNESS,
             minimum=0,
         ),
         _number(
             "engine.rpm",
             "rpm",
-            "engine or traction-machine rotational speed",
+            "how fast the engine or motor is turning",
             freshness=FAST_FRESHNESS,
             minimum=0,
         ),
         _number(
             "engine.load",
             "%",
-            "engine torque demand as a proportion of the maximum available",
+            "how hard the engine is working, as a share of its maximum",
             freshness=FAST_FRESHNESS,
             minimum=0,
             maximum=100,
@@ -211,7 +211,7 @@ CANONICAL_METRICS = {
         _number(
             "engine.throttle",
             "%",
-            "throttle plate opening from closed to fully open",
+            "how far the throttle is open",
             freshness=FAST_FRESHNESS,
             minimum=0,
             maximum=100,
@@ -219,7 +219,7 @@ CANONICAL_METRICS = {
         _number(
             "engine.maf",
             "g/s",
-            "mass of air entering the engine per second",
+            "how much air the engine is drawing in each second",
             freshness=FAST_FRESHNESS,
             minimum=0,
             maximum=1000,
@@ -321,17 +321,26 @@ class PositionField:
 # so they are described here rather than in CANONICAL_METRICS and must never be
 # resolved, aggregated or carried forward independently of one another.
 POSITION_MEANING = (
-    "the GNSS fix: reported and stored as one indivisible observation - "
-    "fields are never combined across instants"
+    "the vehicle's location, recorded as one whole: latitude, longitude, altitude, "
+    "speed, heading and accuracy always come from the same moment and are never "
+    "mixed between moments"
 )
 
 POSITION_FIELDS = (
-    PositionField("latitude", "°", "north-positive angular distance from the equator"),
-    PositionField("longitude", "°", "east-positive angular distance from the prime meridian"),
-    PositionField("altitude", "m", "height above the reference ellipsoid"),
-    PositionField("speed", "km/h", "GNSS ground speed; a candidate for vehicle.speed"),
-    PositionField("heading", "°", "clockwise course over ground from true north"),
-    PositionField("accuracy", "m", "radius of the reported horizontal uncertainty"),
+    PositionField("latitude", "°", "how far north or south of the equator, in degrees"),
+    PositionField("longitude", "°", "how far east or west of the prime meridian, in degrees"),
+    PositionField(
+        "altitude", "m", "the vehicle's height above sea level, as the receiver reports it"
+    ),
+    PositionField(
+        "speed",
+        "km/h",
+        "how fast the vehicle is moving, measured by the receiver rather than the vehicle",
+    ),
+    PositionField(
+        "heading", "°", "the direction the vehicle is travelling, in degrees clockwise from north"
+    ),
+    PositionField("accuracy", "m", "how far the real location could be from this one"),
 )
 
 
