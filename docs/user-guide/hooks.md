@@ -38,30 +38,40 @@ normally, but network examples below log what they would send instead of sending
 
 ### Charging finished
 
-Store a `notify_url` secret. The hook reacts only to a fresh, resolved charging state and
-remembers the previous state, so the initial unknown state is not mistaken for
-"not charging."
+Store a `notify_url` secret. The hook reconstructs the resolved charging state at each
+relevant triggering time, so buffered transitions stay in order. It remembers the
+previous state, so the initial unknown state is not mistaken for "not charging."
 
 ```python
 # hook-example: charging-finished
-reading = ctx.telemetry.current.readings.get("charging.active")
-if reading is None or not reading.fresh or not isinstance(reading.value, bool):
-    return
+CHARGING_EVIDENCE = {"charging.active", "charging.power", "battery.power"}
+times = sorted(
+    {row.observed_at for row in ctx.telemetry.triggering if row.key in CHARGING_EVIDENCE}
+)
+for observed_at in times:
+    state = ctx.telemetry.state_at(observed_at)
+    reading = state.readings.get("charging.active")
+    if reading is None or not reading.fresh or not isinstance(reading.value, bool):
+        continue
 
-was_charging = ctx.state.get("charging")
-ctx.state["charging"] = reading.value
-if was_charging is True and reading.value is False:
+    was_charging = ctx.state.get("charging")
+    ctx.state["charging"] = reading.value
+    if was_charging is not True or reading.value is not False:
+        continue
+
     message = f"{ctx.vehicle.name} finished charging"
     if ctx.dry_run:
-        ctx.log.info("Would send charging notification", text=message)
-    else:
-        response = ctx.http.post(
-            ctx.secrets["notify_url"],
-            json={"text": message},
-            timeout=8,
-        )
-        if response.status_code >= 400:
-            raise RuntimeError(f"Notification failed with HTTP {response.status_code}")
+        ctx.log.info("Would send charging notification", text=message, observed_at=observed_at)
+        continue
+
+    response = ctx.http.post(
+        ctx.secrets["notify_url"],
+        json={"text": message},
+        timeout=8,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"Notification failed with HTTP {response.status_code}")
+    ctx.log.info("Sent charging notification", text=message, observed_at=observed_at)
 ```
 
 ### Gate on arrival
@@ -70,44 +80,63 @@ Store `gate_url` and `gate_token`, then replace the demonstration coordinates:
 
 ```python
 # hook-example: gate-on-arrival
-position = ctx.telemetry.current.position
-if position is None or not position.fresh:
-    return
+from datetime import UTC, datetime, timedelta
 
-inside = ctx.geo.within_radius(
-    position.latitude,
-    position.longitude,
-    48.8566,
-    2.3522,
-    80,
+positions = sorted(
+    (row for row in ctx.telemetry.triggering if row.key == "position"),
+    key=lambda row: row.observed_at,
 )
-was_inside = ctx.state.get("inside_home")
-ctx.state["inside_home"] = inside
-if was_inside is False and inside:
+for row in positions:
+    # Never operate a physical gate from a position delivered hours late.
+    age = datetime.now(UTC) - row.observed_at
+    if age < -timedelta(seconds=30) or age > timedelta(minutes=2):
+        continue
+
+    position = row.value
+    inside = ctx.geo.within_radius(
+        position.latitude,
+        position.longitude,
+        48.8566,
+        2.3522,
+        80,
+    )
+    was_inside = ctx.state.get("inside_home")
+    ctx.state["inside_home"] = inside
+    if was_inside is not False or not inside:
+        continue
+
     if ctx.dry_run:
         ctx.log.info(
             "Would open gate",
             latitude=position.latitude,
             longitude=position.longitude,
         )
-    else:
-        response = ctx.http.post(
-            ctx.secrets["gate_url"],
-            headers={"Authorization": f"Bearer {ctx.secrets['gate_token']}"},
-            timeout=5,
-        )
-        if response.status_code >= 400:
-            raise RuntimeError(f"Gate request failed with HTTP {response.status_code}")
+        continue
+
+    response = ctx.http.post(
+        ctx.secrets["gate_url"],
+        headers={"Authorization": f"Bearer {ctx.secrets['gate_token']}"},
+        timeout=5,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"Gate request failed with HTTP {response.status_code}")
+    ctx.log.info(
+        "Opened gate",
+        latitude=position.latitude,
+        longitude=position.longitude,
+    )
 ```
 
-The first run records whether the vehicle is inside without opening anything. The
-receiving gate still needs its own authentication, replay protection and safe operating
-policy.
+The first recent position records whether the vehicle is inside without opening
+anything. Positions received more than two minutes late are ignored: historical data
+must never operate a physical gate. The receiving gate still needs its own
+authentication, replay protection and safe operating policy.
 
 ### Forward recorded positions to Traccar
 
 This example forwards every position included in the hook run, including buffered
-positions recorded while the agent was offline:
+positions recorded while the agent was offline. Set this hook's execution timeout to
+90 seconds so a run containing 10 sequential requests has enough headroom:
 
 ```python
 # hook-example: forward-positions-to-traccar

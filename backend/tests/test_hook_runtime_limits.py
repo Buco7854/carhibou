@@ -92,10 +92,10 @@ def test_many_structured_logs_produce_a_bounded_serializable_result() -> None:
     assert len(encoded.encode()) < log_limit + 1024
 
 
-def test_one_log_per_bounded_trigger_sample_remains_fully_visible() -> None:
+def test_several_logs_per_bounded_trigger_sample_remain_fully_visible() -> None:
     result = run_hook_process(
         _runtime_input(
-            "for index in range(200):\n"
+            "for index in range(50):\n"
             '    ctx.log.info("Forwarded position to Traccar", '
             'id="vehicle-1", lat=48.8, lon=2.3, timestamp=index)',
             log_limit=64_000,
@@ -105,9 +105,9 @@ def test_one_log_per_bounded_trigger_sample_remains_fully_visible() -> None:
     )
 
     assert result.status == "success", result.error
-    assert result.log_count == 200
+    assert result.log_count == 50
     assert result.logs_truncated is False
-    assert len(result.logs) == 200
+    assert len(result.logs) == 50
     assert all(record.get("truncated") is not True for record in result.logs)
     assert all(record["message"] == "Forwarded position to Traccar" for record in result.logs)
 

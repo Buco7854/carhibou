@@ -133,6 +133,7 @@ def _seed_v2_fixture(database_url: str) -> tuple[Engine, str, str, str]:
                         observed_at=old_at,
                         observations=[
                             {"key": "battery.soc", "value": 80},
+                            {"key": "charging.active", "value": True},
                             {"key": "tyre.front_left_pressure", "value": 2.3},
                         ],
                         latitude=48.8,
@@ -242,7 +243,6 @@ def test_all_shipped_hook_examples_execute_in_the_real_child_runtime(
     request.addfinalizer(engine.dispose)
 
     initial_states: dict[str, dict[str, object]] = {
-        "charging-finished": {"charging": True},
         "gate-on-arrival": {"inside_home": False},
     }
     results: dict[str, RuntimeResult] = {}
@@ -302,16 +302,36 @@ def test_all_shipped_hook_examples_execute_in_the_real_child_runtime(
 
     gate_data, gate_secrets = inputs["gate-on-arrival"]
     without_position = copy.deepcopy(gate_data)
-    without_position["telemetry_context"]["current"]["position"] = None
+    without_position["telemetry_context"]["triggering"] = [
+        row
+        for row in without_position["telemetry_context"]["triggering"]
+        if row["key"] != "position"
+    ]
     gate_result = _run(without_position, gate_secrets, "gate-on-arrival/no-position")
     assert gate_result.logs == [] and gate_result.state == {"inside_home": False}
 
+    stale_arrival = copy.deepcopy(gate_data)
+    stale_positions = [
+        row for row in stale_arrival["telemetry_context"]["triggering"] if row["key"] == "position"
+    ]
+    assert len(stale_positions) == 2
+    stale_positions[0]["value"] = {"latitude": 48.8566, "longitude": 2.3522}
+    stale_arrival["telemetry_context"]["triggering"] = [stale_positions[0]]
+    stale_gate_result = _run(stale_arrival, gate_secrets, "gate-on-arrival/stale")
+    assert stale_gate_result.logs == []
+    assert stale_gate_result.state == {"inside_home": False}
+
     traccar_data, traccar_secrets = inputs["forward-positions-to-traccar"]
-    without_trigger = copy.deepcopy(traccar_data)
-    without_trigger["telemetry_context"]["triggering"] = []
+    without_positions = copy.deepcopy(traccar_data)
+    without_positions["telemetry_context"]["triggering"] = [
+        row
+        for row in without_positions["telemetry_context"]["triggering"]
+        if row["key"] != "position"
+    ]
+    assert without_positions["telemetry_context"]["triggering"]
     traccar_result = _run(
-        without_trigger,
+        without_positions,
         traccar_secrets,
-        "forward-positions-to-traccar/no-trigger",
+        "forward-positions-to-traccar/no-position",
     )
     assert _messages(traccar_result) == ["No positions to forward in this run"]

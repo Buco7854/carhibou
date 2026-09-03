@@ -16,9 +16,9 @@ from backend.app.common import model_registry  # noqa: F401
 from backend.app.common.time import as_utc
 
 MAX_HTTP_RESPONSE_BYTES = 1_000_000
-# A normal maximum-sized telemetry trigger may legitimately log once for each
-# of its 200 samples. Leave room for those records; this limit catches floods,
-# not the documented Traccar forwarding pattern.
+# A normal maximum-sized telemetry trigger contains 10 samples and may emit
+# several records per sample. Leave ample room for ordinary diagnostics; this
+# limit catches floods, not the documented Traccar forwarding pattern.
 MAX_LOG_RECORDS = 250
 MAX_LOG_VALUE_BYTES = 16_000
 _LOG_MARKER_RESERVE_BYTES = 512
