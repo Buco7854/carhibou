@@ -10,6 +10,7 @@ import RowMenu from '../components/RowMenu.vue'
 import VehicleMedia from '../components/VehicleMedia.vue'
 import { canOperate, isAdmin } from '../access'
 import { agentStatus, chargingState, energySummary, energyTone, formatAge, formatMetricNumber, headlineReading, isPercentage, isStale, metricLabel, metricNumber, observedAt, vehicleActivity } from '../vehicleDisplay'
+import { askConfirm } from '../confirm'
 
 type VehicleFilter = 'all' | 'online' | 'parked'
 
@@ -20,8 +21,6 @@ interface VehicleForm {
 const vehicles = ref<Vehicle[]>([])
 const { locale, t } = useI18n()
 const showForm = ref(false)
-const deleteTarget = ref<Vehicle | null>(null)
-const deleteBusy = ref(false)
 const error = ref('')
 const photoBusyId = ref('')
 const photoNotice = ref<{ kind: 'error' | 'success'; message: string } | null>(null)
@@ -102,9 +101,14 @@ async function create(): Promise<void> {
 }
 
 async function clearTelemetry(vehicle: Vehicle): Promise<void> {
-  if (!window.confirm(t('vehicles.clearDataConfirm', { name: vehicle.name }))) return
-  await api(`/vehicles/${vehicle.id}/telemetry`, { method: 'DELETE' })
-  await load()
+  const accepted = await askConfirm({
+    title: t('vehicles.clearTitle'),
+    question: t('vehicles.clearQuestion', { name: vehicle.name }),
+    detail: t('vehicles.clearDetail'),
+    confirmLabel: t('vehicles.clearAction'),
+    action: async () => { await api(`/vehicles/${vehicle.id}/telemetry`, { method: 'DELETE' }) },
+  })
+  if (accepted) await load()
 }
 
 async function uploadPhoto(vehicle: Vehicle, file: File): Promise<void> {
@@ -130,7 +134,12 @@ async function uploadPhoto(vehicle: Vehicle, file: File): Promise<void> {
 }
 
 async function removePhoto(vehicle: Vehicle): Promise<void> {
-  if (!window.confirm(t('vehicles.removePhotoConfirm', { name: vehicle.name }))) return
+  const accepted = await askConfirm({
+    title: t('vehicles.photoTitle'),
+    question: t('vehicles.photoQuestion', { name: vehicle.name }),
+    confirmLabel: t('vehicles.photoAction'),
+  })
+  if (!accepted) return
   photoNotice.value = null
   photoBusyId.value = vehicle.id
   try {
@@ -144,25 +153,20 @@ async function removePhoto(vehicle: Vehicle): Promise<void> {
   }
 }
 
-function closeDelete(): void {
-  if (!deleteBusy.value) deleteTarget.value = null
-}
 
-async function deleteVehicle(): Promise<void> {
-  const vehicle = deleteTarget.value
-  if (!vehicle) return
-  deleteBusy.value = true
+async function deleteVehicle(vehicle: Vehicle): Promise<void> {
   photoNotice.value = null
-  try {
-    await api<void>(`/vehicles/${vehicle.id}`, { method: 'DELETE' })
-    deleteTarget.value = null
-    await load()
-    photoNotice.value = { kind: 'success', message: t('vehicles.deleted', { name: vehicle.name }) }
-  } catch (reason) {
-    photoNotice.value = { kind: 'error', message: errorMessage(reason, t('common.error')) }
-  } finally {
-    deleteBusy.value = false
-  }
+  const accepted = await askConfirm({
+    title: t('vehicles.deleteTitle'),
+    question: t('vehicles.deleteQuestion', { name: vehicle.name }),
+    detail: t('vehicles.deleteWarning'),
+    confirmLabel: t('vehicles.deleteVehicle'),
+    busyLabel: t('vehicles.deleting'),
+    action: async () => { await api<void>(`/vehicles/${vehicle.id}`, { method: 'DELETE' }) },
+  })
+  if (!accepted) return
+  await load()
+  photoNotice.value = { kind: 'success', message: t('vehicles.deleted', { name: vehicle.name }) }
 }
 onMounted(load)
 </script>
@@ -189,13 +193,6 @@ onMounted(load)
       </form>
     </AppModal>
 
-    <AppModal :open="Boolean(deleteTarget)" :title="t('vehicles.deleteTitle')" @close="closeDelete">
-      <div v-if="deleteTarget" class="stack-form delete-warning">
-        <p class="delete-question">{{ t('vehicles.deleteQuestion', { name: deleteTarget.name }) }}</p>
-        <p class="field-hint">{{ t('vehicles.deleteWarning') }}</p>
-        <div class="form-actions delete-actions"><button class="button danger" type="button" :disabled="deleteBusy" @click="deleteVehicle">{{ deleteBusy ? t('vehicles.deleting') : t('vehicles.deleteVehicle') }}</button><button class="button ghost" type="button" :disabled="deleteBusy" @click="closeDelete">{{ t('common.cancel') }}</button></div>
-      </div>
-    </AppModal>
 
     <div class="catalog-toolbar">
       <label class="search-field"><AppIcon name="search" :size="16" /><span class="sr-only">{{ t('vehicles.search') }}</span><input v-model="search" :placeholder="t('vehicles.search')" /></label>
@@ -252,7 +249,7 @@ onMounted(load)
           </div>
           <RowMenu v-if="canOperate(vehicle) || isAdmin" :label="t('dataSources.moreActions', { name: vehicle.name })">
             <button v-if="canOperate(vehicle)" type="button" role="menuitem" @click="clearTelemetry(vehicle)">{{ t('vehicles.clearData') }}</button>
-            <button v-if="isAdmin" type="button" role="menuitem" class="danger" @click="deleteTarget=vehicle">{{ t('common.delete') }}</button>
+            <button v-if="isAdmin" type="button" role="menuitem" class="danger" @click="deleteVehicle(vehicle)">{{ t('common.delete') }}</button>
           </RowMenu>
         </footer>
       </article>
@@ -269,7 +266,6 @@ onMounted(load)
 <style scoped>
 .stack-form{display:grid;gap:14px}
 .stack-form .form-actions{justify-content:flex-end;margin-top:4px}
-.delete-question{margin:0;font-size:var(--font-body);font-weight:500}
 
 .catalog-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .search-field{width:min(280px,100%);height:32px;display:flex;align-items:center;gap:7px;padding:0 10px;color:var(--muted);background:var(--input);border:1px solid var(--line-strong);border-radius:var(--radius);transition:border-color .12s,box-shadow .12s}

@@ -11,6 +11,7 @@ import RowMenu from '../components/RowMenu.vue'
 import { isAdmin } from '../access'
 import HookEditorForm, { type HookDraft } from '../components/HookEditorForm.vue'
 import MetricKeyReference from '../components/MetricKeyReference.vue'
+import { askConfirm } from '../confirm'
 
 interface Secret { id: string; name: string; masked: string; created_at: string; updated_at: string }
 const defaultSource = `# Runs after telemetry is safely stored.\nsoc = ctx.telemetry.current.readings.get("battery.soc")\nif soc is None or not soc.fresh:\n    return\n\narmed = ctx.state.get("armed", True)\nif armed and soc.value < 20:\n    ctx.log.warning("Battery is low", soc=soc.value, observed_at=soc.observed_at)\n    ctx.state["armed"] = False\nelif not armed and soc.value > 23:\n    ctx.state["armed"] = True\n`
@@ -35,8 +36,6 @@ const selected = computed(() => hooks.value.find((row) => row.id === selectedId.
 const vehicleNames = computed(() => Object.fromEntries(vehicles.value.map((row) => [row.id, row.name])))
 const lastRun = computed(() => executions.value[0] ?? null)
 const hookFilter = ref('')
-const deleteTarget = ref<Hook | null>(null)
-const deleteBusy = ref(false)
 
 const listedHooks = computed(() => {
   const needle = hookFilter.value.trim().toLowerCase()
@@ -201,29 +200,27 @@ async function testHook(): Promise<void> {
   }
 }
 
-async function deleteHook(): Promise<void> {
-  const hook = deleteTarget.value
-  if (!hook) return
-  deleteBusy.value = true
+async function deleteHook(hook: Hook): Promise<void> {
   error.value = ''
-  try {
-    await api<void>(`/hooks/${hook.id}`, { method:'DELETE' })
-    deleteTarget.value = null
-    // Land on the neighbour rather than on nothing, so deleting one of several
-    // does not empty the panel and make the page look like it lost everything.
-    const removed = hooks.value.findIndex((row) => row.id === hook.id)
-    const remaining = hooks.value.filter((row) => row.id !== hook.id)
-    const next = remaining[Math.min(Math.max(removed, 0), remaining.length - 1)]
-    selectedId.value = ''
-    executions.value = []
-    revisions.value = []
-    await load()
-    if (next) select(next.id)
-  } catch (reason) {
-    error.value = errorMessage(reason, t('common.error'))
-  } finally {
-    deleteBusy.value = false
-  }
+  const accepted = await askConfirm({
+    title: t('hooks.deleteTitle'),
+    question: t('hooks.deleteQuestion', { name: hook.name }),
+    detail: t('hooks.deleteWarning'),
+    confirmLabel: t('hooks.deleteAction'),
+    busyLabel: t('hooks.deleting'),
+    action: async () => { await api<void>(`/hooks/${hook.id}`, { method:'DELETE' }) },
+  })
+  if (!accepted) return
+  // Land on the neighbour rather than on nothing, so deleting one of several
+  // does not empty the panel and make the page look like it lost everything.
+  const removed = hooks.value.findIndex((row) => row.id === hook.id)
+  const remaining = hooks.value.filter((row) => row.id !== hook.id)
+  const next = remaining[Math.min(Math.max(removed, 0), remaining.length - 1)]
+  selectedId.value = ''
+  executions.value = []
+  revisions.value = []
+  await load()
+  if (next) select(next.id)
 }
 
 async function storeSecret(): Promise<void> {
@@ -335,7 +332,7 @@ onMounted(load)
             <button class="button secondary" type="button" :disabled="testing" @click="testHook">{{ t('hooks.test') }}</button>
             <button class="button" type="submit" form="hook-detail-form" :disabled="saving">{{ t('common.save') }}</button>
             <RowMenu v-if="isAdmin" :label="t('dataSources.moreActions', { name: selected.name })">
-              <button type="button" role="menuitem" class="danger" @click="deleteTarget = selected">{{ t('common.delete') }}</button>
+              <button type="button" role="menuitem" class="danger" @click="deleteHook(selected)">{{ t('common.delete') }}</button>
             </RowMenu>
           </div>
         </header>
@@ -388,16 +385,6 @@ onMounted(load)
 
     <MetricKeyReference :open="referenceOpen" @close="referenceOpen = false" />
 
-    <AppModal :open="Boolean(deleteTarget)" :title="t('hooks.deleteTitle')" @close="deleteTarget = null">
-      <div v-if="deleteTarget" class="stack-form delete-warning">
-        <p class="delete-question">{{ t('hooks.deleteQuestion', { name: deleteTarget.name }) }}</p>
-        <p class="field-hint">{{ t('hooks.deleteWarning') }}</p>
-        <div class="form-actions delete-actions">
-          <button class="button danger" type="button" :disabled="deleteBusy" @click="deleteHook">{{ deleteBusy ? t('hooks.deleting') : t('hooks.deleteAction') }}</button>
-          <button class="button ghost" type="button" :disabled="deleteBusy" @click="deleteTarget = null">{{ t('common.cancel') }}</button>
-        </div>
-      </div>
-    </AppModal>
   </div>
 </template>
 
@@ -417,10 +404,6 @@ onMounted(load)
 .rail-title{display:flex;align-items:baseline;gap:6px;margin:0;color:var(--muted);font-size:var(--font-caption);font-weight:600}
 .rail-count{color:var(--muted-2);font-variant-numeric:tabular-nums;font-weight:500}
 
-/* The same two rules the vehicle and data-source delete dialogs carry; both
-   are scoped, so this one states them rather than reaching across. */
-.stack-form{display:grid;gap:14px}
-.delete-question{margin:0;font-size:var(--font-body);font-weight:500}
 .rail-note{margin:0;color:var(--muted);font-size:var(--font-caption);line-height:1.45}
 
 .hook-filter .input{min-height:30px;padding:5px 8px;font-size:var(--font-caption)}

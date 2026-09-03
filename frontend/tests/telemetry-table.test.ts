@@ -140,7 +140,7 @@ describe('telemetry table', () => {
     // cannot say which way round the sign runs; the note has to.
     const current = wrapper.findAll('thead th button').find((button) => button.text().includes('Pack current'))!
     expect(current.attributes('title')).toContain('battery.current')
-    expect(current.attributes('title')).toContain('charging')
+    expect(current.attributes('title')).toContain('Negative while it charges')
 
     // An agent column is hidden by default, so its name is reached through the
     // column menu rather than through a header that is not there.
@@ -153,8 +153,8 @@ describe('telemetry table', () => {
     resetMetricKeys()
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
       if (url.includes('/metrics/registry')) return Promise.resolve(jsonResponse({ metrics: [
-        { key:'battery.soc', unit:'%', meaning:'traction-battery state of charge from zero to one hundred', kind:'state', value_type:'number', retained:true, freshness_seconds:900 },
-        { key:'vehicle.range', unit:'km', meaning:'estimated remaining vehicle range', kind:'state', value_type:'number', retained:true, freshness_seconds:900 },
+        { key:'battery.soc', unit:'%', meaning:'how much charge is left in the main battery, from zero to one hundred', kind:'state', value_type:'number', retained:true, freshness_seconds:900 },
+        { key:'vehicle.range', unit:'km', meaning:'how far the vehicle estimates it can still go', kind:'state', value_type:'number', retained:true, freshness_seconds:900 },
       ] }))
       return Promise.resolve(jsonResponse({
         vehicle_id:'vehicle-1', start:'', end:'', total:2, limit:50, offset:0,
@@ -171,10 +171,10 @@ describe('telemetry table', () => {
 
     // battery.soc has a note of its own, which is a sharper sentence than the
     // registry's wording, so the note wins.
-    expect(titleFor('battery.soc')).toContain('Charge remaining in the traction battery.')
+    expect(titleFor('battery.soc')).toContain('How much charge is left in the main battery')
     // vehicle.range has none, so rather than showing the bare key the column
     // says what the server says it means.
-    expect(titleFor('vehicle.range')).toContain('estimated remaining vehicle range')
+    expect(titleFor('vehicle.range')).toContain('how far the vehicle estimates it can still go')
 
     // An agent key is not a registry metric and keeps its own note.
     await wrapper.get('.entries-tools button').trigger('click')

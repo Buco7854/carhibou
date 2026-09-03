@@ -7,6 +7,7 @@ import { auth, logout } from './api/auth'
 import { APP_NAME } from './branding'
 import AppIcon from './components/AppIcon.vue'
 import AppSelect from './components/AppSelect.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 import BrandMark from './components/BrandMark.vue'
 import { persistLocale } from './i18n'
 import { nameLayerHost } from './layerHost'
@@ -66,6 +67,10 @@ watch(() => router.currentRoute.value.fullPath, closeMore)
 </script>
 
 <template>
+  <!-- One dialog for the whole app: every destructive confirmation is asked
+       here, so there is one implementation of what one looks like. Mounted
+       outside the shell so the sign-in screen can ask too. -->
+  <ConfirmDialog />
   <RouterView v-if="!auth.user" />
   <div v-else class="app-shell">
     <aside class="sidebar">

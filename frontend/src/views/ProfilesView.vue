@@ -7,6 +7,7 @@ import { canCreateProfiles } from '../access'
 import AppIcon from '../components/AppIcon.vue'
 import MappingProfileEditor from '../components/MappingProfileEditor.vue'
 import VehicleProfileEditor from '../components/VehicleProfileEditor.vue'
+import { askConfirm } from '../confirm'
 
 const { t } = useI18n()
 const profiles = ref<VehicleProfile[]>([])
@@ -77,14 +78,15 @@ function chips(profile: VehicleProfile): string[] {
 }
 
 async function remove(profile: VehicleProfile): Promise<void> {
-  if (!window.confirm(t('profiles.deleteConfirm', { name: profile.name }))) return
   error.value = ''
-  try {
-    await api(`/vehicle-profiles/${profile.id}`, { method: 'DELETE' })
-    await load()
-  } catch (reason) {
-    error.value = errorMessage(reason, t('common.error'))
-  }
+  const accepted = await askConfirm({
+    title: t('profiles.deleteTitle'),
+    question: t('profiles.deleteQuestion', { name: profile.name }),
+    detail: t('profiles.deleteDetail'),
+    confirmLabel: t('profiles.deleteAction'),
+    action: async () => { await api(`/vehicle-profiles/${profile.id}`, { method: 'DELETE' }) },
+  })
+  if (accepted) await load()
 }
 
 async function saved(): Promise<void> { await load() }

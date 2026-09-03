@@ -9,6 +9,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AppModal from '../components/AppModal.vue'
 import RowMenu from '../components/RowMenu.vue'
 import AppSelect from '../components/AppSelect.vue'
+import { askConfirm } from '../confirm'
 
 const { t } = useI18n()
 const diagnostics = ref<Diagnostics | null>(null)
@@ -65,12 +66,15 @@ async function updatePerson(account: UserAccount, changes: Record<string, unknow
 }
 
 async function removePerson(account: UserAccount): Promise<void> {
-  if (!window.confirm(t('settings.deleteUserConfirm', { name: account.display_name }))) return
   peopleError.value = ''
-  try {
-    await api(`/users/${account.id}`, { method: 'DELETE' })
-    await loadPeople()
-  } catch (reason) { peopleError.value = errorMessage(reason, t('common.error')) }
+  const accepted = await askConfirm({
+    title: t('settings.deleteUserTitle'),
+    question: t('settings.deleteUserQuestion', { name: account.display_name }),
+    detail: t('settings.deleteUserDetail'),
+    confirmLabel: t('settings.deleteUserAction'),
+    action: async () => { await api(`/users/${account.id}`, { method: 'DELETE' }) },
+  })
+  if (accepted) await loadPeople()
 }
 
 async function loadGrants(): Promise<void> {
@@ -152,15 +156,19 @@ async function saveDefaults(): Promise<void> {
  * after a period of testing rather than a way to start over.
  */
 async function clearAllTelemetry(): Promise<void> {
-  if (!window.confirm(t('settings.clearAllConfirm'))) return
-  clearing.value = true
   dataMessage.value = ''
   dataError.value = ''
-  try {
-    await api('/vehicles/telemetry', { method: 'DELETE' })
-    dataMessage.value = t('settings.clearAllDone')
-  } catch (reason) { dataError.value = errorMessage(reason, t('common.error')) }
-  finally { clearing.value = false }
+  const accepted = await askConfirm({
+    title: t('settings.clearAllTitle'),
+    question: t('settings.clearAllQuestion'),
+    detail: t('settings.clearAllDetail'),
+    confirmLabel: t('settings.clearAllAction'),
+    action: async () => {
+      clearing.value = true
+      try { await api('/vehicles/telemetry', { method: 'DELETE' }) } finally { clearing.value = false }
+    },
+  })
+  if (accepted) dataMessage.value = t('settings.clearAllDone')
 }
 
 onMounted(async () => {

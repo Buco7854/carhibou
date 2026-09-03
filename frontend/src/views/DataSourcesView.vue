@@ -3,15 +3,16 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errorMessage } from '../api/client'
 import { useLiveRefresh } from '../api/live'
-import type { Vehicle, VehicleProfile } from '../api/types'
+import type { RetiredSource, Vehicle, VehicleProfile } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import CadenceFields from '../components/CadenceFields.vue'
 import { CADENCE_PRESETS, type Cadence } from '../agentCadence'
 import { canOperate, isAdmin, operableVehicles } from '../access'
-import { formatInstantOrNever, statusTone } from '../vehicleDisplay'
+import { formatInstant, formatInstantOrNever, statusTone } from '../vehicleDisplay'
 import AppModal from '../components/AppModal.vue'
 import AppSelect from '../components/AppSelect.vue'
 import RowMenu from '../components/RowMenu.vue'
+import { askConfirm } from '../confirm'
 
 type SetupStepKind = 'command'|'value'|'link'|'manual'
 interface AgentImplementation { id:string; name:string; hardware:string; protocol_version:number; setup_kind:'command'|'guided'; docs_url:string }
@@ -135,6 +136,7 @@ async function load() {
       api<Agent[]>('/agents'), api<Vehicle[]>('/vehicles'), api<VehicleProfile[]>('/vehicle-profiles'), api<AgentImplementation[]>('/agent-implementations'),
       api<Connector[]>('/connectors').catch(() => [] as Connector[]), api<ConnectorKind[]>('/connector-kinds').catch(() => [] as ConnectorKind[]),
     ])
+    void loadRetired()
     agents.value = loadedAgents
     vehicles.value = loadedVehicles
     implementations.value = catalog
@@ -201,12 +203,79 @@ async function copy(key:string, value:string) {
   copiedKey.value = key
   window.setTimeout(() => { if (copiedKey.value === key) copiedKey.value = '' }, 1500)
 }
-async function revoke(id:string) { if (!window.confirm(t('agents.revokeConfirm'))) return; await api(`/agents/${id}/revoke`, { method:'POST' }); await load() }
-async function remove(agent:Agent) {
-  if (!window.confirm(t('agents.deleteConfirm', { name: agent.name }))) return
-  await api(`/agents/${agent.id}`, { method:'DELETE' })
-  await load()
+async function revoke(agent:Agent) {
+  const accepted = await askConfirm({
+    title: t('agents.revokeTitle'),
+    question: t('agents.revokeQuestion', { name: agent.name }),
+    detail: t('agents.revokeDetail'),
+    confirmLabel: t('agents.revokeAction'),
+    action: async () => { await api(`/agents/${agent.id}/revoke`, { method:'POST' }) },
+  })
+  if (accepted) await load()
 }
+
+/**
+ * Removing an agent asks what to do with what it recorded.
+ *
+ * Retiring is the default because the readings are the point of having had the
+ * agent: they stay, and so does its name wherever history cites it, while the
+ * device loses its credential and can no longer report. Purging is the opt-in,
+ * and it is offered here rather than hidden behind a second menu entry because
+ * the choice only ever arises at this moment.
+ */
+async function remove(agent:Agent) {
+  const accepted = await askConfirm({
+    title: t('agents.removeTitle'),
+    question: t('agents.removeQuestion', { name: agent.name }),
+    detail: t('agents.removeDetail'),
+    confirmLabel: t('agents.removeAction'),
+    busyLabel: t('agents.removing'),
+    option: { label: t('agents.purgeLabel'), detail: t('agents.purgeDetail') },
+    action: async (purge) => {
+      await api(`/agents/${agent.id}${purge ? '?purge_telemetry=true' : ''}`, { method:'DELETE' })
+    },
+  })
+  if (accepted) await load()
+}
+/*
+ * Retired sources, and the readings that outlived them.
+ *
+ * Admin-only, and beside the roster rather than in settings: the question this
+ * answers is "where did that agent go, and what is its data still doing here",
+ * which is asked while looking at the list it left.
+ */
+const retired = ref<RetiredSource[]>([])
+
+async function loadRetired(): Promise<void> {
+  if (!isAdmin.value) return
+  try {
+    retired.value = await api<RetiredSource[]>('/agents/retired')
+  } catch {
+    // The roster is the page; a failure here leaves the section empty rather
+    // than taking the rest of it down.
+    retired.value = []
+  }
+}
+
+function retiredRange(source: RetiredSource): string {
+  if (!source.oldest || !source.newest) return t('agents.retiredNothing')
+  return t('agents.retiredRange', { from: formatInstant(source.oldest), to: formatInstant(source.newest) })
+}
+
+async function purgeRetired(source: RetiredSource): Promise<void> {
+  const accepted = await askConfirm({
+    title: t('agents.purgeTitle'),
+    question: t('agents.purgeQuestion', { name: source.name }),
+    detail: source.samples
+      ? t('agents.purgeSourceDetail', { count: source.samples, from: formatInstant(source.oldest), to: formatInstant(source.newest) })
+      : t('agents.purgeEmptyDetail'),
+    confirmLabel: t('agents.purgeAction'),
+    busyLabel: t('agents.purging'),
+    action: async () => { await api(`/agents/${source.source_id}?purge_telemetry=true`, { method:'DELETE' }) },
+  })
+  if (accepted) await loadRetired()
+}
+
 async function rotate(id:string) { const response = await api<{credential:string}>(`/agents/${id}/rotate`, {method:'POST'}); rotatedCredential.value={id,credential:response.credential} }
 function openConnector(connector:Connector|null) {
   connectorEditing.value = connector
@@ -257,9 +326,14 @@ async function setConnectorEnabled(connector:Connector, enabled:boolean) {
   await load()
 }
 async function removeConnector(connector:Connector) {
-  if (!window.confirm(t('connectors.deleteConfirm', { name: connector.name }))) return
-  await api(`/connectors/${connector.id}`, { method:'DELETE' })
-  await load()
+  const accepted = await askConfirm({
+    title: t('connectors.deleteTitle'),
+    question: t('connectors.deleteQuestion', { name: connector.name }),
+    detail: t('connectors.deleteDetail'),
+    confirmLabel: t('connectors.deleteAction'),
+    action: async () => { await api(`/connectors/${connector.id}`, { method:'DELETE' }) },
+  })
+  if (accepted) await load()
 }
 const onlineCount = computed(() => enrolledAgents.value.filter((agent) => agent.online && !agent.revoked_at).length)
 // Agent versions belong to their own implementations and are never comparable
@@ -407,7 +481,7 @@ onMounted(load)
           <button class="button secondary" :disabled="!!agent.revoked_at" @click="openSettings(agent)">{{ t('agents.settings') }}</button>
           <RowMenu :label="t('dataSources.moreActions',{name:agent.name})">
             <button type="button" role="menuitem" :disabled="!!agent.revoked_at" @click="rotate(agent.id)">{{ t('agents.rotate') }}</button>
-            <button type="button" role="menuitem" class="danger" :disabled="!!agent.revoked_at" @click="revoke(agent.id)">{{ t('agents.revoke') }}</button>
+            <button type="button" role="menuitem" class="danger" :disabled="!!agent.revoked_at" @click="revoke(agent)">{{ t('agents.revoke') }}</button>
             <button type="button" role="menuitem" class="danger" @click="remove(agent)">{{ t('common.delete') }}</button>
           </RowMenu>
         </div>
@@ -465,6 +539,34 @@ onMounted(load)
       <div v-else class="empty panel">
         <h2>{{ t('connectors.none') }}</h2>
         <p v-if="enrollableVehicles.length&&connectorKinds.length">{{ t('connectors.noneHint') }}</p>
+      </div>
+    </section>
+
+    <!-- Only an administrator can purge, and only an administrator is served
+         this list, so the whole section is theirs. -->
+    <section v-if="isAdmin" class="data-sources">
+      <div class="section-head">
+        <h2>{{ t('agents.retiredGroup') }}</h2>
+        <span v-if="retired.length" class="count">{{ retired.length }}</span>
+      </div>
+      <p class="section-note">{{ t('agents.retiredHint') }}</p>
+      <div v-if="retired.length" class="source-list panel retired-list">
+        <article v-for="source in retired" :key="source.source_id" class="retired-row">
+          <div class="retired-identity">
+            <strong>{{ source.name }}</strong>
+            <small>{{ t('agents.retiredOn', { date: formatInstant(source.retired_at) }) }}</small>
+          </div>
+          <div class="retired-holdings">
+            <strong>{{ t('agents.retiredSamples', { count: source.samples }) }}</strong>
+            <small>{{ retiredRange(source) }}</small>
+          </div>
+          <RowMenu :label="t('dataSources.moreActions', { name: source.name })">
+            <button type="button" role="menuitem" class="danger" @click="purgeRetired(source)">{{ t('agents.purgeAction') }}</button>
+          </RowMenu>
+        </article>
+      </div>
+      <div v-else class="empty panel">
+        <h2>{{ t('agents.retiredNone') }}</h2>
       </div>
     </section>
 
@@ -591,6 +693,20 @@ onMounted(load)
 .source-facts dd{margin:2px 0 0;overflow:hidden;font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}
 .compat{display:inline-flex;padding:1px 6px;color:var(--muted);background:var(--panel-2);border-radius:var(--radius-sm);font-size:var(--font-micro);line-height:1.5}
 .compat.incompatible{color:var(--danger);background:var(--danger-soft)}
+/* A retired source is a row of accounting, not a card: what it was, what it
+   still holds, and the one action left for it. */
+.section-note{margin:0 0 4px;color:var(--muted);font-size:var(--font-caption);line-height:1.45;max-width:72ch}
+.retired-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:14px;padding:12px 16px}
+.retired-row+.retired-row{border-top:1px solid var(--line)}
+.retired-identity,.retired-holdings{display:grid;gap:2px;min-width:0}
+.retired-identity strong{overflow:hidden;font-size:var(--font-body);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+.retired-holdings{text-align:right}
+.retired-holdings strong{font-size:var(--font-body);font-weight:500;font-variant-numeric:tabular-nums}
+.retired-row small{color:var(--muted);font-size:var(--font-caption)}
+@media(max-width:560px){
+  .retired-row{grid-template-columns:minmax(0,1fr) auto}
+  .retired-holdings{grid-column:1;text-align:left}
+}
 .data-sources{margin-top:28px}
 .connector-error{grid-column:1/-1;margin:4px 0 0;padding:9px 11px;color:var(--danger);background:var(--danger-soft);border-radius:var(--radius);font-size:var(--font-caption);overflow-wrap:anywhere}
 .connector-form .check{display:flex;align-items:center;gap:8px;font-size:var(--font-body);cursor:pointer}

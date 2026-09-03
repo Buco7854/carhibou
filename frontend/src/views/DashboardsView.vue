@@ -13,6 +13,7 @@ import AppSelect from '../components/AppSelect.vue'
 import { defaultDashboardMetrics, metricDefinition, metricLabel, reportedChartMetrics, reportedKeys } from '../vehicleDisplay'
 import { isGeneralChoice, needsSpecificData, normalizeWidget, widgetRegistry } from '../widgets/registry'
 import { dashboardRuntimeKey } from '../widgets/dashboardContext'
+import { askConfirm } from '../confirm'
 
 const { t } = useI18n()
 const dashboards = ref<Dashboard[]>([])
@@ -501,10 +502,18 @@ function makeDefault(): void {
 }
 
 async function deleteActive(): Promise<void> {
-  if (!active.value || dashboards.value.length === 1 || !window.confirm(t('dashboards.deleteConfirm'))) return
-  const deletedId = active.value.id
-  const wasDefault = active.value.is_default
-  await api(`/dashboards/${deletedId}`, { method:'DELETE' })
+  const board = active.value
+  if (!board || dashboards.value.length === 1) return
+  const deletedId = board.id
+  const wasDefault = board.is_default
+  const accepted = await askConfirm({
+    title: t('dashboards.deleteTitle'),
+    question: t('dashboards.deleteQuestion', { name: board.name }),
+    detail: t('dashboards.deleteDetail'),
+    confirmLabel: t('dashboards.deleteAction'),
+    action: async () => { await api(`/dashboards/${deletedId}`, { method:'DELETE' }) },
+  })
+  if (!accepted) return
   dashboards.value = dashboards.value.filter((row) => row.id !== deletedId)
   const next = dashboards.value[0]
   if (!next) return

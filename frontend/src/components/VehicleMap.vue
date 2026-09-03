@@ -48,8 +48,8 @@ function arrowIcon(angle: number): L.DivIcon {
   return L.divIcon({
     className: 'carhibou-route-arrow',
     html: `<span style="--angle:${angle}deg"></span>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+    iconSize: [11, 11],
+    iconAnchor: [5.5, 5.5],
   })
 }
 
@@ -89,9 +89,11 @@ function drawDirection(target: L.Map, path: L.LatLngExpression[]): void {
 
 function endpoint(target: L.Map, at: L.LatLngExpression, kind: 'start' | 'end'): L.CircleMarker {
   const mark = L.circleMarker(at, {
-    radius: kind === 'start' ? 5 : 6,
+    // Sized against the line rather than against the map: an endpoint that
+    // dwarfs the route it ends reads as a pin dropped on it.
+    radius: kind === 'start' ? 4 : 4.5,
     color: 'var(--accent)',
-    weight: 2,
+    weight: 1.75,
     // The end is filled and the start is hollow, so which is which survives
     // being read at a glance and in either theme.
     fillColor: kind === 'start' ? 'var(--panel)' : 'var(--accent)',
@@ -100,6 +102,24 @@ function endpoint(target: L.Map, at: L.LatLngExpression, kind: 'start' | 'end'):
   mark.bindTooltip(t(kind === 'start' ? 'history.routeStart' : 'history.routeEnd'), { direction: 'top', offset: [0, -5] })
   return mark
 }
+
+/*
+ * Line weight.
+ *
+ * One weight cannot serve a view of a whole region and a view of one street. A
+ * hairline reads as precise when the roads under it are hairlines too, and
+ * disappears once they are forty pixels wide. This is the only thing that
+ * scales: the casing stays a single pixel either side at every zoom, which is
+ * what lets a thin line hold against a busy map without becoming a band.
+ */
+function routeWeight(zoom: number): number {
+  if (zoom <= 11) return 1.75
+  if (zoom <= 14) return 2
+  if (zoom <= 16) return 2.5
+  return 3
+}
+
+const CASING_EXTRA = 2
 
 const SPEED_STOPS = [0, 30, 60, 90, 120]
 
@@ -110,23 +130,32 @@ function speedColor(speed: number | null): string {
 }
 
 function drawTrail(target: L.Map, points: TrailPoint[]): void {
-  const bounds: Array<[number, number]> = []
+  const bounds: Array<[number, number]> = points.map((point) => [point.lat, point.lng] as [number, number])
+  const weight = routeWeight(target.getZoom())
+  /*
+   * No casing here, unlike the single-colour route.
+   *
+   * The speed ramp is already saturated against neutralized tiles, so a casing
+   * bought no separation and cost two pixels of width on a line the whole point
+   * of this pass was to thin. The plain accent route keeps one because a single
+   * colour has less to hold it apart from the map.
+   */
   for (let index = 0; index < points.length - 1; index += 1) {
     const from = points[index]!
     const to = points[index + 1]!
     const pair: Array<[number, number]> = [[from.lat, from.lng], [to.lat, to.lng]]
-    bounds.push(pair[0]!)
-    trailLayers.push(L.polyline(pair, { color: speedColor(from.speed), weight: 4, opacity: 1, lineCap: 'round' }).addTo(target))
+    trailLayers.push(L.polyline(pair, { color: speedColor(from.speed), weight, opacity: 1, lineCap: 'round' }).addTo(target))
   }
-  const last = points.at(-1)
-  if (last) bounds.push([last.lat, last.lng])
   points.forEach((point, index) => {
+    const picked = props.marks?.includes(index) ?? false
     const dot = L.circleMarker([point.lat, point.lng], {
-      radius: props.marks?.includes(index) ? 7 : 4,
-      color: props.marks?.includes(index) ? 'var(--accent)' : 'transparent',
-      weight: 2,
+      // The unpicked ones are the click targets and are never drawn; a picked
+      // one only has to be found, not to announce itself.
+      radius: picked ? 4.5 : 4,
+      color: picked ? 'var(--accent)' : 'transparent',
+      weight: picked ? 1.75 : 2,
       fillColor: speedColor(point.speed),
-      fillOpacity: props.marks?.includes(index) ? 1 : 0,
+      fillOpacity: picked ? 1 : 0,
       bubblingMouseEvents: false,
     }).addTo(target)
     dot.on('click', () => emit('pick', index))
@@ -152,14 +181,37 @@ function frame(apply: () => void): void {
   apply()
 }
 
+/*
+ * Where the car is, and which way it faces.
+ *
+ * This was a thirty-four pixel disc of concentric rings, which on a street-level
+ * view covered the junction it was meant to point at. What a fix actually is is
+ * a point, so it is drawn as one: a dot the size of a road marking, cased in the
+ * panel colour so it holds on any tile, and a needle outside it for the heading.
+ *
+ * No heading, no needle. It used to fall back to zero degrees, which drew a car
+ * pointing due north on every fix that never reported a bearing.
+ */
 function positionIcon(heading: number | null | undefined): L.DivIcon {
-  const direction = Number.isFinite(heading) ? Number(heading) : 0
+  const known = Number.isFinite(heading)
   return L.divIcon({
     className: 'carhibou-position-marker',
-    html: `<span class="position-puck" style="--heading:${direction}deg"><i></i><b></b></span>`,
-    iconSize: [34, 34],
-    iconAnchor: [17, 17],
+    html: `<span class="position-puck${known ? ' has-heading' : ''}" style="--heading:${known ? Number(heading) : 0}deg"><i></i></span>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
   })
+}
+
+/** Restyles the lines in place, which is cheaper than rebuilding them. */
+function applyWeights(): void {
+  if (!map) return
+  const weight = routeWeight(map.getZoom())
+  polyline?.setStyle({ weight })
+  routeHalo?.setStyle({ weight: weight + CASING_EXTRA })
+  for (const layer of trailLayers) {
+    if (!(layer instanceof L.Polyline) || layer instanceof L.CircleMarker) continue
+    layer.setStyle({ weight })
+  }
 }
 
 /** Rebuilds only the arrows, leaving the lines and markers where they are. */
@@ -193,8 +245,9 @@ function update() {
     if (trailStart) startMarker = endpoint(map, [trailStart.lat, trailStart.lng], 'start')
     if (trailEnd && props.trail.length > 1) endMarker = endpoint(map, [trailEnd.lat, trailEnd.lng], 'end')
   } else if (props.route?.length) {
-    routeHalo = L.polyline(props.route, { color: 'var(--map-route-halo)', weight: 10, opacity: 0.82, lineCap: 'round', lineJoin: 'round' }).addTo(map)
-    polyline = L.polyline(props.route, { color: 'var(--accent)', weight: 4, opacity: 1, lineCap: 'round', lineJoin: 'round' }).addTo(map)
+    const weight = routeWeight(map.getZoom())
+    routeHalo = L.polyline(props.route, { color: 'var(--map-route-halo)', weight: weight + CASING_EXTRA, opacity: 0.9, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map)
+    polyline = L.polyline(props.route, { color: 'var(--accent)', weight, opacity: 1, lineCap: 'round', lineJoin: 'round' }).addTo(map)
     drawDirection(map, props.route)
     const routeStart = props.route[0]
     const routeEnd = props.route.at(-1)
@@ -207,7 +260,7 @@ function update() {
   if (props.position) {
     const point = L.latLng(props.position.latitude, props.position.longitude)
     marker = L.marker(point, { icon: positionIcon(props.position.heading), keyboard: false }).addTo(map)
-    marker.bindTooltip(t('history.latestPosition'), { direction: 'top', offset: [0, -15] })
+    marker.bindTooltip(t('history.latestPosition'), { direction: 'top', offset: [0, -10] })
     if (!props.route?.length && !props.trail?.length) frame(() => map!.setView(point, 14))
   }
 }
@@ -228,6 +281,7 @@ onMounted(() => {
   // Arrow spacing is measured on screen and only the visible ones are built, so
   // both moving and zooming invalidate the set that is currently drawn.
   map.on('moveend zoomend', redrawDirection)
+  map.on('zoomend', applyWeights)
   update()
   requestAnimationFrame(() => map?.invalidateSize())
 })
@@ -269,10 +323,18 @@ onBeforeUnmount(() => map?.remove())
 :deep(.leaflet-tooltip){padding:4px 7px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-soft);font:400 12px/1.3 "IBM Plex Sans",sans-serif}
 :deep(.leaflet-tooltip::before){display:none}
 :deep(.carhibou-position-marker){background:transparent;border:0}
-:deep(.position-puck){position:relative;width:34px;height:34px;display:grid;place-items:center;filter:drop-shadow(0 3px 6px rgba(16,24,20,.22))}
-:deep(.position-puck i){position:absolute;inset:4px;background:var(--panel);border:2px solid var(--accent);border-radius:50%}
-:deep(.position-puck b){position:relative;width:10px;height:10px;background:var(--accent);border:2px solid var(--panel);border-radius:50%;box-shadow:0 0 0 2px var(--accent)}
-:deep(.position-puck::before){content:"";position:absolute;top:-1px;left:14px;width:6px;height:9px;background:var(--accent);clip-path:polygon(50% 0,100% 100%,0 100%);transform:rotate(var(--heading)) translateY(-1px);transform-origin:3px 18px}
+/* A fix is a point. The dot is the point; the casing is what makes it hold on
+   a pale road or a dark one; the shadow only lifts it off the tile. */
+:deep(.position-puck){position:relative;width:26px;height:26px;display:grid;place-items:center;filter:drop-shadow(0 1px 2px rgba(16,24,20,.3))}
+:deep(.position-puck i){width:12px;height:12px;background:var(--accent);border:2px solid var(--panel);border-radius:50%}
+/* The needle rotates the whole box about the dot, which keeps it on the ring at
+   every bearing without a transform origin to get wrong. */
+:deep(.position-puck.has-heading::after){
+  content:"";position:absolute;inset:0;background:var(--accent);
+  clip-path:polygon(50% 0, 61% 17%, 39% 17%);
+  transform:rotate(var(--heading));
+  filter:drop-shadow(0 0 1px var(--panel));
+}
 .map-state,.map-empty{position:absolute;z-index:500;top:10px;left:10px;padding:5px 8px;color:var(--muted);background:color-mix(in srgb,var(--panel) 90%,transparent);border:1px solid var(--line);border-radius:var(--radius);font:400 12px/1.3 "IBM Plex Sans",sans-serif;pointer-events:none}
 .map-empty{top:50%;left:50%;max-width:220px;transform:translate(-50%,-50%);color:var(--text);text-align:center}
 .unavailable-message{color:var(--danger)}
@@ -281,10 +343,10 @@ onBeforeUnmount(() => map?.remove())
    uses, so it holds against both a pale and a dark map. */
 :deep(.carhibou-route-arrow){pointer-events:none}
 :deep(.carhibou-route-arrow span){
-  display:block;width:14px;height:14px;transform:rotate(var(--angle));
+  display:block;width:11px;height:11px;transform:rotate(var(--angle));
   background:var(--accent);
   clip-path:polygon(18% 8%, 34% 8%, 78% 50%, 34% 92%, 18% 92%, 62% 50%);
-  filter:drop-shadow(0 0 1.4px var(--map-route-halo)) drop-shadow(0 0 1.4px var(--map-route-halo));
+  filter:drop-shadow(0 0 1.2px var(--map-route-halo));
 }
 .map-frame.unavailable :deep(.leaflet-tile-pane){opacity:.12}
 </style>

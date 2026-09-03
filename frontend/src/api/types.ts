@@ -463,3 +463,19 @@ export interface MetricRegistry {
   metrics: MetricRegistryEntry[]
   position?: PositionDescriptor
 }
+
+/**
+ * A source that no longer reports, and the readings it left behind.
+ *
+ * Orphaned telemetry is exactly this: rows whose source is retired, so nothing
+ * will ever add to them again. `oldest` and `newest` are null when the source
+ * was retired without ever having reported.
+ */
+export interface RetiredSource {
+  source_id: string
+  name: string
+  retired_at: string
+  samples: number
+  oldest: string | null
+  newest: string | null
+}

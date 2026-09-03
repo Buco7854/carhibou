@@ -10,6 +10,7 @@ import ProfilesView from '../src/views/ProfilesView.vue'
 import VehiclesView from '../src/views/VehiclesView.vue'
 import type { DashboardWidget } from '../src/api/types'
 import { needsSpecificData, widgetRegistry } from '../src/widgets/registry'
+import { acceptConfirm, confirmRequest } from '../src/confirm'
 import { adminUser, agentImplementations, agentRow, connectorKinds, jsonResponse, readings, vehicle } from './helpers'
 
 vi.mock('gridstack', () => ({
@@ -301,7 +302,6 @@ describe('vehicle and dashboard management', () => {
       return Promise.resolve(jsonResponse([{ ...vehicleWithoutTelemetry, photo_url: photoUrl }]))
     })
     vi.stubGlobal('fetch', fetchMock)
-    vi.stubGlobal('confirm', vi.fn(() => true))
     const wrapper = mount(VehiclesView, { global:{plugins:[i18n],stubs:{Teleport:true,RouterLink:{template:'<a><slot /></a>'}}} })
     await flushPromises()
 
@@ -330,6 +330,10 @@ describe('vehicle and dashboard management', () => {
 
     await wrapper.get('button[aria-label="Remove photo"]').trigger('click')
     await flushPromises()
+    // Removing a photo asks first, like every other destructive action.
+    expect(confirmRequest.value?.question).toContain('Éclair')
+    await acceptConfirm()
+    await flushPromises()
     expect(fetchMock.mock.calls.some((call) => call[1]?.method === 'DELETE')).toBe(true)
     expect(wrapper.find('.vehicle-photo-placeholder').exists()).toBe(true)
   })
@@ -352,9 +356,16 @@ describe('vehicle and dashboard management', () => {
     // actions, rather than loose in the footer beside the two links.
     await wrapper.get('.vehicle-card footer .row-menu-button').trigger('click')
     await wrapper.get('.vehicle-card footer .row-menu-list .danger').trigger('click')
-    expect(wrapper.get('[role="dialog"]').attributes('aria-label')).toBe('Delete vehicle')
-    expect(wrapper.get('.delete-warning').text()).toContain('telemetry history')
-    await wrapper.get('.delete-actions .danger').trigger('click')
+    await flushPromises()
+
+    // The dialog is mounted once for the whole app, so a test of this view sees
+    // the request it raised rather than the markup, which ConfirmDialog's own
+    // test covers. Nothing is deleted until the request is accepted.
+    expect(confirmRequest.value?.title).toBe('Delete vehicle')
+    expect(confirmRequest.value?.question).toContain(vehicle.name)
+    expect(confirmRequest.value?.detail).toContain('telemetry history')
+    expect(deleted).toBe(false)
+    await acceptConfirm()
     await flushPromises()
 
     expect(fetchMock.mock.calls.some((call) => call[0].endsWith('/vehicles/vehicle-1') && call[1]?.method === 'DELETE')).toBe(true)

@@ -7,16 +7,19 @@ import { jsonResponse, mockApi } from './helpers'
 
 const REGISTRY = {
   metrics: [
-    { key: 'battery.soc', unit: '%', meaning: 'state of charge', kind: 'state', value_type: 'number', retained: true, freshness_seconds: 900 },
-    { key: 'vehicle.speed', unit: 'km/h', meaning: 'road speed', kind: 'measurement', value_type: 'number', retained: false, freshness_seconds: 180 },
+    { key: 'battery.soc', unit: '%', meaning: 'how much charge is left in the main battery, from zero to one hundred', kind: 'state', value_type: 'number', retained: true, freshness_seconds: 900 },
+    { key: 'vehicle.speed', unit: 'km/h', meaning: 'how fast the vehicle is moving', kind: 'measurement', value_type: 'number', retained: false, freshness_seconds: 180 },
     { key: 'site.custom', unit: null, meaning: 'a kind this build has no word for', kind: 'ledger', value_type: 'number', retained: false, freshness_seconds: 60 },
   ],
+  // The server's own words, in the register it publishes them in: these are
+  // read straight onto the screen, so a fixture in another voice would be
+  // testing prose the reader never sees.
   position: {
-    meaning: 'the GNSS fix: reported and stored as one indivisible observation - fields are never combined across instants',
+    meaning: "the vehicle's location, recorded as one whole: latitude, longitude, altitude, speed, heading and accuracy always come from the same moment and are never mixed between moments",
     fields: [
-      { key: 'latitude', unit: '\u00b0', meaning: 'north-positive angular distance from the equator' },
-      { key: 'longitude', unit: '\u00b0', meaning: 'east-positive angular distance from the prime meridian' },
-      { key: 'speed', unit: 'km/h', meaning: 'GNSS ground speed; a candidate for vehicle.speed' },
+      { key: 'latitude', unit: '\u00b0', meaning: 'how far north or south of the equator, in degrees' },
+      { key: 'longitude', unit: '\u00b0', meaning: 'how far east or west of the prime meridian, in degrees' },
+      { key: 'speed', unit: 'km/h', meaning: 'how fast the vehicle is moving, measured by the receiver rather than the vehicle' },
     ],
   },
 }
@@ -104,10 +107,11 @@ describe('metric key reference', () => {
       'position.latitude', 'position.longitude', 'position.speed',
     ])
     expect(entry.get('.key-kind').text()).toBe('Fix')
-    // Atomicity and the speed candidacy are the server's words, not ours.
-    expect(entry.get('.key-meaning').text()).toContain('never combined across instants')
-    expect(entry.text()).toContain('a candidate for vehicle.speed')
-    expect(entry.text()).toContain('north-positive angular distance')
+    // That a fix holds together, and where its speed comes from, are the
+    // server's words rather than ours, and they reach the screen unaltered.
+    expect(entry.get('.key-meaning').text()).toContain('never mixed between moments')
+    expect(entry.text()).toContain('measured by the receiver rather than the vehicle')
+    expect(entry.text()).toContain('how far north or south of the equator')
     // A fix is not a registry metric and must not be counted as one.
     expect(page.get('.reference-count').text()).toBe('3 keys')
     expect(page.findAll('.key-list li')).toHaveLength(3)
