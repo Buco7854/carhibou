@@ -88,6 +88,12 @@ Updated: 2026-08-29
   actions are two icon+label controls with the destructive pair in the shared
   row menu. Verified: `./scripts/check.sh` exit 0 and Playwright browser e2e
   against the migrated v2 stack.
+- Drive and charge segments are derived from lifecycle edges rather than a universal
+  time-gap guess. The agent's recorded `vehicle_in_use` state keeps traffic stops inside
+  one drive and closes it on the parked reading; explicit charging or charging-power
+  signals keep a session continuous across the parked ten-minute cadence and close it on
+  the first inactive reading. Vehicles without lifecycle signals retain the bounded
+  speed/position fallback.
 - Profile computed metrics accept a `scale`, so the bundled C-Zero definition publishes
   `battery.power` in kilowatts. Agent, simulator and SPA now agree on that unit; they
   previously disagreed by a factor of a thousand.

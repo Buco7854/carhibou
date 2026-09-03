@@ -18,6 +18,9 @@ fi
 CARHIBOU_DATABASE_URL=sqlite:////tmp/carhibou-migration-check.sqlite3 "$PYTHON" -m alembic upgrade head
 CARHIBOU_DATABASE_URL=sqlite:////tmp/carhibou-migration-check.sqlite3 "$PYTHON" -m alembic check
 CARHIBOU_DATABASE_URL=sqlite:////tmp/carhibou-migration-check.sqlite3 "$PYTHON" -m alembic downgrade base
+# Setuptools otherwise reuses build/lib and can put deleted migration modules
+# into a later wheel. A release check must prove the current tree, not leftovers.
+rm -rf -- build
 "$PYTHON" -m build --wheel --no-isolation
 
 (cd agent && test -z "$(gofmt -l cmd internal)" && go vet ./... && go test ./...)

@@ -143,9 +143,13 @@ each reading with its true observation time and collapses unchanged quiet spans.
 observations remain available as a separate paginated provenance view.
 
 The segments endpoint derives drives and charges on read from recorded observations, so it does
-not depend on history downsampling and stores no session records. It joins evidence gaps
-under 180 seconds, discards drives shorter than 60 seconds and caps queries at 92 days.
-Drive evidence follows explicit in-use state, driving state, speed and position movement.
+not depend on history downsampling and stores no session records. Explicit lifecycle edges
+take precedence: recorded in-use state keeps traffic stops inside one drive and closes it
+on a parked reading, while explicit charging state (or charging power when no state exists)
+keeps a charge continuous across the parked sampling cadence until an inactive reading.
+Vehicles without lifecycle signals fall back to joining speed and position evidence less
+than 180 seconds apart. Segments shorter than 60 seconds are discarded and queries are
+capped at 92 days.
 Distance prefers odometer change and falls back to GPS haversine distance. Charge energy
 prefers the source's accumulated energy and falls back to trapezoidal power integration.
 Missing source metrics omit only their optional response fields.

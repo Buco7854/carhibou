@@ -72,10 +72,28 @@ def _distance(left: SegmentPosition, right: SegmentPosition) -> float:
     return 2 * earth_km * asin(sqrt(value))
 
 
-def _drive_evidence(row: Telemetry, previous: Telemetry | None) -> bool:
+def _drive_signal(row: Telemetry) -> bool | None:
+    # A charge is never a drive, even if a vehicle keeps READY asserted while
+    # plugged in. The explicit charging state outranks every motion fallback.
+    if _charge_signal(row) is True:
+        return False
     in_use = row.metrics.get("vehicle.in_use")
     if isinstance(in_use, bool):
         return in_use
+    agent_data = row.agent_data if isinstance(row.agent_data, dict) else {}
+    agent_in_use = agent_data.get("vehicle_in_use")
+    if isinstance(agent_in_use, bool):
+        return agent_in_use
+    ready = row.metrics.get("vehicle.ready")
+    if isinstance(ready, bool):
+        return ready
+    return None
+
+
+def _drive_evidence(row: Telemetry, previous: Telemetry | None) -> bool:
+    signal = _drive_signal(row)
+    if signal is not None:
+        return signal
     state = row.metrics.get("vehicle.state")
     if isinstance(state, str) and state.strip().lower() in DRIVING_STATES:
         return True
@@ -92,25 +110,80 @@ def _drive_evidence(row: Telemetry, previous: Telemetry | None) -> bool:
     )
 
 
-def _charge_evidence(row: Telemetry) -> bool:
-    if row.metrics.get("charging.active") is True:
-        return True
+def _charge_signal(row: Telemetry) -> bool | None:
+    active = row.metrics.get("charging.active")
+    if isinstance(active, bool):
+        return active
     power = finite_number(row.metrics.get("charging.power"))
-    return power is not None and power >= CHARGING_POWER_FLOOR_KW
+    if power is not None:
+        return power >= CHARGING_POWER_FLOOR_KW
+    return None
 
 
-def _groups(rows: list[Telemetry], evidence: list[bool]) -> list[list[Telemetry]]:
-    positive = [index for index, active in enumerate(evidence) if active]
-    if not positive:
-        return []
-    groups: list[list[int]] = [[positive[0]]]
-    for index in positive[1:]:
-        previous = groups[-1][-1]
-        if as_utc(rows[index].recorded_at) - as_utc(rows[previous].recorded_at) < JOIN_GAP:
-            groups[-1].append(index)
-        else:
-            groups.append([index])
-    return [rows[group[0] : group[-1] + 1] for group in groups]
+def _charge_evidence(row: Telemetry) -> bool:
+    return _charge_signal(row) is True
+
+
+def _drive_groups(rows: list[Telemetry]) -> list[list[Telemetry]]:
+    groups: list[list[Telemetry]] = []
+    start: int | None = None
+    last_evidence: int | None = None
+    signal_bounded = False
+
+    for index, row in enumerate(rows):
+        signal = _drive_signal(row)
+        if signal is False:
+            if start is not None and last_evidence is not None:
+                # A false signal closes a signal-bounded drive at the actual
+                # parked reading. A fallback-only drive still ends where its
+                # last motion evidence ended; the later false cannot date it.
+                end = index if signal_bounded else last_evidence
+                groups.append(rows[start : end + 1])
+            start = None
+            last_evidence = None
+            signal_bounded = False
+            continue
+
+        previous = rows[index - 1] if index else None
+        active = signal is True or (signal is None and _drive_evidence(row, previous))
+        if not active:
+            continue
+        if start is None:
+            start = index
+        elif not signal_bounded and last_evidence is not None:
+            gap = as_utc(row.recorded_at) - as_utc(rows[last_evidence].recorded_at)
+            if gap >= JOIN_GAP:
+                groups.append(rows[start : last_evidence + 1])
+                start = index
+        last_evidence = index
+        signal_bounded = signal_bounded or signal is True
+
+    if start is not None and last_evidence is not None:
+        groups.append(rows[start : last_evidence + 1])
+    return groups
+
+
+def _charge_groups(rows: list[Telemetry]) -> list[list[Telemetry]]:
+    groups: list[list[Telemetry]] = []
+    start: int | None = None
+    last_charging: int | None = None
+
+    for index, row in enumerate(rows):
+        signal = _charge_signal(row)
+        if signal is True:
+            if start is None:
+                start = index
+            last_charging = index
+        elif signal is False and start is not None and last_charging is not None:
+            # Include the stop reading: it dates plug-out and may carry the
+            # final SOC or accumulated-energy value for the session.
+            groups.append(rows[start : index + 1])
+            start = None
+            last_charging = None
+
+    if start is not None and last_charging is not None:
+        groups.append(rows[start : last_charging + 1])
+    return groups
 
 
 def _metric_edges(rows: list[Telemetry], key: str) -> tuple[float | None, float | None]:
@@ -173,7 +246,11 @@ def _drive_segment(rows: list[Telemetry], capacity: float | None) -> DriveSegmen
     if duration < MINIMUM_SEGMENT:
         return None
     positions = _positions(rows)
-    speeds = _speeds(rows)
+    # A final false lifecycle reading dates the parked boundary but is not part
+    # of the drive's speed population. This also keeps a contradictory stale
+    # speed on an authoritative parked reading from becoming the trip maximum.
+    speed_rows = rows[:-1] if _drive_signal(rows[-1]) is False else rows
+    speeds = _speeds(speed_rows)
     soc_start, soc_end = _metric_edges(rows, "battery.soc")
     energy = None
     if capacity is not None and soc_start is not None and soc_end is not None:
@@ -252,19 +329,13 @@ def segments(
     )
     drives = [
         segment
-        for group in _groups(
-            rows,
-            [
-                _drive_evidence(row, rows[index - 1] if index else None)
-                for index, row in enumerate(rows)
-            ],
-        )
+        for group in _drive_groups(rows)
         if (segment := _drive_segment(group, authorized.vehicle.battery_nominal_capacity_kwh))
         is not None
     ]
     charges = [
         charge_segment
-        for group in _groups(rows, [_charge_evidence(row) for row in rows])
+        for group in _charge_groups(rows)
         if (charge_segment := _charge_segment(group)) is not None
     ]
     return SegmentsResponse(drives=drives, charges=charges)

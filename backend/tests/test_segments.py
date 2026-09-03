@@ -7,8 +7,10 @@ from fastapi.testclient import TestClient
 
 from backend.app.history.segments import (
     _charge_evidence,
+    _charge_groups,
     _charge_segment,
     _distance_km,
+    _drive_groups,
     _drive_segment,
     _power_integral,
 )
@@ -25,6 +27,7 @@ def _row(
     *,
     sequence: int = 0,
     metrics: dict[str, object] | None = None,
+    agent_data: dict[str, object] | None = None,
     latitude: float | None = None,
     longitude: float | None = None,
 ) -> Telemetry:
@@ -39,7 +42,7 @@ def _row(
         recorded_at=observed_at,
         reporting_interval=None,
         event_driven=False,
-        agent_data={},
+        agent_data=agent_data or {},
         observation_rows=[
             TelemetryObservation(
                 telemetry_id=telemetry_id,
@@ -164,7 +167,7 @@ def _segments(
     return cast(dict[str, Any], response.json())
 
 
-def test_segments_join_gaps_and_derive_drive_and_charge_statistics(
+def test_segments_follow_lifecycle_signals_and_derive_statistics(
     registered: tuple[TestClient, str],
 ) -> None:
     client, csrf = registered
@@ -238,6 +241,7 @@ def test_segments_join_gaps_and_derive_drive_and_charge_statistics(
                 },
                 (49.1, 3.1, 0),
             ),
+            (1120, {"charging.active": False}, None),
             (1400, {"charging.active": True, "charging.power": 3}, None),
             (1460, {"charging.active": True, "charging.power": 5}, None),
         ],
@@ -247,7 +251,7 @@ def test_segments_join_gaps_and_derive_drive_and_charge_statistics(
     )
     assert len(result["drives"]) == 1
     drive = result["drives"][0]
-    assert drive["duration_seconds"] == 200
+    assert drive["duration_seconds"] == 700
     assert drive["distance_km"] == 2
     assert drive["avg_speed"] == 100 / 3
     assert drive["max_speed"] == 50
@@ -255,7 +259,7 @@ def test_segments_join_gaps_and_derive_drive_and_charge_statistics(
     assert drive["soc_end"] == 78
     assert drive["energy_kwh"] == 1.2
     assert drive["start_position"] == {"latitude": 48.0, "longitude": 2.0}
-    assert drive["end_position"] == {"latitude": 48.02, "longitude": 2.02}
+    assert drive["end_position"] == {"latitude": 49.0, "longitude": 3.0}
 
     assert len(result["charges"]) == 2
     charge, integrated_charge = result["charges"]
@@ -358,6 +362,148 @@ def test_sparse_charge_power_uses_zero_order_hold() -> None:
     ]
 
     assert _power_integral(rows) == (5.5, 11)
+
+
+def test_sparse_charging_signal_bounds_one_long_charge() -> None:
+    base = datetime(2026, 9, 3, 9, 19, 16, tzinfo=UTC)
+    rows = [
+        _row(
+            base,
+            0,
+            metrics={"charging.active": True, "charging.power": 3.2, "battery.soc": 55},
+        ),
+        _row(
+            base,
+            15,
+            metrics={"charging.active": True, "charging.power": 3.2, "battery.soc": 55},
+        ),
+        _row(
+            base,
+            180,
+            metrics={"charging.active": True, "charging.power": 3.1, "battery.soc": 56},
+        ),
+        _row(
+            base,
+            780,
+            metrics={"charging.active": True, "charging.power": 3.0, "battery.soc": 61},
+        ),
+        _row(
+            base,
+            7_980,
+            metrics={"charging.active": True, "charging.power": 2.8, "battery.soc": 95},
+        ),
+        _row(
+            base,
+            10_200,
+            metrics={"charging.active": True, "charging.power": 0.8, "battery.soc": 100},
+        ),
+        _row(
+            base,
+            10_800,
+            metrics={"charging.active": False, "charging.power": 0, "battery.soc": 100},
+        ),
+    ]
+
+    groups = _charge_groups(rows)
+    assert len(groups) == 1
+    charge = _charge_segment(groups[0])
+    assert charge is not None
+    assert charge.start == base
+    assert charge.end == base + timedelta(hours=3)
+    assert charge.soc_start == 55
+    assert charge.soc_end == 100
+    assert charge.peak_power == 3.2
+
+
+def test_charge_power_starts_and_stops_sessions_without_an_active_flag() -> None:
+    base = datetime(2026, 9, 3, 13, tzinfo=UTC)
+    rows = [
+        _row(base, 0, metrics={"charging.power": 3.2}),
+        _row(base, 600, metrics={"charging.power": 3.1}),
+        _row(base, 1_200, metrics={"charging.power": 0}),
+        _row(base, 1_800, metrics={"charging.power": 3.0}),
+        _row(base, 1_860, metrics={"charging.power": 2.8}),
+    ]
+
+    groups = _charge_groups(rows)
+    assert [(group[0].recorded_at, group[-1].recorded_at) for group in groups] == [
+        (base, base + timedelta(seconds=1_200)),
+        (base + timedelta(seconds=1_800), base + timedelta(seconds=1_860)),
+    ]
+
+
+def test_explicit_in_use_signal_keeps_stops_inside_one_drive() -> None:
+    base = datetime(2026, 9, 3, 7, tzinfo=UTC)
+    rows = [
+        _row(
+            base,
+            0,
+            metrics={"vehicle.speed": 40},
+            agent_data={"vehicle_in_use": True},
+            latitude=48.0,
+            longitude=2.0,
+        ),
+        _row(
+            base,
+            120,
+            metrics={"vehicle.speed": 0},
+            agent_data={"vehicle_in_use": True},
+            latitude=48.01,
+            longitude=2.01,
+        ),
+        # The stop exceeds JOIN_GAP. The agent's lifecycle signal says it is
+        # still the same drive, so a zero-speed interval cannot split it.
+        _row(
+            base,
+            600,
+            metrics={"vehicle.speed": 0},
+            agent_data={"vehicle_in_use": True},
+            latitude=48.01,
+            longitude=2.01,
+        ),
+        _row(
+            base,
+            720,
+            metrics={"vehicle.speed": 40},
+            agent_data={"vehicle_in_use": True},
+            latitude=48.02,
+            longitude=2.02,
+        ),
+        _row(
+            base,
+            900,
+            metrics={"vehicle.speed": 0},
+            agent_data={"vehicle_in_use": False},
+            latitude=48.02,
+            longitude=2.02,
+        ),
+    ]
+
+    groups = _drive_groups(rows)
+    assert len(groups) == 1
+    drive = _drive_segment(groups[0], None)
+    assert drive is not None
+    assert drive.start == base
+    assert drive.end == base + timedelta(seconds=900)
+    assert drive.avg_speed == 20
+    assert drive.max_speed == 40
+
+
+def test_explicit_park_and_depart_produce_two_drives() -> None:
+    base = datetime(2026, 9, 3, 7, tzinfo=UTC)
+    rows = [
+        _row(base, 0, agent_data={"vehicle_in_use": True}),
+        _row(base, 120, agent_data={"vehicle_in_use": False}),
+        _row(base, 600, agent_data={"vehicle_in_use": True}),
+        _row(base, 720, agent_data={"vehicle_in_use": False}),
+    ]
+
+    groups = _drive_groups(rows)
+    assert len(groups) == 2
+    assert [(group[0].recorded_at, group[-1].recorded_at) for group in groups] == [
+        (base, base + timedelta(seconds=120)),
+        (base + timedelta(seconds=600), base + timedelta(seconds=720)),
+    ]
 
 
 @pytest.mark.parametrize(
