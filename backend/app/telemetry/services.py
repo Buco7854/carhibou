@@ -229,7 +229,18 @@ def _enqueue_hooks(db: Session, samples: list[Telemetry]) -> None:
         db.add(Job(type="hook.execute", payload={"execution_id": execution.id}))
 
 
+class RetiredSourceError(RuntimeError):
+    """A retired source tried to report.
+
+    Agents are stopped at authentication, but a connector reports through the
+    runtime without presenting a credential, so the guarantee that a retired
+    source adds nothing has to live where both kinds arrive.
+    """
+
+
 def ingest_batch(db: Session, agent: Agent, batch: TelemetryBatch) -> IngestionResult:
+    if agent.retired_at is not None:
+        raise RetiredSourceError(f"source {agent.id} is retired and cannot report")
     db.execute(select(Vehicle.id).where(Vehicle.id == agent.vehicle_id).with_for_update())
     result = IngestionResult(accepted=[], duplicates=[])
     stored: list[Telemetry] = []

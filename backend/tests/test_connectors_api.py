@@ -169,11 +169,23 @@ def test_connector_api_access_password_and_shadow_agent(
         == 400
     )
 
-    removed = operator.delete(
+    # Removing retires by default: the rows stay so the readings keep naming the
+    # source that produced them. Purging is the other choice, asked for by name.
+    retired = operator.delete(
         f"/api/v1/connectors/{connector_id}",
         headers={"X-CSRF-Token": operator_csrf},
     )
-    assert removed.status_code == 204
+    assert retired.status_code == 204
+    with db_factory() as db:
+        assert db.get(Connector, connector_id) is not None
+        agent = db.get(Agent, connector_id)
+        assert agent is not None and agent.retired_at is not None
+
+    purged = operator.delete(
+        f"/api/v1/connectors/{connector_id}?purge_telemetry=true",
+        headers={"X-CSRF-Token": operator_csrf},
+    )
+    assert purged.status_code == 204
     with db_factory() as db:
         assert db.get(Connector, connector_id) is None
         assert db.get(Agent, connector_id) is None

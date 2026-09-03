@@ -19,6 +19,7 @@ from backend.app.agents.schemas import (
 from backend.app.auth.security import hash_token, new_opaque_token
 from backend.app.common.time import as_utc, utcnow
 from backend.app.connectors.constants import CONNECTOR_IMPLEMENTATION_PREFIX
+from backend.app.connectors.models import Connector
 from backend.app.telemetry.models import Telemetry
 from backend.app.vehicle_profiles.services import can_profile_definition
 from backend.app.vehicle_state.models import VehicleState
@@ -183,6 +184,7 @@ def retired_source_accounting(db: Session) -> list[RetiredSource]:
     whether to purge one needs to know how much of it there is and how old.
     """
 
+    connector_ids = set(db.scalars(select(Connector.id)))
     rows = db.execute(
         select(
             Agent.id,
@@ -200,6 +202,7 @@ def retired_source_accounting(db: Session) -> list[RetiredSource]:
     return [
         RetiredSource(
             source_id=source_id,
+            source_kind="connector" if source_id in connector_ids else "agent",
             name=name,
             retired_at=as_utc(retired_at),
             samples=samples,

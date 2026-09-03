@@ -3,6 +3,7 @@ import secrets
 from sqlalchemy.orm import Session
 
 from backend.app.agents.models import Agent
+from backend.app.agents.services import purge_agent, retire_agent
 from backend.app.auth.security import hash_token
 from backend.app.branding import APP_VERSION
 from backend.app.connectors.constants import (
@@ -70,6 +71,11 @@ def create_connector(db: Session, vehicle: Vehicle, data: ConnectorCreate) -> Co
 
 
 def update_connector(db: Session, connector: Connector, data: ConnectorUpdate) -> None:
+    # Retirement is permanent for a connector for the same reason it is for an
+    # agent: its readings stay, and a source that could come back would start
+    # adding to a history it had already closed.
+    if connector_is_retired(db, connector):
+        raise ValueError("retired connector cannot be changed")
     if not mapping_profile_definition(db, data.mapping_profile):
         raise ValueError("mapping profile is not available")
     connector.name = data.name
@@ -93,11 +99,49 @@ def update_connector(db: Session, connector: Connector, data: ConnectorUpdate) -
     agent.parked_upload_seconds = cadence
 
 
-def delete_connector(db: Session, connector: Connector) -> None:
-    agent = db.get(Agent, connector.id)
+def shadow_agent(db: Session, connector: Connector) -> Agent | None:
+    """The source row a connector reports through.
+
+    A connector is not a second kind of source. It enrols an agent row with its
+    own id and reports through it, which is why one lifecycle serves both and why
+    retirement is recorded in exactly one place.
+    """
+
+    return db.get(Agent, connector.id)
+
+
+def connector_is_retired(db: Session, connector: Connector) -> bool:
+    agent = shadow_agent(db, connector)
+    return agent is not None and agent.retired_at is not None
+
+
+def retire_connector(db: Session, connector: Connector) -> None:
+    """Take a connector out of service and keep everything it collected.
+
+    The retirement itself is the shared one: it is stamped on the source row, so
+    a reading still names the connector that produced it and the retired-source
+    accounting finds it without knowing what kind of source it was. Disabling the
+    connector row is the local effect, and what stops the supervisor running it.
+    """
+
+    agent = shadow_agent(db, connector)
+    if agent is not None:
+        retire_agent(db, agent)
+    connector.enabled = False
+    connector.status = "disabled"
+
+
+def purge_connector(db: Session, connector: Connector) -> None:
+    """Remove a connector and everything it collected.
+
+    The connector row is local; the telemetry cascades from the source row, which
+    is why the destructive half is the shared one too.
+    """
+
+    agent = shadow_agent(db, connector)
     db.delete(connector)
-    if agent:
-        db.delete(agent)
+    if agent is not None:
+        purge_agent(db, agent)
 
 
 def connector_password(connector: Connector) -> str | None:

@@ -263,22 +263,27 @@ Registry, not vehicle-scoped:
   heading and accuracy. That descriptor and the position wire model are defined
   from one source and must list exactly the same fields.
 
-Source lifecycle, because provenance outlives the hardware:
+Source lifecycle, because provenance outlives the hardware. Agents and
+connectors are one kind of thing here: a connector reports through a source row
+of its own, so both retire and purge through the same machinery and the rules
+below are stated once for both.
 
-- Removing an agent retires it by default: `DELETE /agents/{id}` revokes the
-  credential and stamps `retired_at`, and deletes nothing. Every sample,
-  observation and candidate it produced survives, so a reading keeps answering
-  which source made it long after that source is gone. A retired source leaves
-  the active agent list, cannot authenticate, and stops counting towards whether
-  a vehicle is online.
-- `DELETE /agents/{id}?purge_telemetry=true` is the destructive form: it deletes
-  the agent row, and everything it sourced cascades away with it. It is never the
-  default, because it cannot be undone.
+- Removing a source retires it by default. `DELETE /agents/{id}` and
+  `DELETE /connectors/{id}` stamp `retired_at` on the source row and delete
+  nothing. Every sample, observation and candidate it produced survives, so a
+  reading keeps answering which source made it long after that source is gone.
+- A retired source leaves the active listings, stops counting towards whether a
+  vehicle is online, and cannot report again: an agent's credential is revoked
+  and a connector is stopped and cannot be re-enabled. Ingestion refuses a
+  retired source outright, which is what covers a connector, since it reports
+  through the runtime rather than by presenting a credential.
+- `?purge_telemetry=true` on either route is the destructive form: the source row
+  goes, and everything it sourced cascades away with it. It is never the default,
+  because it cannot be undone.
 - Orphaned telemetry is exactly the data of retired sources: nothing will add to
-  it again. `GET /agents/retired` (admin) accounts for it per source as
-  `{source_id, name, retired_at, samples, oldest, newest}`, with `samples` zero
-  and the bounds null for a source that reported nothing. Purging one is the same
-  route as purging any agent.
+  it again. `GET /agents/retired` (admin) accounts for it across both kinds as
+  `{source_id, source_kind, name, retired_at, samples, oldest, newest}`, with
+  `samples` zero and the bounds null for a source that reported nothing.
 
 Hook context (implemented in `backend/app/hooks/context.py`; the v1
 `ctx.telemetry.metrics` and `ctx.telemetry_batch` no longer exist):

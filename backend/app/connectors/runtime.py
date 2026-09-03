@@ -360,7 +360,14 @@ class ConnectorSupervisor:
     def _definitions(self) -> dict[str, ConnectorDefinition]:
         definitions: dict[str, ConnectorDefinition] = {}
         with self._session_factory() as db:
-            rows = db.scalars(select(Connector).where(Connector.enabled.is_(True)))
+            # Retirement is checked here as well as through enabled, because
+            # this is the loop that would otherwise keep talking to a source
+            # somebody has retired.
+            rows = db.scalars(
+                select(Connector)
+                .outerjoin(Agent, Agent.id == Connector.id)
+                .where(Connector.enabled.is_(True), Agent.retired_at.is_(None))
+            )
             for connector in rows:
                 try:
                     config = MqttConfig.model_validate(connector.config)

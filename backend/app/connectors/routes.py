@@ -4,6 +4,7 @@ from sqlalchemy import select
 from backend.app.access.constants import OPERATE, level_allows
 from backend.app.access.dependencies import OperateVehicle
 from backend.app.access.services import access_level, visible_vehicle_ids
+from backend.app.agents.models import Agent
 from backend.app.auth.dependencies import CurrentUser, CurrentUserWrite, Db
 from backend.app.connectors.catalog import CONNECTOR_KINDS
 from backend.app.connectors.models import Connector
@@ -16,7 +17,8 @@ from backend.app.connectors.schemas import (
 from backend.app.connectors.services import (
     connector_response,
     create_connector,
-    delete_connector,
+    purge_connector,
+    retire_connector,
     update_connector,
 )
 from backend.app.users.models import User
@@ -45,8 +47,14 @@ def connectors(db: Db, auth: CurrentUser) -> list[ConnectorResponse]:
     visible = visible_vehicle_ids(db, auth.user)
     if not visible:
         return []
+    # A retired connector leaves the active list the way a retired agent does.
+    # The flag lives on the source row, so the join is what asks the one question
+    # rather than a second column that could disagree with it.
     rows = db.scalars(
-        select(Connector).where(Connector.vehicle_id.in_(visible)).order_by(Connector.created_at)
+        select(Connector)
+        .outerjoin(Agent, Agent.id == Connector.id)
+        .where(Connector.vehicle_id.in_(visible), Agent.retired_at.is_(None))
+        .order_by(Connector.created_at)
     )
     return [connector_response(connector) for connector in rows]
 
@@ -81,7 +89,22 @@ def edit_connector(
 
 
 @router.delete("/connectors/{connector_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_connector(connector_id: str, db: Db, auth: CurrentUserWrite) -> None:
+def remove_connector(
+    connector_id: str,
+    db: Db,
+    auth: CurrentUserWrite,
+    purge_telemetry: bool = False,
+) -> None:
+    """Retire a connector, or purge it and everything it collected.
+
+    The same choice an agent offers, because a connector is a source like any
+    other: retiring stops it and keeps its readings answering where they came
+    from, purging takes them with it.
+    """
+
     connector = _authorized_connector(db, auth.user, connector_id)
-    delete_connector(db, connector)
+    if purge_telemetry:
+        purge_connector(db, connector)
+    else:
+        retire_connector(db, connector)
     db.commit()

@@ -8,6 +8,7 @@ from backend.app.agents.constants import (
     MINIMUM_CADENCE_SECONDS,
     STANDARD_CADENCE,
 )
+from backend.app.telemetry.schemas import SourceKind
 
 # One second is the fastest an agent is asked to work and a day is the slowest
 # still worth calling telemetry. The agent enforces the same range, so a value
@@ -155,6 +156,7 @@ class RetiredSource(BaseModel):
     reported nothing before it was retired."""
 
     source_id: str
+    source_kind: SourceKind
     name: str
     retired_at: datetime
     samples: int
