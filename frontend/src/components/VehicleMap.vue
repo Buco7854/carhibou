@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import L from 'leaflet'
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PositionFix } from '../api/types'
+import { layerHost } from '../layerHost'
+import AppIcon from './AppIcon.vue'
 
 export interface TrailPoint { lat: number; lng: number; speed: number | null }
 
@@ -29,6 +31,78 @@ let polyline: L.Polyline | undefined
 let routeHalo: L.Polyline | undefined
 let trailLayers: L.Layer[] = []
 let directionLayers: L.Layer[] = []
+let tiles: L.TileLayer | undefined
+let tileErrors = 0
+const expanded = ref(false)
+const wheelHint = ref(false)
+let hintTimer: ReturnType<typeof setTimeout> | undefined
+const host = computed(layerHost)
+
+/*
+ * Wheel zoom, without stealing the page.
+ *
+ * Expanded, the map is the page and the wheel is its own: nothing else wants
+ * that gesture. On a card inside a scrolling page it does, so a plain wheel
+ * scrolls past as it always did and ctrl or command plus wheel zooms, which is
+ * the convention every embedded map has settled on. Anyone who wheels without
+ * the modifier is told, once, rather than left wondering why nothing happened.
+ * Pinch is untouched: on a touch screen there is no ambiguity to resolve.
+ */
+function onWheel(event: WheelEvent): void {
+  if (!map || expanded.value) return
+  if (event.ctrlKey || event.metaKey) {
+    event.preventDefault()
+    const point = map.mouseEventToContainerPoint(event)
+    map.setZoomAround(map.containerPointToLatLng(point), map.getZoom() - Math.sign(event.deltaY))
+    return
+  }
+  wheelHint.value = true
+  clearTimeout(hintTimer)
+  hintTimer = setTimeout(() => { wheelHint.value = false }, 1400)
+}
+
+function toggleExpanded(): void {
+  expanded.value = !expanded.value
+  wheelHint.value = false
+  if (expanded.value) map?.scrollWheelZoom.enable()
+  else map?.scrollWheelZoom.disable()
+  // The frame changes size when it moves, and Leaflet only knows once told.
+  requestAnimationFrame(() => map?.invalidateSize())
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && expanded.value) toggleExpanded()
+}
+
+/*
+ * The ground the map is drawn on.
+ *
+ * CARTO's Positron and Dark Matter were the obvious answer here, and they are
+ * what this tried first: purpose-built neutral palettes, one per theme, with
+ * native @2x tiles. They now watermark every tile with "API KEY REQUIRED"
+ * unless you hold a key, so they are not something this can ship. Anything else
+ * with a real dark basemap wants a key too.
+ *
+ * So the source stays OpenStreetMap and the two real problems are fixed
+ * directly. detectRetina is what sharpens it: osm.org serves no @2x tiles, but
+ * Leaflet answers a hi-DPI screen by fetching one zoom deeper and drawing those
+ * into half the space, which is the same pixel density by another route and
+ * works against any raster source.
+ */
+const BASEMAP_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+
+function basemap(): L.TileLayer {
+  const layer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: BASEMAP_ATTRIBUTION,
+    maxZoom: 19,
+    detectRetina: true,
+  })
+  layer.on('loading', () => { tilesLoading.value = true; tileErrors = 0 })
+  layer.on('tileerror', () => { tileErrors += 1; if (tileErrors >= 2) tilesUnavailable.value = true })
+  layer.on('load', () => { tilesLoading.value = false; if (tileErrors === 0) tilesUnavailable.value = false })
+  return layer
+}
 let endMarker: L.CircleMarker | undefined
 
 /*
@@ -89,11 +163,17 @@ function drawDirection(target: L.Map, path: L.LatLngExpression[]): void {
 
 function endpoint(target: L.Map, at: L.LatLngExpression, kind: 'start' | 'end'): L.CircleMarker {
   const mark = L.circleMarker(at, {
-    // Sized against the line rather than against the map: an endpoint that
-    // dwarfs the route it ends reads as a pin dropped on it.
-    radius: kind === 'start' ? 4 : 4.5,
+    /*
+     * Punctuation on the line, not a second vehicle.
+     *
+     * These used to be the size of the position marker and filled with the same
+     * accent, so an endpoint beside the car read as another car. They are now
+     * half the size and carry no casing, which is what the position marker uses
+     * to stand off the map.
+     */
+    radius: 3.5,
     color: 'var(--accent)',
-    weight: 1.75,
+    weight: 1.5,
     // The end is filled and the start is hollow, so which is which survives
     // being read at a glance and in either theme.
     fillColor: kind === 'start' ? 'var(--panel)' : 'var(--accent)',
@@ -223,6 +303,22 @@ function redrawDirection(): void {
   else if (props.route?.length) drawDirection(map, props.route)
 }
 
+/*
+ * Whether the car is already marking the end of the route.
+ *
+ * A route ends where the car last was, so a map showing both draws two dots for
+ * one fact: one with a heading needle and one without, a stone's throw apart,
+ * reading as two vehicles. That is what a reader saw. The two never coincide
+ * exactly either, because the plotted route is a downsample of what the car
+ * reported, so no distance threshold separates "the same place" from "not" -
+ * whenever the car is on the map, it is the end, and the line running into it
+ * says so without a second mark. The start keeps its dot: nothing else says
+ * where a drive began.
+ */
+function vehicleMarksTheEnd(): boolean {
+  return Boolean(props.position)
+}
+
 function update() {
   if (!map) return
   for (const layer of trailLayers) layer.remove()
@@ -243,7 +339,9 @@ function update() {
     const trailStart = props.trail[0]
     const trailEnd = props.trail.at(-1)
     if (trailStart) startMarker = endpoint(map, [trailStart.lat, trailStart.lng], 'start')
-    if (trailEnd && props.trail.length > 1) endMarker = endpoint(map, [trailEnd.lat, trailEnd.lng], 'end')
+    if (trailEnd && props.trail.length > 1 && !vehicleMarksTheEnd()) {
+      endMarker = endpoint(map, [trailEnd.lat, trailEnd.lng], 'end')
+    }
   } else if (props.route?.length) {
     const weight = routeWeight(map.getZoom())
     routeHalo = L.polyline(props.route, { color: 'var(--map-route-halo)', weight: weight + CASING_EXTRA, opacity: 0.9, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map)
@@ -252,7 +350,9 @@ function update() {
     const routeStart = props.route[0]
     const routeEnd = props.route.at(-1)
     if (routeStart) startMarker = endpoint(map, routeStart, 'start')
-    if (routeEnd && props.route.length > 1) endMarker = endpoint(map, routeEnd, 'end')
+    if (routeEnd && props.route.length > 1 && !vehicleMarksTheEnd()) {
+      endMarker = endpoint(map, routeEnd, 'end')
+    }
     frame(() => map!.fitBounds(polyline!.getBounds(), { padding: [28, 28], maxZoom: 15 }))
   }
   marker?.remove()
@@ -266,15 +366,16 @@ function update() {
 }
 
 onMounted(() => {
-  map = L.map(element.value!, { zoomControl: false, attributionControl: true, scrollWheelZoom: false, minZoom: 2 }).setView([20, 0], 2)
-  let tileErrors = 0
-  const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
-  })
-  tiles.on('loading', () => { tilesLoading.value = true; tileErrors = 0 })
-  tiles.on('tileerror', () => { tileErrors += 1; if (tileErrors >= 2) tilesUnavailable.value = true })
-  tiles.on('load', () => { tilesLoading.value = false; if (tileErrors === 0) tilesUnavailable.value = false })
+  map = L.map(element.value!, {
+    zoomControl: false,
+    attributionControl: true,
+    // Off by the card's rules; the expanded view turns it on. Pinch stays on
+    // everywhere, because a two-finger gesture asks for nothing else.
+    scrollWheelZoom: false,
+    touchZoom: true,
+    minZoom: 2,
+  }).setView([20, 0], 2)
+  tiles = basemap()
   tiles.addTo(map)
   L.control.zoom({ position: 'bottomright' }).addTo(map)
   L.control.scale({ position: 'bottomleft', imperial: false, maxWidth: 90 }).addTo(map)
@@ -284,21 +385,47 @@ onMounted(() => {
   map.on('zoomend', applyWeights)
   update()
   requestAnimationFrame(() => map?.invalidateSize())
+  document.addEventListener('keydown', onKeydown)
 })
 watch(() => [props.position, props.route, props.trail, props.marks], update, { deep: true })
 // Another vehicle, or another range, is another thing to look at: that earns a
 // fresh frame, and nothing else does.
 watch(() => props.subject, () => { framed = false; update() })
-onBeforeUnmount(() => map?.remove())
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown)
+  clearTimeout(hintTimer)
+  map?.remove()
+})
 </script>
 
 <template>
-  <div class="map-frame" :class="{ unavailable: tilesUnavailable }" :aria-busy="tilesLoading">
-    <div ref="element" class="vehicle-map" role="region" :aria-label="t('history.route')" />
-    <span v-if="tilesLoading && !tilesUnavailable" class="map-state" aria-live="polite">{{ t('history.mapLoading') }}</span>
-    <span v-if="tilesUnavailable" class="map-state unavailable-message" role="status">{{ t('history.mapUnavailable') }}</span>
-    <span v-if="!position && !route?.length" class="map-empty">{{ t('dashboard.noPosition') }}</span>
-  </div>
+  <!-- The card keeps its shape while the map is away, so expanding does not
+       collapse the dashboard behind it. -->
+  <div v-if="expanded" class="map-placeholder" aria-hidden="true" />
+  <!-- Teleported rather than rebuilt: the same element moves, so every layer,
+       the viewport and the reader's own panning all survive the trip. -->
+  <Teleport :to="host" :disabled="!expanded">
+    <div
+      class="map-frame"
+      :class="{ unavailable: tilesUnavailable, expanded }"
+      :aria-busy="tilesLoading"
+      @wheel="onWheel"
+    >
+      <div ref="element" class="vehicle-map" role="region" :aria-label="t('history.route')" />
+      <span v-if="tilesLoading && !tilesUnavailable" class="map-state" aria-live="polite">{{ t('history.mapLoading') }}</span>
+      <span v-if="tilesUnavailable" class="map-state unavailable-message" role="status">{{ t('history.mapUnavailable') }}</span>
+      <span v-if="!position && !route?.length" class="map-empty">{{ t('dashboard.noPosition') }}</span>
+      <span v-if="wheelHint" class="map-hint" role="status">{{ t('history.wheelHint') }}</span>
+      <button
+        class="map-expand"
+        type="button"
+        :aria-label="expanded ? t('history.mapCollapse') : t('history.mapExpand')"
+        @click="toggleExpanded"
+      >
+        <AppIcon :name="expanded ? 'close' : 'expand'" :size="15" />
+      </button>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -309,9 +436,7 @@ onBeforeUnmount(() => map?.remove())
    on its own much smaller numbers and no map internal can ever compete. */
 .map-frame{--map-route-halo:rgba(255,255,255,.9);position:relative;isolation:isolate;width:100%;height:100%;min-height:300px;overflow:hidden;background:var(--panel-2)}
 .vehicle-map{width:100%;height:100%;min-height:300px;background:var(--panel-2)}
-:deep(.leaflet-tile-pane){filter:grayscale(.42) saturate(.62) contrast(.9) brightness(1.055)}
 :global([data-theme="dark"] .map-frame){--map-route-halo:rgba(13,16,14,.86)}
-:global([data-theme="dark"] .map-frame .leaflet-tile-pane){filter:brightness(.5) saturate(.22) contrast(1.16)}
 :deep(.leaflet-control-zoom){margin:0 10px 10px 0!important;overflow:hidden;border:1px solid var(--line-strong)!important;border-radius:var(--radius)!important;box-shadow:var(--shadow-soft)!important}
 :deep(.leaflet-control-zoom a){width:28px!important;height:26px!important;display:grid!important;place-items:center;color:var(--text)!important;background:color-mix(in srgb,var(--panel) 94%,transparent)!important;border:0!important;border-bottom:1px solid var(--line)!important;font:400 16px/1 "IBM Plex Sans",sans-serif!important}
 :deep(.leaflet-control-zoom a:last-child){border-bottom:0!important}
@@ -329,9 +454,12 @@ onBeforeUnmount(() => map?.remove())
 :deep(.position-puck i){width:12px;height:12px;background:var(--accent);border:2px solid var(--panel);border-radius:50%}
 /* The needle rotates the whole box about the dot, which keeps it on the ring at
    every bearing without a transform origin to get wrong. */
+/* Sat at the edge of a 26px box while the dot shrank to 12px, which left it
+   floating clear of the marker and reading as a mark of its own. Pulled in so
+   it touches the casing it belongs to. */
 :deep(.position-puck.has-heading::after){
-  content:"";position:absolute;inset:0;background:var(--accent);
-  clip-path:polygon(50% 0, 61% 17%, 39% 17%);
+  content:"";position:absolute;inset:4px;background:var(--accent);
+  clip-path:polygon(50% 0, 63% 20%, 37% 20%);
   transform:rotate(var(--heading));
   filter:drop-shadow(0 0 1px var(--panel));
 }
@@ -348,5 +476,45 @@ onBeforeUnmount(() => map?.remove())
   clip-path:polygon(18% 8%, 34% 8%, 78% 50%, 34% 92%, 18% 92%, 62% 50%);
   filter:drop-shadow(0 0 1.2px var(--map-route-halo));
 }
+/*
+ * Light: a gentle desaturation, so the map recedes behind what is drawn on it.
+ *
+ * Dark: an inversion, not a dimming. brightness(.5) over light cartography is
+ * what produced the washed, half-transparent look a reader reported, because
+ * turning a white map down gives grey, not dark. Inverting makes land genuinely
+ * dark and paper-white labels legible again; the hue rotation puts the colours
+ * back the right way round afterwards, so water is blue rather than orange.
+ */
+:deep(.leaflet-tile-pane){filter:grayscale(.35) saturate(.7) contrast(.92) brightness(1.03)}
+:global([data-theme="dark"] .map-frame .leaflet-tile-pane){
+  filter:invert(1) hue-rotate(180deg) saturate(.32) brightness(.88) contrast(.88);
+}
+
 .map-frame.unavailable :deep(.leaflet-tile-pane){opacity:.12}
+
+/* An icon on the map, where the map's own controls are, rather than a bar of
+   chrome above it. */
+.map-expand{
+  position:absolute;z-index:600;top:8px;right:8px;width:30px;height:30px;
+  display:grid;place-items:center;color:var(--text);
+  background:color-mix(in srgb,var(--panel) 92%,transparent);
+  border:1px solid var(--line);border-radius:var(--radius);cursor:pointer;
+  transition:background-color .12s,border-color .12s;
+}
+.map-expand:hover{background:var(--panel);border-color:var(--line-strong)}
+.map-expand:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Full viewport, above everything, and the same element that was in the card. */
+.map-frame.expanded{
+  position:fixed;inset:0;z-index:3000;width:100%;height:100%;
+  border-radius:0;box-shadow:none;
+}
+.map-placeholder{width:100%;height:100%;min-height:300px;background:var(--panel-2);border-radius:inherit}
+
+.map-hint{
+  position:absolute;z-index:600;top:50%;left:50%;transform:translate(-50%,-50%);
+  padding:7px 12px;color:var(--text);background:color-mix(in srgb,var(--panel) 94%,transparent);
+  border:1px solid var(--line);border-radius:var(--radius);
+  font:400 12px/1.3 "IBM Plex Sans",sans-serif;pointer-events:none;
+}
 </style>

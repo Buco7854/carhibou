@@ -1,7 +1,7 @@
 import type { Component } from 'vue'
 import {
   ArrowLeft, BatteryCharging, BatteryMedium, Camera, Car, Check, ChevronDown, ChevronUp,
-  Columns3, Copy, Cpu, Ellipsis, Fuel, Gauge, History, ImageOff, Info, LayoutGrid, LogOut, MapPin, Pencil, Plus, Search, Settings, ShieldCheck, Signal,
+  Columns3, Copy, Cpu, Ellipsis, Expand, Fuel, Gauge, History, ImageOff, Info, LayoutGrid, LogOut, MapPin, Pencil, Plus, Search, Settings, ShieldCheck, Signal,
   SlidersHorizontal, SunMedium, Thermometer, Trash2, TriangleAlert, Webhook, X, Zap,
 } from 'lucide-vue-next'
 
@@ -33,6 +33,7 @@ export const ICONS: Record<string, Component> = {
   edit: Pencil,
   trash: Trash2,
   copy: Copy,
+  expand: Expand,
   search: Search,
   close: X,
   check: Check,
