@@ -106,13 +106,11 @@ policy.
 
 ### Forward recorded positions to Traccar
 
-This example forwards every position in the triggering upload, including buffered
+This example forwards every position included in the hook run, including buffered
 positions recorded while the agent was offline:
 
 ```python
 # hook-example: forward-positions-to-traccar
-from datetime import timedelta
-
 # A LAN URL with no token is not a secret. If Traccar is reachable from the
 # internet, the URL is the only lock: store it as a secret and read
 # ctx.secrets["traccar_url"] instead.
@@ -121,29 +119,25 @@ TRACCAR_URL = "http://192.168.1.50:5055"
 # works if you registered the device under it.
 TRACCAR_DEVICE_ID = ctx.vehicle.id
 
-if not ctx.telemetry.triggering:
+positions = [row for row in ctx.telemetry.triggering if row.key == "position"]
+if not positions:
+    ctx.log.info("No positions to forward in this run")
     return
 
-soc = ctx.telemetry.current.readings.get("battery.soc")
-battery = soc.value if soc and isinstance(soc.value, (int, float)) else None
-times = [row.observed_at for row in ctx.telemetry.triggering]
-telemetry_ids = {row.telemetry_id for row in ctx.telemetry.triggering}
-rows = ctx.telemetry.history(
-    min(times) - timedelta(microseconds=1),
-    max(times) + timedelta(microseconds=1),
-    keys=["position"],
-    limit=1000,
-)
-for row in rows:
-    if row.telemetry_id not in telemetry_ids:
-        continue
+for row in positions:
     point = row.value
+    state = ctx.telemetry.state_at(row.observed_at)
+    soc = state.readings.get("battery.soc")
+    battery = soc.value if soc and isinstance(soc.value, (int, float)) else None
+    speed_kmh = getattr(point, "speed", None)
     params = {
         "id": TRACCAR_DEVICE_ID,
         "lat": point.latitude,
         "lon": point.longitude,
         "altitude": getattr(point, "altitude", None),
-        "speed": getattr(point, "speed", None),
+        # Carhibou stores km/h; Traccar's OsmAnd protocol expects knots by default.
+        # If you configured OsmAnd for km/h, use speed_kmh directly instead.
+        "speed": speed_kmh / 1.852 if isinstance(speed_kmh, (int, float)) else None,
         "bearing": getattr(point, "heading", None),
         "accuracy": getattr(point, "accuracy", None),
         "batt": battery,

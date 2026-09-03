@@ -72,6 +72,7 @@ def _sample(
     observations: list[dict[str, object]],
     latitude: float,
     longitude: float,
+    speed: float,
 ) -> dict[str, object]:
     return {
         "id": str(uuid4()),
@@ -81,7 +82,7 @@ def _sample(
             "value": {
                 "latitude": latitude,
                 "longitude": longitude,
-                "speed": 0,
+                "speed": speed,
                 "heading": 90,
             },
             "observed_at": observed_at.isoformat(),
@@ -136,6 +137,7 @@ def _seed_v2_fixture(database_url: str) -> tuple[Engine, str, str, str]:
                         ],
                         latitude=48.8,
                         longitude=2.3,
+                        speed=18.52,
                     ),
                     _sample(
                         sequence=2,
@@ -146,6 +148,7 @@ def _seed_v2_fixture(database_url: str) -> tuple[Engine, str, str, str]:
                         ],
                         latitude=48.8566,
                         longitude=2.3522,
+                        speed=37.04,
                     ),
                 ],
             }
@@ -264,7 +267,17 @@ def test_all_shipped_hook_examples_execute_in_the_real_child_runtime(
     assert "Would send charging notification" in _messages(results["charging-finished"])
     assert results["gate-on-arrival"].state["inside_home"] is True
     assert "Would open gate" in _messages(results["gate-on-arrival"])
-    assert "Would forward position to Traccar" in _messages(results["forward-positions-to-traccar"])
+    traccar_logs = [
+        record
+        for record in results["forward-positions-to-traccar"].logs
+        if record.get("message") == "Would forward position to Traccar"
+    ]
+    assert len(traccar_logs) == 2
+    traccar_fields = [record.get("fields") for record in traccar_logs]
+    assert all(isinstance(fields, dict) for fields in traccar_fields)
+    assert [fields["batt"] for fields in traccar_fields if isinstance(fields, dict)] == [80, 18]
+    speeds = [fields["speed"] for fields in traccar_fields if isinstance(fields, dict)]
+    assert speeds == pytest.approx([10, 20])
 
     default_data, default_secrets = _runtime_data(
         engine,
@@ -301,4 +314,4 @@ def test_all_shipped_hook_examples_execute_in_the_real_child_runtime(
         traccar_secrets,
         "forward-positions-to-traccar/no-trigger",
     )
-    assert traccar_result.logs == []
+    assert _messages(traccar_result) == ["No positions to forward in this run"]

@@ -166,6 +166,12 @@ class CapturedLog:
     def _append(self, record: dict[str, object], *, archive: bool = True) -> None:
         if archive:
             self._archive_record(record)
+        # A truncated preview is a stable prefix followed by its summary marker.
+        # Do not let a later, smaller record appear after that marker merely
+        # because it happens to fit in the remaining byte budget.
+        if self._marker is not None:
+            self._omit_from_preview()
+            return
         try:
             encoded = json.dumps(
                 record, ensure_ascii=False, separators=(",", ":"), default=str
