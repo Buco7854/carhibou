@@ -446,37 +446,36 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
    *
    * The route ends where the car is, so drawing both an end marker and the
    * position marker put two dots a stone's throw apart, one carrying a heading
-   * needle and one not. A reader read that as two vehicles.
+   * needle and one not. A reader read that as two vehicles. The renderer paints
+   * the endpoints into a canvas, so this asks it what it actually drew rather
+   * than counting DOM nodes that no longer exist.
    */
-  const dots = await page.evaluate(() => {
-    const frame = document.querySelector('.map-frame')!
-    const box = frame.getBoundingClientRect()
-    const centre = (r: DOMRect) => [r.x + r.width / 2 - box.x, r.y + r.height / 2 - box.y] as const
-    const pucks = [...frame.querySelectorAll('.leaflet-marker-icon .position-puck')].map((n) => centre(n.getBoundingClientRect()))
-    const svg = frame.querySelector('svg.leaflet-zoom-animated')
-    let beside = 0
-    for (const path of frame.querySelectorAll('path')) {
-      // Leaflet draws a circle marker as arcs; a polyline never has one.
-      if (!/a/i.test(path.getAttribute('d') ?? '')) continue
-      if (path.getAttribute('fill-opacity') === '0') continue
-      const bb = (path as SVGGraphicsElement).getBBox()
-      const point = (svg as SVGSVGElement).createSVGPoint()
-      point.x = bb.x + bb.width / 2
-      point.y = bb.y + bb.height / 2
-      const at = point.matrixTransform((path as SVGGraphicsElement).getScreenCTM()!)
-      if (pucks.some(([x, y]) => Math.hypot(at.x - box.x - x, at.y - box.y - y) < 40)) beside += 1
+  await expect(page.locator('.map-frame .carhibou-position-marker')).toHaveCount(1)
+  const drawn = await page.evaluate(() => {
+    const container = document.querySelector('.map-frame .vehicle-map') as unknown as {
+      carhibouMap?: {
+        queryRenderedFeatures: (box?: unknown, options?: { layers?: string[] }) => Array<{ properties?: Record<string, unknown> }>
+      }
     }
-    return { pucks: pucks.length, beside }
+    const map = container?.carhibouMap
+    if (!map) return null
+    const endpoints = map.queryRenderedFeatures(undefined, { layers: ['carhibou-endpoint'] })
+    return { kinds: endpoints.map((feature) => String(feature.properties?.['kind'])) }
   })
-  expect(dots.pucks, 'exactly one vehicle marker').toBe(1)
-  expect(dots.beside, 'no route endpoint masquerading as a second vehicle').toBe(0)
+  expect(drawn, 'the map exposes what it drew').not.toBeNull()
+  expect(drawn!.kinds, 'no end marker while the car itself marks the end').not.toContain('end')
 
-  // Retina: a hi-DPI screen draws a 256px tile into half the space.
-  const tile = await page.evaluate(() => {
-    const image = document.querySelector('.map-frame img.leaflet-tile') as HTMLImageElement | null
-    return image ? { css: Math.round(image.getBoundingClientRect().width), natural: image.naturalWidth, dpr: window.devicePixelRatio } : null
+  /*
+   * Sharpness, the vector equivalent of the old retina check: the drawing
+   * surface carries one backing pixel per device pixel, so nothing is upscaled.
+   */
+  const surface = await page.evaluate(() => {
+    const canvas = document.querySelector('.map-frame canvas.maplibregl-canvas') as HTMLCanvasElement | null
+    if (!canvas) return null
+    return { backing: canvas.width, css: Math.round(canvas.getBoundingClientRect().width), dpr: window.devicePixelRatio }
   })
-  if (tile && tile.dpr > 1) expect(tile.css).toBeLessThan(tile.natural)
+  expect(surface, 'the map renders to a canvas').not.toBeNull()
+  expect(surface!.backing).toBeGreaterThanOrEqual(Math.floor(surface!.css * surface!.dpr * 0.9))
 
   // The map opens to the whole viewport and closes again on Escape.
   await mapFrame.locator('.map-expand').click()

@@ -11,6 +11,27 @@ export const resolvedTheme = computed<'light' | 'dark'>(() =>
   themeMode.value === 'auto' ? (systemDark.value ? 'dark' : 'light') : themeMode.value,
 )
 
+/*
+ * The map's own ground, which need not follow the interface.
+ *
+ * A dark interface at night is a preference; a dark map is sometimes a
+ * different one, because the map is read against daylight out of a windscreen.
+ * Auto follows the app, which is what almost everyone wants and so is default.
+ */
+const storedMap = localStorage.getItem('carhibou.map-theme')
+export const mapThemeMode = ref<ThemeMode>(
+  storedMap === 'light' || storedMap === 'dark' || storedMap === 'auto' ? storedMap : 'auto',
+)
+
+export const resolvedMapTheme = computed<'light' | 'dark'>(() =>
+  mapThemeMode.value === 'auto' ? resolvedTheme.value : mapThemeMode.value,
+)
+
+export function setMapTheme(mode: ThemeMode): void {
+  mapThemeMode.value = mode
+  localStorage.setItem('carhibou.map-theme', mode)
+}
+
 function applyTheme(): void {
   document.documentElement.dataset.theme = resolvedTheme.value
   document.documentElement.style.colorScheme = resolvedTheme.value

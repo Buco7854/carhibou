@@ -21,6 +21,9 @@ const theme = new Compartment()
 const readableCoral = syntaxHighlighting(HighlightStyle.define([
   { tag:[tags.name,tags.deleted,tags.character,tags.propertyName,tags.macroName], color:'#e77a83' },
   { tag:tags.heading, fontWeight:'bold', color:'#e77a83' },
+  // Its violet keywords measure 4.43:1 on the active line, under the same
+  // 4.5:1 the coral above was lightened for.
+  { tag:tags.keyword, color:'#ca7ce1' },
 ]))
 const darkTheme = ():Extension[] => [oneDark, Prec.high(readableCoral)]
 onMounted(()=>{

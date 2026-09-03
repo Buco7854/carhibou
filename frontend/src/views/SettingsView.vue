@@ -8,7 +8,7 @@ import { auth, logout } from '../api/auth'
 import type { BrowserSession } from '../api/types'
 import AppSelect from '../components/AppSelect.vue'
 import { persistLocale } from '../i18n'
-import { setTheme, themeMode } from '../theme'
+import { mapThemeMode, setMapTheme, setTheme, themeMode } from '../theme'
 
 const { locale, t } = useI18n()
 const router = useRouter()
@@ -27,6 +27,10 @@ function changeLocale(value: string | number | null): void {
 
 function changeTheme(value: string | number | null): void {
   if (value === 'light' || value === 'dark' || value === 'auto') setTheme(value)
+}
+
+function changeMapTheme(value: string | number | null): void {
+  if (value === 'light' || value === 'dark' || value === 'auto') setMapTheme(value)
 }
 
 async function changePassword(): Promise<void> {
@@ -62,6 +66,7 @@ onMounted(async () => {
       <div class="settings-body">
         <div class="settings-pair">
           <div class="field"><label for="theme">{{ t('settings.theme') }}</label><AppSelect id="theme" :model-value="themeMode" @update:model-value="changeTheme"><option value="auto">{{ t('settings.auto') }}</option><option value="light">{{ t('settings.light') }}</option><option value="dark">{{ t('settings.dark') }}</option></AppSelect></div>
+          <div class="field"><label for="map-theme">{{ t('settings.mapTheme') }}</label><AppSelect id="map-theme" :model-value="mapThemeMode" @update:model-value="changeMapTheme"><option value="auto">{{ t('settings.mapThemeAuto') }}</option><option value="light">{{ t('settings.light') }}</option><option value="dark">{{ t('settings.dark') }}</option></AppSelect><small class="field-hint">{{ t('settings.mapThemeHint') }}</small></div>
           <div class="field"><label for="locale">{{ t('settings.language') }}</label><AppSelect id="locale" :model-value="locale" @update:model-value="changeLocale"><option value="en">{{ t('settings.english') }}</option><option value="fr">{{ t('settings.french') }}</option></AppSelect></div>
         </div>
       </div>

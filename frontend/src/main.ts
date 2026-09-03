@@ -10,7 +10,6 @@ import i18n from './i18n'
 import router from './router'
 import { initializeTheme } from './theme'
 import './style.css'
-import 'leaflet/dist/leaflet.css'
 import 'gridstack/dist/gridstack.min.css'
 
 initializeTheme()

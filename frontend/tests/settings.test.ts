@@ -17,15 +17,24 @@ describe('preferences', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([])))
     auth.user = { id:'u1',email:'owner@example.com',display_name:'Owner',permissions:{} }
     const wrapper = mount(SettingsView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
+    // Addressed by what each control is, not by where it sits: a new preference
+    // between them used to renumber every assertion below it.
     const selects = wrapper.findAllComponents(AppSelect)
-    selects[0]!.vm.$emit('update:modelValue', 'light')
-    selects[1]!.vm.$emit('update:modelValue', 'fr')
+    const control = (id: string) => selects.find((select) => select.props('id') === id)!
+    control('theme').vm.$emit('update:modelValue', 'light')
+    control('locale').vm.$emit('update:modelValue', 'fr')
     await wrapper.vm.$nextTick()
     expect(localStorage.getItem('carhibou.theme')).toBe('light')
     expect(localStorage.getItem('carhibou.locale')).toBe('fr')
     expect(document.documentElement.dataset.theme).toBe('light')
     expect(wrapper.text()).toContain('Apparence')
-    await selects[0]!.get('.app-select-trigger').trigger('click')
+    await control('theme').get('.app-select-trigger').trigger('click')
     expect(wrapper.text()).toContain('Auto')
+
+    // The map may be told to differ from the interface it sits in.
+    control('map-theme').vm.$emit('update:modelValue', 'dark')
+    await wrapper.vm.$nextTick()
+    expect(localStorage.getItem('carhibou.map-theme')).toBe('dark')
+    expect(document.documentElement.dataset.theme, 'the interface is unmoved').toBe('light')
   })
 })
