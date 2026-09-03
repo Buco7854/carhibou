@@ -474,6 +474,8 @@ export interface MetricRegistry {
 export interface RetiredSource {
   source_id: string
   name: string
+  /** An agent enrolled on a device, or a connector Carhibou runs for you. */
+  source_kind: SourceKind
   retired_at: string
   samples: number
   oldest: string | null

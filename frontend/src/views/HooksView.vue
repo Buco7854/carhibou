@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { formatAge, formatInstant } from '../vehicleDisplay'
 import { api, errorMessage } from '../api/client'
@@ -17,9 +18,21 @@ interface Secret { id: string; name: string; masked: string; created_at: string;
 const defaultSource = `# Runs after telemetry is safely stored.\nsoc = ctx.telemetry.current.readings.get("battery.soc")\nif soc is None or not soc.fresh:\n    return\n\narmed = ctx.state.get("armed", True)\nif armed and soc.value < 20:\n    ctx.log.warning("Battery is low", soc=soc.value, observed_at=soc.observed_at)\n    ctx.state["armed"] = False\nelif not armed and soc.value > 23:\n    ctx.state["armed"] = True\n`
 const emptyDraft = (): HookDraft => ({ name:'', description:'', enabled:false, trigger_type:'telemetry.received', vehicle_id:null, source:defaultSource, timeout_seconds:10 })
 const { t, locale } = useI18n()
+const route = useRoute()
+const router = useRouter()
+
+/*
+ * Which hook is open is a fact about the address, not about this component.
+ *
+ * It used to be local state, which meant tapping a row on a phone changed
+ * something two cards below the fold, the back button had nothing to go back
+ * to, a reload lost your place and no hook could be linked to. Routing it costs
+ * one parameter and fixes all four.
+ */
+const selectedId = computed(() => String(route.params.id ?? ''))
+const detailOpen = computed(() => Boolean(selectedId.value))
 const hooks = ref<Hook[]>([])
 const vehicles = ref<Vehicle[]>([])
-const selectedId = ref('')
 const executions = ref<HookExecution[]>([])
 const revisions = ref<HookRevision[]>([])
 const error = ref('')
@@ -95,17 +108,69 @@ async function load(): Promise<void> {
     api<Vehicle[]>('/vehicles'),
     api<Secret[]>('/secrets'),
   ])
-  if (!selectedId.value && hooks.value[0]) select(hooks.value[0].id)
+  // Nothing is opened for the reader: arriving at the list and being redirected
+  // to an arbitrary hook would rewrite the address and break the way back.
+  adoptSelection()
 }
 
-function select(id: string): void {
-  const hook = hooks.value.find((row) => row.id === id)
-  if (!hook) return
-  selectedId.value = id
-  form.value = { name:hook.name, description:hook.description, enabled:hook.enabled, trigger_type:hook.trigger_type, vehicle_id:hook.vehicle_id, source:hook.source, timeout_seconds:hook.timeout_seconds }
+/*
+ * What the open hook looked like when it was loaded.
+ *
+ * Leaving with unsaved work used to be impossible because there was nowhere to
+ * leave to. Now that a hook is a page, the way out is a tap, so the way out has
+ * to ask. Null while nothing is open, which is also what suppresses the
+ * question after a delete.
+ */
+const baseline = ref<HookDraft | null>(null)
+
+const dirty = computed(() => {
+  const source = baseline.value
+  if (!source || creating.value) return false
+  return JSON.stringify(source) !== JSON.stringify(form.value)
+})
+
+async function mayDiscard(): Promise<boolean> {
+  if (!dirty.value) return true
+  return askConfirm({
+    title: t('hooks.unsavedTitle'),
+    question: t('hooks.unsavedQuestion', { name: selected.value?.name ?? '' }),
+    detail: t('hooks.unsavedDetail'),
+    confirmLabel: t('hooks.unsavedAction'),
+  })
+}
+
+// Covers every way out: the back button, the rail, the nav, another hook.
+onBeforeRouteLeave(async () => await mayDiscard())
+
+function draftOf(hook: Hook): HookDraft {
+  return { name:hook.name, description:hook.description, enabled:hook.enabled, trigger_type:hook.trigger_type, vehicle_id:hook.vehicle_id, source:hook.source, timeout_seconds:hook.timeout_seconds }
+}
+
+/** Loads whichever hook the address names, once the list can answer for it. */
+function adoptSelection(): void {
+  const hook = hooks.value.find((row) => row.id === selectedId.value)
+  if (!hook) {
+    form.value = emptyDraft()
+    baseline.value = null
+    executions.value = []
+    revisions.value = []
+    return
+  }
+  form.value = draftOf(hook)
+  baseline.value = draftOf(hook)
   error.value = ''
   void loadExecutions()
 }
+
+function select(id: string): void {
+  void router.push({ name: 'hook', params: { id } })
+}
+
+function backToList(): void {
+  void router.push({ name: 'hooks' })
+}
+
+watch(selectedId, adoptSelection)
 
 function openCreate(): void {
   form.value = emptyDraft()
@@ -115,7 +180,7 @@ function openCreate(): void {
 
 function cancelCreate(): void {
   creating.value = false
-  if (selected.value) select(selected.value.id)
+  adoptSelection()
 }
 
 async function save(): Promise<void> {
@@ -126,11 +191,13 @@ async function save(): Promise<void> {
       method: creating.value ? 'POST' : 'PUT',
       body: JSON.stringify(form.value),
     })
-    selectedId.value = hook.id
     creating.value = false
     saved.value = true
+    baseline.value = draftOf(hook)
     await load()
-    select(hook.id)
+    // Creating lands on the new hook; saving one already open stays put.
+    if (selectedId.value !== hook.id) select(hook.id)
+    else adoptSelection()
     window.setTimeout(() => saved.value = false, 1500)
   } catch (reason) {
     error.value = errorMessage(reason, t('common.error'))
@@ -157,9 +224,9 @@ async function loadExecutions(): Promise<void> {
 
 async function restoreRevision(revision: number): Promise<void> {
   if (!selectedId.value) return
-  const hook = await api<Hook>(`/hooks/${selectedId.value}/revisions/${revision}/restore`, { method:'POST' })
+  await api<Hook>(`/hooks/${selectedId.value}/revisions/${revision}/restore`, { method:'POST' })
   await load()
-  select(hook.id)
+  adoptSelection()
 }
 
 /**
@@ -216,11 +283,13 @@ async function deleteHook(hook: Hook): Promise<void> {
   const removed = hooks.value.findIndex((row) => row.id === hook.id)
   const remaining = hooks.value.filter((row) => row.id !== hook.id)
   const next = remaining[Math.min(Math.max(removed, 0), remaining.length - 1)]
-  selectedId.value = ''
+  baseline.value = null
   executions.value = []
   revisions.value = []
   await load()
+  // Land on the neighbour, or on the list when that was the last one.
   if (next) select(next.id)
+  else backToList()
 }
 
 async function storeSecret(): Promise<void> {
@@ -265,7 +334,10 @@ onMounted(load)
       </div>
     </header>
 
-    <div class="hooks-layout">
+    <!-- One pane at a time on a phone, both at once on a desktop. The address
+         says which, so the same markup serves both and neither pays for the
+         other's shape. -->
+    <div :class="['hooks-layout', { 'detail-open': detailOpen }]">
       <aside class="hooks-rail">
         <!-- With no hooks the panel beside this one already says so, and a rail
              group repeating it under an empty heading reads as a second, broken
@@ -315,6 +387,11 @@ onMounted(load)
 
       <section v-if="selected" class="panel hook-detail">
         <header class="detail-bar">
+          <!-- The phone's own back gesture works too; this is for the thumb
+               that is already at the top of the screen. -->
+          <button class="button ghost detail-back" type="button" @click="backToList">
+            <AppIcon name="arrow-left" :size="16" />{{ t('hooks.backToList') }}
+          </button>
           <div class="detail-identity">
             <h2>{{ selected.name }}</h2>
             <p>
@@ -372,10 +449,15 @@ onMounted(load)
         </div>
       </section>
 
-      <section v-else class="panel empty hook-detail">
+      <!-- Two different absences: nothing to choose from, and nothing chosen. -->
+      <section v-else-if="!hooks.length" class="panel empty hook-detail">
         <h2>{{ t('hooks.empty') }}</h2>
         <p>{{ t('hooks.emptyHint') }}</p>
         <button class="button" @click="openCreate"><AppIcon name="plus" :size="15" />{{ t('hooks.new') }}</button>
+      </section>
+      <section v-else class="panel empty hook-detail">
+        <h2>{{ t('hooks.chooseTitle') }}</h2>
+        <p>{{ t('hooks.chooseHint') }}</p>
       </section>
     </div>
 
@@ -450,6 +532,8 @@ onMounted(load)
 .secret-form .button{justify-self:start;height:28px;font-size:var(--font-caption)}
 
 .hook-detail{min-width:0}
+/* Desktop shows both panes, so the way back is the list already on screen. */
+.detail-back{display:none}
 .detail-bar{
   position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;
   gap:16px;padding:11px 16px;background:var(--panel);
@@ -496,8 +580,34 @@ onMounted(load)
   /* The list is the thing being chosen from, so it gets the full width and the
      secrets form sits under it rather than competing for half the row. */
   .hooks-rail>.rail-group:first-child{grid-column:1/-1}
-  .hook-list{max-height:min(38vh,300px)}
-  .detail-bar{position:static;flex-wrap:wrap}
+  /*
+   * One pane at a time.
+   *
+   * A phone cannot show a list and an editor at once, and stacking them meant
+   * choosing a hook changed something two cards below the fold: the list
+   * scrolled inside its own box, the shared secrets form sat between you and
+   * your hook, and the tap appeared to do nothing. Opening a hook now gives it
+   * the whole screen, and the secrets stay with the list, since they belong to
+   * the page rather than to the hook being edited.
+   */
+  .hooks-layout.detail-open>.hooks-rail{display:none}
+  .hooks-layout:not(.detail-open)>.hook-detail{display:none}
+  /* The list owns the page here, so it scrolls with it rather than inside a box. */
+  .hook-list{max-height:none;overflow:visible}
+  .detail-back{display:inline-flex;align-self:flex-start;order:-1;width:auto;margin:-2px 0 2px -8px;padding-left:8px;flex:none}
+  /* The back link and the name it belongs to both start at the left edge. */
+  .detail-bar{position:static;flex-wrap:wrap;justify-content:flex-start}
+  .detail-identity{flex:1 0 100%}
+  /*
+   * Working on one hook is not the moment for the page's standing warning or
+   * its create button, and a phone has better uses for those pixels. The
+   * heading stays: it is the page's only h1, and hiding it left the document
+   * with no top-level heading at exactly the width that needs one most.
+   */
+  .hooks-page:has(.hooks-layout.detail-open)>.page-header{margin-bottom:0}
+  .hooks-page:has(.hooks-layout.detail-open) .privilege-warning,
+  .hooks-page:has(.hooks-layout.detail-open)>.page-header .header-actions{display:none}
+  .hooks-page:has(.hooks-layout.detail-open)>.page-header h1{font-size:var(--font-section)}
   /* The bar wraps, but this row did not: three items that each refuse to shrink
      below their own text overflow the page in any locale whose labels are
      longer than English. It has to be allowed to wrap in turn. */

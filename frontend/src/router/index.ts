@@ -15,6 +15,10 @@ const router = createRouter({
     // Hooks execute privileged Python in the worker, so they are instance
     // administration, not something a per-vehicle grant can extend to.
     { path: '/hooks', name: 'hooks', component: () => import('../views/HooksView.vue'), meta: { admin: true } },
+    // The hook being worked on is in the address, so a phone gets a real
+    // page to go back from, a reload keeps its place, and one hook can be
+    // linked to. Same component: the route only says which one is open.
+    { path: '/hooks/:id', name: 'hook', component: () => import('../views/HooksView.vue'), meta: { admin: true } },
     { path: '/data-sources', name: 'data-sources', component: () => import('../views/DataSourcesView.vue') },
     { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },

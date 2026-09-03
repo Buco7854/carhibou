@@ -767,10 +767,59 @@ test('mobile login keeps language, theme, keyboard access and reflow', async ({ 
   for (const path of ['/profiles', '/vehicles', '/data-sources', '/settings', '/hooks']) {
     await page.goto(path)
     await expect(page.locator('.page-header h1')).toBeVisible()
-    if (path === '/hooks') await expect(page.locator('.detail-bar')).toBeVisible()
     const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
     expect(fits, `${path} overflows the phone viewport`).toBe(true)
   }
+
+  /*
+   * The phone journey through a hook, end to end.
+   *
+   * A phone shows one pane at a time: the list is the page until a hook is
+   * opened, and then that hook is the page. Choosing one used to change
+   * something below two cards and the shared secrets form, so the tap looked
+   * like it had done nothing.
+   */
+  await page.goto('/hooks')
+  await expect(page.locator('.hooks-rail')).toBeVisible()
+  await expect(page.locator('.hook-detail')).toBeHidden()
+  // Secrets belong to the page, not to a hook, so they stay with the list.
+  await expect(page.getByText('Secrets')).toBeVisible()
+
+  const chosen = page.locator('.hook-row').first()
+  const chosenName = (await chosen.locator('.hook-name').innerText()).trim()
+  await chosen.click()
+  await expect(page).toHaveURL(/\/hooks\/[0-9a-f-]+$/)
+  const opened = page.url()
+  await expect(page.locator('.hooks-rail')).toBeHidden()
+  await expect(page.locator('.detail-identity h2')).toHaveText(chosenName)
+  await expect(page.locator('.detail-back')).toBeVisible()
+  // The standing warning and the create button give the editor their pixels,
+  // while the heading stays: it is the page's only h1.
+  await expect(page.locator('.page-header h1')).toBeVisible()
+  await expect(page.locator('.privilege-warning')).toBeHidden()
+  await expect(page.locator('.page-header .header-actions')).toBeHidden()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
+  // Edits that were never saved are not lost to a stray tap.
+  // Typed rather than filled: CodeMirror only hears real key events, and a
+  // silent fill would leave the editor clean and this assertion vacuous.
+  await page.locator('.hook-detail .cm-content').click()
+  await page.keyboard.type('ctx.log.info("phone edit")')
+  await page.locator('.detail-back').click()
+  await expect(page.getByRole('dialog', { name: 'Modifications non enregistrées' })).toBeVisible()
+  await page.getByRole('button', { name: 'Annuler' }).click()
+  await expect(page).toHaveURL(opened)
+
+  await page.locator('.detail-back').click()
+  await page.getByRole('button', { name: 'Abandonner les modifications' }).click()
+  await expect(page).toHaveURL(/\/hooks$/)
+  await expect(page.locator('.hooks-rail')).toBeVisible()
+
+  // The address is the state, so it survives a reload and can be linked to.
+  await page.goto(opened)
+  await expect(page.locator('.detail-identity h2')).toHaveText(chosenName)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/hooks$/)
 
   // The sheet is anchored to the bottom of the screen, so any height it claims
   // beyond the visible viewport is spent above the top edge, taking the heading
@@ -798,7 +847,10 @@ test('mobile login keeps language, theme, keyboard access and reflow', async ({ 
   await page.getByRole('dialog', { name: 'Créer un hook' }).getByRole('button', { name: 'Fermer' }).first().click()
   await expect(sheet).toHaveCount(0)
 
-  // The keys the source code is about, reached from the editor that has it.
+  // The keys the source code is about, reached from the editor that has it,
+  // which on a phone means opening a hook first: the list route has no editor.
+  await page.locator('.hook-row').first().click()
+  await expect(page.locator('.hook-detail .source-label')).toBeVisible()
   await page.locator('.hook-detail .source-label .link-button').click()
   await expect(page.getByRole('dialog', { name: 'Clés de mesure' })).toBeVisible()
   await expect(page.locator('.key-list li').first()).toBeVisible()

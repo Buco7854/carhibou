@@ -271,7 +271,11 @@ async function purgeRetired(source: RetiredSource): Promise<void> {
       : t('agents.purgeEmptyDetail'),
     confirmLabel: t('agents.purgeAction'),
     busyLabel: t('agents.purging'),
-    action: async () => { await api(`/agents/${source.source_id}?purge_telemetry=true`, { method:'DELETE' }) },
+    action: async () => {
+      // A retired source keeps the kind it had, and each kind answers on its own path.
+      const path = source.source_kind === 'connector' ? 'connectors' : 'agents'
+      await api(`/${path}/${source.source_id}?purge_telemetry=true`, { method:'DELETE' })
+    },
   })
   if (accepted) await loadRetired()
 }
@@ -325,15 +329,26 @@ async function setConnectorEnabled(connector:Connector, enabled:boolean) {
   await api(`/connectors/${connector.id}`, { method:'PUT', body:JSON.stringify({ name:connector.name, enabled, mapping_profile:connector.mapping_profile, config:{ ...connector.config } }) })
   await load()
 }
+/*
+ * A connector retires or purges exactly as an agent does.
+ *
+ * It is a source like any other, so the choice is the same one and it is asked
+ * the same way: what it collected is the reason it existed, and stopping it is
+ * not a reason to lose that.
+ */
 async function removeConnector(connector:Connector) {
   const accepted = await askConfirm({
-    title: t('connectors.deleteTitle'),
-    question: t('connectors.deleteQuestion', { name: connector.name }),
-    detail: t('connectors.deleteDetail'),
-    confirmLabel: t('connectors.deleteAction'),
-    action: async () => { await api(`/connectors/${connector.id}`, { method:'DELETE' }) },
+    title: t('connectors.retireTitle'),
+    question: t('connectors.retireQuestion', { name: connector.name }),
+    detail: t('connectors.retireDetail'),
+    confirmLabel: t('connectors.retireAction'),
+    busyLabel: t('connectors.retiring'),
+    option: { label: t('connectors.purgeLabel'), detail: t('connectors.purgeDetail') },
+    action: async (purge) => {
+      await api(`/connectors/${connector.id}${purge ? '?purge_telemetry=true' : ''}`, { method:'DELETE' })
+    },
   })
-  if (accepted) await load()
+  if (accepted) { await load(); await loadRetired() }
 }
 const onlineCount = computed(() => enrolledAgents.value.filter((agent) => agent.online && !agent.revoked_at).length)
 // Agent versions belong to their own implementations and are never comparable
@@ -554,7 +569,7 @@ onMounted(load)
         <article v-for="source in retired" :key="source.source_id" class="retired-row">
           <div class="retired-identity">
             <strong>{{ source.name }}</strong>
-            <small>{{ t('agents.retiredOn', { date: formatInstant(source.retired_at) }) }}</small>
+            <small>{{ t(`history.sourceKind.${source.source_kind}`) }} · {{ t('agents.retiredOn', { date: formatInstant(source.retired_at) }) }}</small>
           </div>
           <div class="retired-holdings">
             <strong>{{ t('agents.retiredSamples', { count: source.samples }) }}</strong>
