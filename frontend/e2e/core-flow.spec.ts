@@ -814,6 +814,25 @@ test('mobile login keeps language, theme, keyboard access and reflow', async ({ 
     expect(fits, `${path} overflows the phone viewport`).toBe(true)
   }
 
+  // Map style is independent from interface theme. Following the interface
+  // gives each tone its own provider style; fixed mode intentionally keeps one
+  // style even when the interface changes.
+  await page.goto('/settings')
+  const mapMode = page.getByLabel('Comportement des cartes')
+  await expect(mapMode).toContainText('Suivre l’interface')
+  await expect(page.getByLabel('Avec l’interface claire')).toContainText('Liberty')
+  await expect(page.getByLabel('Avec l’interface sombre')).toContainText('Dark')
+  await mapMode.click()
+  await page.getByRole('option', { name: 'Toujours utiliser un style' }).click()
+  const fixedMapStyle = page.getByLabel('Style du fournisseur')
+  await fixedMapStyle.click()
+  await page.getByRole('option', { name: 'Fiord' }).click()
+  await expect(fixedMapStyle).toContainText('Fiord')
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('carhibou.map-preferences') ?? '{}')))
+    .toMatchObject({ providerId:'openfreemap', mode:'fixed', fixedStyleId:'fiord' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
   /*
    * The phone journey through a hook, end to end.
    *

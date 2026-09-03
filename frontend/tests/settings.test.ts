@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { auth } from '../src/api/auth'
 import AppSelect from '../src/components/AppSelect.vue'
 import i18n, { detectBrowserLocale } from '../src/i18n'
+import { mapPreferences, setMapPreferences } from '../src/mapPreferences'
+import { DEFAULT_MAP_PREFERENCES } from '../src/mapStyle'
 import SettingsView from '../src/views/SettingsView.vue'
 import { jsonResponse } from './helpers'
 
@@ -15,12 +17,13 @@ describe('preferences', () => {
 
   it('persists French and explicit light theme while keeping Auto available', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([])))
+    setMapPreferences(DEFAULT_MAP_PREFERENCES)
     auth.user = { id:'u1',email:'owner@example.com',display_name:'Owner',permissions:{} }
     const wrapper = mount(SettingsView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
     // Addressed by what each control is, not by where it sits: a new preference
     // between them used to renumber every assertion below it.
-    const selects = wrapper.findAllComponents(AppSelect)
-    const control = (id: string) => selects.find((select) => select.props('id') === id)!
+    const control = (id: string) => wrapper.findAllComponents(AppSelect)
+      .find((select) => select.props('id') === id)!
     control('theme').vm.$emit('update:modelValue', 'light')
     control('locale').vm.$emit('update:modelValue', 'fr')
     await wrapper.vm.$nextTick()
@@ -31,10 +34,25 @@ describe('preferences', () => {
     await control('theme').get('.app-select-trigger').trigger('click')
     expect(wrapper.text()).toContain('Auto')
 
-    // The map may be told to differ from the interface it sits in.
-    control('map-theme').vm.$emit('update:modelValue', 'dark')
+    expect(control('map-light-style').props('modelValue')).toBe('liberty')
+    expect(control('map-dark-style').props('modelValue')).toBe('dark')
+    expect(wrapper.find('#map-fixed-style').exists()).toBe(false)
+
+    control('map-light-style').vm.$emit('update:modelValue', 'positron')
+    control('map-dark-style').vm.$emit('update:modelValue', 'fiord')
+    control('map-mode').vm.$emit('update:modelValue', 'fixed')
     await wrapper.vm.$nextTick()
-    expect(localStorage.getItem('carhibou.map-theme')).toBe('dark')
+    control('map-fixed-style').vm.$emit('update:modelValue', 'bright')
+    await wrapper.vm.$nextTick()
+    expect(mapPreferences.value).toEqual({
+      providerId: 'openfreemap',
+      mode: 'fixed',
+      lightStyleId: 'positron',
+      darkStyleId: 'fiord',
+      fixedStyleId: 'bright',
+    })
+    expect(JSON.parse(localStorage.getItem('carhibou.map-preferences') ?? '{}'))
+      .toEqual(mapPreferences.value)
     expect(document.documentElement.dataset.theme, 'the interface is unmoved').toBe('light')
   })
 })

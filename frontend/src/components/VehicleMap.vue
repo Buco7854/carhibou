@@ -5,8 +5,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PositionFix } from '../api/types'
 import { layerHost } from '../layerHost'
-import { resolvedMapTheme } from '../theme'
-import { styleFor } from '../mapStyle'
+import { resolvedMapStyle } from '../mapPreferences'
 import AppIcon from './AppIcon.vue'
 
 export interface TrailPoint { lat: number; lng: number; speed: number | null }
@@ -405,7 +404,7 @@ async function build(): Promise<void> {
   if (!element.value) return
   map = new gl.Map({
     container: element.value,
-    style: styleFor(resolvedMapTheme.value),
+    style: resolvedMapStyle.value.url,
     center: [0, 20],
     zoom: 1.4,
     attributionControl: false,
@@ -443,7 +442,7 @@ watch(() => [props.position, props.route, props.trail, props.marks], draw, { dee
 // Another vehicle, or another range, is another thing to look at: that earns a
 // new frame, which is what this releases.
 watch(() => props.subject, () => { framedOnce = false; draw() })
-watch(resolvedMapTheme, (theme) => { map?.setStyle(styleFor(theme)) })
+watch(() => resolvedMapStyle.value.url, (url) => { map?.setStyle(url) })
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown)

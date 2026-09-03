@@ -19,11 +19,14 @@ Updated: 2026-09-03
   single-column mobile widgets, route/history charts, tracker administration, hooks and
   settings are functional. The searchable garage uses dimensionally stable photo cards
   and leaves optional vehicle facts blank. Self-hosted IBM Plex typography, an original
-  node-route mark, a modern neutralized OpenStreetMap treatment, optional owner-scoped
+  node-route mark, configurable OpenFreeMap vector cartography, optional owner-scoped
   vehicle photos with a plain missing-image placeholder, a validated categorical chart
   palette checked against both surfaces, extensible English/French catalogs,
   browser-language detection, app-owned accessible dropdowns, modal creation flows and
-  persistent Light, Dark and Auto themes work across the application.
+  persistent Light, Dark and Auto themes work across the application. Maps may follow
+  the interface with separately selected provider styles for light and dark, or keep one
+  provider style regardless of interface and browser theme; Liberty and Dark are the
+  defaults.
   Primary actions carry the accent blue rather than near-black ink, in both themes.
   Surfaces carry no decorative section kickers, self-describing subtitles, duplicated
   KPI strips or status theater; page copy states what a control does and stops.
@@ -78,7 +81,7 @@ Updated: 2026-09-03
   steps 1 s–1 day) whose rows recreate the complete known car state newest to
   oldest, with forward-filled cells dimmed and age-labelled and quiet spans
   collapsed server-side. `/history/observations` exposes full per-observation
-  provenance and is not yet consumed by the frontend. Hooks receive
+  provenance and feeds the raw report row disclosure. Hooks receive
   `ctx.telemetry.current`, `.triggering`, `.state_at(t)` (shared
   reconstruction with the table), and bounded `.history(...)`; the v1
   `ctx.telemetry.metrics`/`ctx.telemetry_batch` are gone and
@@ -194,7 +197,7 @@ Updated: 2026-09-03
 - 227 backend/agent tests runnable without PostgreSQL pass on Linux, including vehicle photo
   validation/storage/ownership coverage and the complete
   simulator-to-hook E2E scenario plus custom-profile distribution and ownership.
-- Frontend: ESLint and strict type check passing; 30 files / 253 behavior tests passing;
+- Frontend: ESLint and strict type check passing; 31 files / 257 behavior tests passing;
   production build passing. Table coverage includes metric-column sorting, numeric range
   filtering and per-vehicle column preferences.
 - Playwright: 7 Chromium scenarios passing locally against a fresh migrated database,

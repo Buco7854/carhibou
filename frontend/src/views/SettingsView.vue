@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatInstant } from '../vehicleDisplay'
 import { useRouter } from 'vue-router'
@@ -8,7 +8,9 @@ import { auth, logout } from '../api/auth'
 import type { BrowserSession } from '../api/types'
 import AppSelect from '../components/AppSelect.vue'
 import { persistLocale } from '../i18n'
-import { mapThemeMode, setMapTheme, setTheme, themeMode } from '../theme'
+import { mapPreferences, setMapPreferences } from '../mapPreferences'
+import { MAP_PROVIDERS, providerFor, stylesFor } from '../mapStyle'
+import { setTheme, themeMode } from '../theme'
 
 const { locale, t } = useI18n()
 const router = useRouter()
@@ -29,8 +31,25 @@ function changeTheme(value: string | number | null): void {
   if (value === 'light' || value === 'dark' || value === 'auto') setTheme(value)
 }
 
-function changeMapTheme(value: string | number | null): void {
-  if (value === 'light' || value === 'dark' || value === 'auto') setMapTheme(value)
+const mapProvider = computed(() => providerFor(mapPreferences.value.providerId))
+const lightMapStyles = computed(() => stylesFor(mapProvider.value.id, 'light'))
+const darkMapStyles = computed(() => stylesFor(mapProvider.value.id, 'dark'))
+
+function changeMapProvider(value: string | number | null): void {
+  if (typeof value === 'string') setMapPreferences({ providerId: value })
+}
+
+function changeMapMode(value: string | number | null): void {
+  if (value === 'follow-interface' || value === 'fixed') {
+    setMapPreferences({ mode: value })
+  }
+}
+
+function changeMapStyle(
+  key: 'lightStyleId' | 'darkStyleId' | 'fixedStyleId',
+  value: string | number | null,
+): void {
+  if (typeof value === 'string') setMapPreferences({ [key]: value })
 }
 
 async function changePassword(): Promise<void> {
@@ -64,10 +83,50 @@ onMounted(async () => {
     <section class="settings-block">
       <div class="settings-label"><h2>{{ t('settings.appearance') }}</h2><p>{{ t('settings.saved') }}</p></div>
       <div class="settings-body">
-        <div class="settings-pair">
+        <div class="settings-pair appearance-settings">
           <div class="field"><label for="theme">{{ t('settings.theme') }}</label><AppSelect id="theme" :model-value="themeMode" @update:model-value="changeTheme"><option value="auto">{{ t('settings.auto') }}</option><option value="light">{{ t('settings.light') }}</option><option value="dark">{{ t('settings.dark') }}</option></AppSelect></div>
-          <div class="field"><label for="map-theme">{{ t('settings.mapTheme') }}</label><AppSelect id="map-theme" :model-value="mapThemeMode" @update:model-value="changeMapTheme"><option value="auto">{{ t('settings.mapThemeAuto') }}</option><option value="light">{{ t('settings.light') }}</option><option value="dark">{{ t('settings.dark') }}</option></AppSelect><small class="field-hint">{{ t('settings.mapThemeHint') }}</small></div>
           <div class="field"><label for="locale">{{ t('settings.language') }}</label><AppSelect id="locale" :model-value="locale" @update:model-value="changeLocale"><option value="en">{{ t('settings.english') }}</option><option value="fr">{{ t('settings.french') }}</option></AppSelect></div>
+        </div>
+        <div class="map-settings" role="group" aria-labelledby="map-appearance-heading">
+          <div class="map-settings-heading">
+            <div><h3 id="map-appearance-heading">{{ t('settings.mapAppearance') }}</h3><p>{{ t('settings.mapAppearanceHint') }}</p></div>
+            <span v-if="MAP_PROVIDERS.length === 1" class="provider-name">{{ mapProvider.label }}</span>
+          </div>
+          <div class="settings-pair map-settings-grid">
+            <div v-if="MAP_PROVIDERS.length > 1" class="field">
+              <label for="map-provider">{{ t('settings.mapProvider') }}</label>
+              <AppSelect id="map-provider" :model-value="mapPreferences.providerId" @update:model-value="changeMapProvider">
+                <option v-for="provider in MAP_PROVIDERS" :key="provider.id" :value="provider.id">{{ provider.label }}</option>
+              </AppSelect>
+            </div>
+            <div class="field">
+              <label for="map-mode">{{ t('settings.mapMode') }}</label>
+              <AppSelect id="map-mode" :model-value="mapPreferences.mode" @update:model-value="changeMapMode">
+                <option value="follow-interface">{{ t('settings.mapModeFollow') }}</option>
+                <option value="fixed">{{ t('settings.mapModeFixed') }}</option>
+              </AppSelect>
+            </div>
+            <template v-if="mapPreferences.mode === 'follow-interface'">
+              <div class="field">
+                <label for="map-light-style">{{ t('settings.mapLightStyle') }}</label>
+                <AppSelect id="map-light-style" :model-value="mapPreferences.lightStyleId" @update:model-value="changeMapStyle('lightStyleId', $event)">
+                  <option v-for="style in lightMapStyles" :key="style.id" :value="style.id">{{ style.label }}</option>
+                </AppSelect>
+              </div>
+              <div class="field">
+                <label for="map-dark-style">{{ t('settings.mapDarkStyle') }}</label>
+                <AppSelect id="map-dark-style" :model-value="mapPreferences.darkStyleId" @update:model-value="changeMapStyle('darkStyleId', $event)">
+                  <option v-for="style in darkMapStyles" :key="style.id" :value="style.id">{{ style.label }}</option>
+                </AppSelect>
+              </div>
+            </template>
+            <div v-else class="field">
+              <label for="map-fixed-style">{{ t('settings.mapFixedStyle') }}</label>
+              <AppSelect id="map-fixed-style" :model-value="mapPreferences.fixedStyleId" @update:model-value="changeMapStyle('fixedStyleId', $event)">
+                <option v-for="style in mapProvider.styles" :key="style.id" :value="style.id">{{ style.label }}</option>
+              </AppSelect>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -118,6 +177,13 @@ onMounted(async () => {
 
 .password-form{display:grid;gap:12px}
 .password-actions{display:flex;align-items:center;gap:16px}
+.appearance-settings{margin-bottom:18px}
+.map-settings{padding-top:16px;border-top:1px solid var(--line)}
+.map-settings-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px}
+.map-settings-heading h3{margin:0;font-size:var(--font-body);font-weight:600}
+.map-settings-heading p{max-width:620px;margin:3px 0 0;color:var(--muted);font-size:var(--font-caption)}
+.provider-name{flex:none;padding:3px 8px;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:999px;font-size:var(--font-micro);font-weight:600}
+.map-settings-grid{align-items:end}
 
 .session-list{list-style:none;margin:0;padding:0;display:grid}
 .session-list li{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid var(--line)}

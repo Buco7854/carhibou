@@ -45,4 +45,7 @@ uses the first match because it represents one value, while tables and charts ac
 matches.
 
 English and French follow the browser language until explicitly changed. Light, Dark and
-Auto themes are saved in the browser; Auto follows the operating system.
+Auto interface themes are saved in the browser; Auto follows the operating system. Map
+appearance is separate: it can follow the interface using your selected OpenFreeMap
+light and dark styles, or keep one provider style at all times. Liberty and Dark are the
+defaults.
