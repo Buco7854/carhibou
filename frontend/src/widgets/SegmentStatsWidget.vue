@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget, Segments } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
+import { formatFixedNumber } from '../numberFormat'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { EMPTY_SEGMENTS, loadSegments } from '../api/segments'
 import { formatInstant, formatSpan } from '../vehicleDisplay'
@@ -21,7 +22,7 @@ const segment = computed(() => follow.value.state === 'segment' ? follow.value.s
 interface Stat { key: string; label: string; value: string }
 
 function number(value: number | undefined, digits: number, unit: string): string | null {
-  return value === undefined ? null : `${value.toFixed(digits)} ${unit}`
+  return value === undefined ? null : `${formatFixedNumber(value, locale.value, digits)} ${unit}`
 }
 
 /**
@@ -50,7 +51,7 @@ const lead = computed<Stat | null>(() => {
 const span = computed<string | null>(() => {
   const charge = segment.value?.kind === 'charge' ? segment.value.charge : undefined
   if (!charge || charge.soc_start === undefined || charge.soc_end === undefined) return null
-  return `${Math.round(charge.soc_start)}% → ${Math.round(charge.soc_end)}%`
+  return `${formatFixedNumber(charge.soc_start, locale.value, 0)}% → ${formatFixedNumber(charge.soc_end, locale.value, 0)}%`
 })
 
 const facts = computed<Stat[]>(() => {

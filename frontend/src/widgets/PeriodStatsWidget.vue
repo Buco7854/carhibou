@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget, Segments } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
+import { formatFixedNumber } from '../numberFormat'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { EMPTY_SEGMENTS, loadSegmentsBetween } from '../api/segments'
 
@@ -15,7 +16,7 @@ interface PeriodTotals {
 }
 
 const props = defineProps<{ widget: DashboardWidget }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const runtime = useDashboardRuntime()
 const vehicle = useDashboardVehicle(props.widget)
 const current = ref<Segments | null>(null)
@@ -40,14 +41,14 @@ function delta(value: number, baseline: number): string | null {
   if (!baseline) return null
   const change = ((value - baseline) / baseline) * 100
   if (!Number.isFinite(change) || Math.abs(change) < 1) return null
-  return `${change > 0 ? '+' : ''}${change.toFixed(0)}%`
+  return `${change > 0 ? '+' : ''}${formatFixedNumber(change, locale.value, 0)}%`
 }
 
 const stats = computed(() => [
-  { key: 'distance', label: t('insights.distance'), value: `${now.value.distance.toFixed(0)} km`, delta: delta(now.value.distance, before.value.distance) },
+  { key: 'distance', label: t('insights.distance'), value: `${formatFixedNumber(now.value.distance, locale.value, 0)} km`, delta: delta(now.value.distance, before.value.distance) },
   { key: 'drives', label: t('insights.drives'), value: String(now.value.drives), delta: delta(now.value.drives, before.value.drives) },
-  { key: 'charged', label: t('insights.energyCharged'), value: now.value.charges === 0 ? '' : `${now.value.charged.toFixed(1)} kWh`, delta: delta(now.value.charged, before.value.charged) },
-  { key: 'efficiency', label: t('insights.efficiency'), value: now.value.efficiency === null ? '' : `${now.value.efficiency.toFixed(1)} kWh/100km`, delta: now.value.efficiency === null || before.value.efficiency === null ? null : delta(now.value.efficiency, before.value.efficiency) },
+  { key: 'charged', label: t('insights.energyCharged'), value: now.value.charges === 0 ? '' : `${formatFixedNumber(now.value.charged, locale.value, 1)} kWh`, delta: delta(now.value.charged, before.value.charged) },
+  { key: 'efficiency', label: t('insights.efficiency'), value: now.value.efficiency === null ? '' : `${formatFixedNumber(now.value.efficiency, locale.value, 1)} kWh/100km`, delta: now.value.efficiency === null || before.value.efficiency === null ? null : delta(now.value.efficiency, before.value.efficiency) },
 ].filter((stat) => stat.value !== ''))
 
 async function load(): Promise<void> {

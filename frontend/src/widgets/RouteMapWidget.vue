@@ -7,6 +7,7 @@ import VehicleMap, { type TrailPoint } from '../components/VehicleMap.vue'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { EMPTY_SEGMENTS, loadHistory, loadSegments, rangeStart } from '../api/segments'
 import { pathLengthKm } from '../geo'
+import { formatFixedNumber } from '../numberFormat'
 import { formatInstant, formatSpan } from '../vehicleDisplay'
 import { followSelection, mergeSegments, metricNumber } from './segments'
 
@@ -54,10 +55,10 @@ const readout = computed(() => {
   const socDelta = socFrom !== null && socTo !== null ? socFrom - socTo : null
   return {
     estimated: scale === null,
-    distance: distance.toFixed(1),
+    distance: formatFixedNumber(distance, locale.value, 1),
     duration: formatSpan(Math.max(seconds, 0), locale.value),
-    soc: socDelta === null ? null : `${socDelta.toFixed(0)}%`,
-    energy: socDelta === null || capacity === null ? null : `${((socDelta / 100) * capacity).toFixed(1)} kWh`,
+    soc: socDelta === null ? null : `${formatFixedNumber(socDelta, locale.value, 0)}%`,
+    energy: socDelta === null || capacity === null ? null : `${formatFixedNumber((socDelta / 100) * capacity, locale.value, 1)} kWh`,
   }
 })
 

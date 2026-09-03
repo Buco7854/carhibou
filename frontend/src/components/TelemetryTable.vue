@@ -5,9 +5,10 @@ import { api, errorMessage } from '../api/client'
 import { loadSampleProvenance } from '../api/segments'
 import { useColumnPreference } from '../columnPreference'
 import { loadMetricKeys, metricKeys } from '../metricRegistry'
+import { formatCoordinates, formatNumber } from '../numberFormat'
 import { useLiveRefresh } from '../api/live'
 import type { HistoryEntries, HistoryEntry, HistoryObservationSample } from '../api/types'
-import { formatInstant, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
+import { formatInstant, formatMetricNumber, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
 import AppHelp from './AppHelp.vue'
 import ColumnPicker from './ColumnPicker.vue'
 import AppIcon from './AppIcon.vue'
@@ -243,9 +244,9 @@ function beforeReport(observedAt: string): string {
   return seconds > 0 ? t('history.beforeReport', { span: formatSpan(seconds, locale.value) }) : ''
 }
 
-function observationValue(value: unknown): string {
+function observationValue(key: string, value: unknown): string {
   if (typeof value === 'boolean') return t(value ? 'metrics.active' : 'metrics.inactive')
-  if (typeof value === 'number') return String(value)
+  if (typeof value === 'number') return formatMetricNumber(value, metricDefinition(key), locale.value)
   return value === null || value === undefined ? '—' : String(value)
 }
 
@@ -287,7 +288,13 @@ function cell(entry: HistoryEntry, column: TableColumn): string {
   if (column.key === 'recorded_at') return formatInstant(String(raw))
   if (typeof raw === 'boolean') return t(raw ? 'metrics.active' : 'metrics.inactive')
   // Fixed decimals per column keep a numeric column readable as one block.
-  if (typeof raw === 'number') return raw.toFixed(column.decimals)
+  if (typeof raw === 'number') {
+    return formatNumber(raw, locale.value, {
+      maximumFractionDigits: column.decimals,
+      minimumFractionDigits: column.decimals,
+      useGrouping: false,
+    })
+  }
   return String(raw)
 }
 
@@ -439,14 +446,14 @@ void loadMetricKeys()
                     <tbody>
                       <tr v-if="provenance.position">
                         <td>{{ t('history.columns.position') }}</td>
-                        <td class="mono">{{ provenance.position.value.latitude.toFixed(5) }}, {{ provenance.position.value.longitude.toFixed(5) }}</td>
+                        <td class="mono">{{ formatCoordinates(provenance.position.value.latitude, provenance.position.value.longitude) }}</td>
                         <td>{{ t(`history.channels.${provenance.position.channel}`) }}</td>
                         <td>{{ t(`history.methods.${provenance.position.method}`) }}</td>
                         <td>{{ formatInstant(provenance.position.observed_at) }}<small v-if="beforeReport(provenance.position.observed_at)" class="observed-age">{{ beforeReport(provenance.position.observed_at) }}</small></td>
                       </tr>
                       <tr v-for="observation in provenance.observations" :key="`${observation.key}-${observation.channel}`">
                         <td>{{ metricLabel(metricDefinition(observation.key), t) }}<small class="mono">{{ observation.key }}</small></td>
-                        <td class="mono">{{ observationValue(observation.value) }}</td>
+                        <td class="mono">{{ observationValue(observation.key, observation.value) }}</td>
                         <td>{{ t(`history.channels.${observation.channel}`) }}</td>
                         <td>{{ t(`history.methods.${observation.method}`) }}</td>
                         <td>{{ formatInstant(observation.observed_at) }}</td>

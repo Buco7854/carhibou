@@ -1,4 +1,5 @@
 import type { Provenance, Reading, Vehicle } from './api/types'
+import { formatFixedNumber } from './numberFormat'
 
 export interface MetricDefinition {
   key: string
@@ -172,7 +173,7 @@ export function vehicleActivity(vehicle: Vehicle | null | undefined): VehicleAct
 }
 
 export function metricDefinition(key: string): MetricDefinition {
-  return metricDefinitions[key] ?? { key, labelKey: '', unit: '', icon: 'signal', decimals: 1, kind: 'number' }
+  return metricDefinitions[key] ?? { key, labelKey: '', unit: '', icon: 'signal', decimals: 2, kind: 'number' }
 }
 
 function finite(value: unknown): number | null {
@@ -377,8 +378,9 @@ export function reportedChartMetrics(vehicle: Vehicle | null | undefined): strin
     && metricNumber(vehicle, key) !== null)
 }
 
-export function formatMetricNumber(value: number, definition: MetricDefinition): string {
-  return definition.decimals === 0 ? String(Math.round(value)) : value.toFixed(definition.decimals)
+export function formatMetricNumber(value: number, definition: MetricDefinition, locale?: string): string {
+  const digits = Math.min(2, Math.max(0, definition.decimals))
+  return formatFixedNumber(value, locale, digits)
 }
 
 /**

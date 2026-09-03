@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
+import { formatFixedNumber, formatNumber } from '../numberFormat'
 import { formatAge, formatMetricNumber, isStale, metricLabel, metricNumber, metricReading, observedAt, secondaryReadings, type MetricReading } from '../vehicleDisplay'
 import { useDashboardVehicle } from './dashboardContext'
 
@@ -34,7 +35,7 @@ const hasTelemetry = computed(() => speed.value !== null || readings.value.lengt
 function value(reading: MetricReading): string {
   if (reading.value === null) return '—'
   if (typeof reading.value === 'boolean') return t(reading.value ? 'metrics.active' : 'metrics.inactive')
-  return formatMetricNumber(reading.value, reading)
+  return formatMetricNumber(reading.value, reading, locale.value)
 }
 </script>
 
@@ -42,9 +43,9 @@ function value(reading: MetricReading): string {
   <article class="widget-card telemetry-widget">
     <div class="widget-head"><h2>{{ widget.title || t('dashboard.telemetry') }}</h2><small>{{ vehicle?.name }}</small></div>
     <dl v-if="hasTelemetry">
-      <div v-if="speed!==null"><dt>{{ t('metrics.vehicleSpeed') }}</dt><dd>{{ Math.round(speed) }}<small>km/h</small></dd></div>
+      <div v-if="speed!==null"><dt>{{ t('metrics.vehicleSpeed') }}</dt><dd>{{ formatFixedNumber(speed, locale, 0) }}<small>km/h</small></dd></div>
       <div v-for="reading in readings" :key="reading.key"><dt>{{ metricLabel(reading,t) }}<small v-if="isStale(reading)" class="stale-age">{{ formatAge(observedAt(reading), locale) }}</small></dt><dd :class="{ 'is-stale': isStale(reading) }">{{ value(reading) }}<small v-if="reading.value!==null&&reading.kind==='number'&&reading.unit">{{ reading.unit }}</small></dd></div>
-      <div v-if="signal!==null"><dt>{{ t('dashboard.signal') }}</dt><dd>{{ signal }}<small>dBm</small></dd></div>
+      <div v-if="signal!==null"><dt>{{ t('dashboard.signal') }}</dt><dd>{{ formatNumber(signal, locale) }}<small>dBm</small></dd></div>
     </dl>
     <DashboardWidgetEmpty v-else icon="signal" />
   </article>

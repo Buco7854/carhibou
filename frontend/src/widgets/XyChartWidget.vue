@@ -5,12 +5,13 @@ import { EMPTY_SEGMENTS, loadHistory, loadSegments, rangeStart } from '../api/se
 import type { DashboardWidget, History, Segments } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
-import { historyValue, metricDefinition, metricLabel } from '../vehicleDisplay'
+import { breakAtXReversals } from '../chartData'
+import { formatMetricNumber, historyValue, metricDefinition, metricLabel } from '../vehicleDisplay'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { followSelection, mergeSegments } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const runtime = useDashboardRuntime()
 const vehicle = useDashboardVehicle(props.widget)
 const history = ref<History | null>(null)
@@ -119,7 +120,7 @@ const paired = computed<Array<[number, number]>>(() => {
 const series = computed(() => [{
   name: metricLabel(yDefinition.value, t),
   unit: yDefinition.value.unit,
-  data: paired.value,
+  data: breakAtXReversals(paired.value),
 }])
 const hasData = computed(() => paired.value.length > 1)
 const peak = computed(() => paired.value.length ? Math.max(...paired.value.map((point) => point[1])) : undefined)
@@ -161,7 +162,7 @@ watch(
   <article class="widget-card xy-chart-widget">
     <div class="widget-head">
       <h2>{{ heading }}</h2>
-      <small v-if="hasData && peak !== undefined">{{ t('insights.peakAverage', { peak: peak.toFixed(1), average: (average ?? 0).toFixed(1) }) }}</small>
+      <small v-if="hasData && peak !== undefined">{{ t('insights.peakAverage', { peak: formatMetricNumber(peak, yDefinition, locale), average: formatMetricNumber(average ?? 0, yDefinition, locale) }) }}</small>
     </div>
     <div v-if="hasData" class="chart">
       <!-- A custom title need not name the metrics, so the axes say which they

@@ -5,6 +5,7 @@ import { loadHistory, rangeStart } from '../api/segments'
 import type { DashboardWidget, History } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import VehicleMap from '../components/VehicleMap.vue'
+import { formatCoordinates } from '../numberFormat'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 
 const props = defineProps<{ widget: DashboardWidget }>()
@@ -16,7 +17,7 @@ let request = 0
 const route = computed<Array<[number,number]>>(() => (history.value?.points ?? []).flatMap((point) => point.latitude!==null&&point.longitude!==null ? [[point.latitude,point.longitude] as [number,number]] : []))
 const position = computed(() => vehicle.value?.state?.position)
 const hasMapData = computed(() => Boolean(position.value) || route.value.length > 0)
-const positionLabel = computed(() => position.value ? `${position.value.latitude.toFixed(5)}, ${position.value.longitude.toFixed(5)}` : t('dashboard.noPosition'))
+const positionLabel = computed(() => position.value ? formatCoordinates(position.value.latitude, position.value.longitude) : t('dashboard.noPosition'))
 
 async function loadRoute(): Promise<void> {
   const current = ++request

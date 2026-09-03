@@ -11,6 +11,7 @@ import VehicleMedia from '../components/VehicleMedia.vue'
 import { canOperate, isAdmin } from '../access'
 import { agentStatus, chargingState, energySummary, energyTone, formatAge, formatMetricNumber, headlineReading, isPercentage, isStale, metricLabel, metricNumber, observedAt, vehicleActivity } from '../vehicleDisplay'
 import { askConfirm } from '../confirm'
+import { formatFixedNumber } from '../numberFormat'
 
 type VehicleFilter = 'all' | 'online' | 'parked'
 
@@ -47,7 +48,7 @@ function headlineValue(vehicle: Vehicle): string {
   const reading = headlineReading(vehicle)
   if (!reading || reading.value === null) return ''
   if (typeof reading.value === 'boolean') return t(reading.value ? 'metrics.active' : 'metrics.inactive')
-  return formatMetricNumber(reading.value, reading)
+  return formatMetricNumber(reading.value, reading, locale.value)
 }
 function headlineProgress(vehicle: Vehicle): number | null {
   const reading = headlineReading(vehicle)
@@ -78,9 +79,9 @@ function lastContact(vehicle: Vehicle): string {
 function vehicleFacts(vehicle: Vehicle): string[] {
   const facts: string[] = []
   const speed = vehicleSpeed(vehicle)
-  if (speed !== null) facts.push(`${Math.round(speed)} km/h`)
+  if (speed !== null) facts.push(`${formatFixedNumber(speed, locale.value, 0)} km/h`)
   const state = chargingState(vehicle)
-  if (state.active) facts.push(state.power === null ? t('vehicles.charging') : `${t('vehicles.charging')} ${state.power.toFixed(1)} kW`)
+  if (state.active) facts.push(state.power === null ? t('vehicles.charging') : `${t('vehicles.charging')} ${formatFixedNumber(state.power, locale.value, 1)} kW`)
   else if (state.active === false) facts.push(t('vehicles.notCharging'))
   return facts
 }

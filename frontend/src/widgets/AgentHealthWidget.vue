@@ -3,21 +3,25 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
+import { formatNumber } from '../numberFormat'
 import { useDashboardVehicle } from './dashboardContext'
 
 const props = defineProps<{ widget: DashboardWidget }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const vehicle = useDashboardVehicle(props.widget)
 const label = (key: string): string => key.replaceAll('_', ' ')
 const health = computed(() => Object.entries(vehicle.value?.state?.agent ?? {}).filter(
   ([, value]) => value !== null && value !== undefined && value !== '',
 ))
+function display(value: unknown): unknown {
+  return typeof value === 'number' ? formatNumber(value, locale.value) : value
+}
 </script>
 
 <template>
   <article class="widget-card agent-widget">
     <div class="widget-head"><h2>{{ widget.title||t('dashboards.agentHealth') }}</h2><small>{{ vehicle?.name }}</small></div>
-    <dl v-if="health.length" class="health"><template v-for="([key,value]) in health" :key="key"><dt>{{ label(key) }}</dt><dd class="mono">{{ value }}</dd></template></dl>
+    <dl v-if="health.length" class="health"><template v-for="([key,value]) in health" :key="key"><dt>{{ label(key) }}</dt><dd class="mono">{{ display(value) }}</dd></template></dl>
     <DashboardWidgetEmpty v-else icon="agent" />
   </article>
 </template>

@@ -5,6 +5,7 @@ import { errorMessage } from '../api/client'
 import { TABLE_STEP_SECONDS, loadHistoryTable } from '../api/segments'
 import type { HistoryTable, HistoryTableRow, Reading } from '../api/types'
 import { useColumnPreference } from '../columnPreference'
+import { formatCoordinates } from '../numberFormat'
 import { formatMetricNumber, formatSpan, metricDefinition, metricLabel } from '../vehicleDisplay'
 import AppHelp from './AppHelp.vue'
 import ColumnPicker from './ColumnPicker.vue'
@@ -138,12 +139,12 @@ function whyRow(row: HistoryTableRow, index: number): string {
 function display(key: string, reading: Reading): string {
   const definition = metricDefinition(key)
   if (typeof reading.value === 'boolean') return t(reading.value ? 'metrics.active' : 'metrics.inactive')
-  if (typeof reading.value === 'number') return formatMetricNumber(reading.value, definition)
+  if (typeof reading.value === 'number') return formatMetricNumber(reading.value, definition, locale.value)
   return reading.value === null || reading.value === undefined ? '—' : String(reading.value)
 }
 
 function position(row: HistoryTableRow): string {
-  return row.position ? `${row.position.latitude.toFixed(5)}, ${row.position.longitude.toFixed(5)}` : '—'
+  return row.position ? formatCoordinates(row.position.latitude, row.position.longitude) : '—'
 }
 
 async function load(): Promise<void> {

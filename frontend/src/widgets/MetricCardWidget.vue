@@ -13,7 +13,7 @@ const reading = computed(() => metricReading(vehicle.value, props.widget.metric 
 const value = computed(() => {
   if (reading.value.value === null) return ''
   if (typeof reading.value.value === 'boolean') return t(reading.value.value ? 'metrics.active' : 'metrics.inactive')
-  return formatMetricNumber(reading.value.value, reading.value)
+  return formatMetricNumber(reading.value.value, reading.value, locale.value)
 })
 const unit = computed(() => props.widget.unit ?? reading.value.unit)
 </script>

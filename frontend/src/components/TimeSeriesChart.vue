@@ -5,10 +5,12 @@ import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import type { ChartDatum } from '../chartData'
+import { formatNumber } from '../numberFormat'
 import { resolvedTheme } from '../theme'
 
 const props = withDefaults(defineProps<{
-  series: Array<{ name: string; unit?: string; data: Array<[string | number, number]> }>
+  series: Array<{ name: string; unit?: string; data: ChartDatum[] }>
   height?: number | string
   xType?: 'time' | 'value'
   xUnit?: string
@@ -24,7 +26,7 @@ const props = withDefaults(defineProps<{
   label?: string
 }>(), { xType: 'time', xUnit: '', yUnit: '', xName: '', yName: '', label: '' })
 const element = ref<HTMLDivElement>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 /** One rendition each: the name if the title has not said it, then the unit. */
 function axisName(name: string, unit: string): string {
@@ -63,8 +65,9 @@ function render() {
         if (!point) return ''
         const reading = Array.isArray(point.value) ? point.value[1] : undefined
         const unit = props.series[0]?.unit
-        const at = [point.axisValueLabel, props.xUnit].filter(Boolean).join(' ')
-        const value = [reading, unit].filter((part) => part !== undefined && part !== '').join(' ')
+        const axisValue = Array.isArray(point.value) ? point.value[0] : point.axisValueLabel
+        const at = [typeof axisValue === 'number' ? formatNumber(axisValue, locale.value) : axisValue, props.xUnit].filter(Boolean).join(' ')
+        const value = [typeof reading === 'number' ? formatNumber(reading, locale.value) : reading, unit].filter((part) => part !== undefined && part !== '').join(' ')
         return `<span style="color:${muted}">${at}</span><br><strong>${value}</strong>`
       },
     },
@@ -80,7 +83,12 @@ function render() {
       nameLocation: 'end',
       nameGap: 8,
       nameTextStyle: { color: muted, fontFamily: 'IBM Plex Sans', fontSize: 11, align: 'right', verticalAlign: 'top' },
-      axisLabel: { color: muted, fontFamily: 'IBM Plex Sans', fontSize: 11 },
+      axisLabel: {
+        color: muted,
+        fontFamily: 'IBM Plex Sans',
+        fontSize: 11,
+        formatter: props.xType === 'value' ? (value: number) => formatNumber(value, locale.value) : undefined,
+      },
       axisLine: { lineStyle: { color: line } },
       axisTick: { show: false },
       splitLine: { show: false },
@@ -93,7 +101,7 @@ function render() {
       nameLocation: 'end',
       nameGap: 9,
       nameTextStyle: { color: muted, fontFamily: 'IBM Plex Sans', fontSize: 11, align: 'left' },
-      axisLabel: { color: muted, fontFamily: 'IBM Plex Sans', fontSize: 11 },
+      axisLabel: { color: muted, fontFamily: 'IBM Plex Sans', fontSize: 11, formatter: (value: number) => formatNumber(value, locale.value) },
       splitLine: { lineStyle: { color: line } },
     },
     dataZoom: [{ type: 'inside' }],
@@ -102,8 +110,10 @@ function render() {
       type: 'line',
       showSymbol: false,
       smooth: 0.22,
+      smoothMonotone: props.xType === 'value' ? 'x' : undefined,
+      connectNulls: false,
       data: item.data,
-      tooltip: item.unit ? { valueFormatter: (value: unknown) => `${value} ${item.unit}` } : undefined,
+      tooltip: item.unit ? { valueFormatter: (value: unknown) => `${typeof value === 'number' ? formatNumber(value, locale.value) : value} ${item.unit}` } : undefined,
       lineStyle: { width: 2, color: palette[index % palette.length] },
       itemStyle: { color: palette[index % palette.length] },
       areaStyle: multiple ? undefined : { color: `${palette[0]}14` },
@@ -116,7 +126,7 @@ onMounted(() => {
   observer.observe(element.value!)
   render()
 })
-watch(() => [props.series, props.xType, props.xUnit], render, { deep: true })
+watch(() => [props.series, props.xType, props.xUnit, locale.value], render, { deep: true })
 watch(resolvedTheme, () => window.requestAnimationFrame(render))
 onBeforeUnmount(() => { observer?.disconnect(); chart?.dispose() })
 </script>

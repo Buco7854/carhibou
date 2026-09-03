@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
+import { formatFixedNumber } from '../numberFormat'
 import { energySummary, energyTone, formatAge, isStale, metricLabel, observedAt } from '../vehicleDisplay'
 import { useDashboardVehicle } from './dashboardContext'
 
@@ -16,7 +17,7 @@ const energy = computed(() => energySummary(vehicle.value))
   <article class="widget-card energy-widget">
     <div class="widget-head"><h2>{{ widget.title || metricLabel(energy,t) }}</h2><small>{{ vehicle?.name }}</small></div>
     <template v-if="energy.value!==null">
-      <div class="gauge" :class="{ 'is-stale': isStale(energy) }"><strong class="energy-value">{{ Math.round(energy.value) }}</strong><em>{{ energy.unit }}</em></div>
+      <div class="gauge" :class="{ 'is-stale': isStale(energy) }"><strong class="energy-value">{{ formatFixedNumber(energy.value, locale, 0) }}</strong><em>{{ energy.unit }}</em></div>
       <i class="level-bar" :class="{ 'is-stale': isStale(energy) }"><b :class="energyTone(energy.value)" :style="{ width:`${energy.progress}%` }" /></i>
       <small v-if="isStale(energy)" class="stale-age">{{ formatAge(observedAt(energy), locale) }}</small>
     </template>

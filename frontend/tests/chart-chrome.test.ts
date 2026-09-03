@@ -25,12 +25,13 @@ interface Option {
   tooltip: { formatter?: (params: unknown) => string }
   xAxis: Axis
   yAxis: Axis
+  series: Array<{ connectNulls?: boolean; smoothMonotone?: string; data: unknown[] }>
 }
 
 const points: Array<[string, number]> = [['2026-01-01T00:00:00Z', 1], ['2026-01-01T00:01:00Z', 2]]
 
 interface ChartProps {
-  series: Array<{ name: string; unit?: string; data: Array<[string | number, number]> }>
+  series: Array<{ name: string; unit?: string; data: Array<[string | number, number] | null> }>
   xType?: 'time' | 'value'
   xUnit?: string
   yUnit?: string
@@ -85,6 +86,16 @@ describe('chart chrome', () => {
     const option = draw({ series: [{ name: 'Charge rate', unit: 'kW', data: points }], xType: 'value', xUnit: '%' })
     expect(option.xAxis.name).toBe('%')
     expect(option.yAxis.name).toBe('kW')
+  })
+
+  it('honours explicit session breaks without smoothing backwards on an XY axis', () => {
+    const option = draw({
+      series: [{ name: 'Charge rate', unit: 'kW', data: [[55, 3.2], [100, 0.2], null, [42, 3.3]] }],
+      xType: 'value', xUnit: '%',
+    })
+    expect(option.series[0]?.data).toEqual([[55, 3.2], [100, 0.2], null, [42, 3.3]])
+    expect(option.series[0]?.connectNulls).toBe(false)
+    expect(option.series[0]?.smoothMonotone).toBe('x')
   })
 
   it('names the metric on the axis only when the title cannot have', () => {

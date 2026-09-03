@@ -1,6 +1,6 @@
 # Current project state
 
-Updated: 2026-08-29
+Updated: 2026-09-03
 
 ## Works
 
@@ -107,7 +107,11 @@ Updated: 2026-08-29
   added without removing older dashboards. Unpinned widgets react to the shared vehicle
   selector while explicitly pinned widgets remain fixed. The selector is a bounded,
   searchable dropdown for large fleets. Data widgets share a deliberate no-data state,
-  avoid mounting empty maps/charts, and omit unavailable telemetry rows.
+  avoid mounting empty maps/charts, and omit unavailable telemetry rows. XY charts split
+  their line when the dominant x direction reverses, so separate charging sessions are
+  never joined across an SOC reset, and x-monotone smoothing cannot bend the line back
+  over itself. User-facing measurements share locale-aware formatting capped at two
+  decimals by default; canonical precision and five-decimal coordinates remain explicit.
   History pairs the chart and route with a raw entries table: newest first, paginated
   rather than downsampled, sortable and numerically filterable on any column including
   profile-defined metrics, with per-vehicle column visibility and ordering persisted in
@@ -187,13 +191,13 @@ Updated: 2026-08-29
 ## Verification
 
 - Ruff and Ruff format pass across backend/agent; mypy passes for 106 source files in Linux.
-- Backend/agent tests runnable without PostgreSQL pass on Linux, including vehicle photo
+- 227 backend/agent tests runnable without PostgreSQL pass on Linux, including vehicle photo
   validation/storage/ownership coverage and the complete
   simulator-to-hook E2E scenario plus custom-profile distribution and ownership.
-- Frontend: ESLint and strict type check passing; 7 files / 30 behavior tests passing;
+- Frontend: ESLint and strict type check passing; 30 files / 253 behavior tests passing;
   production build passing. Table coverage includes metric-column sorting, numeric range
   filtering and per-vehicle column preferences.
-- Playwright: 2 Chromium scenarios passing locally against a fresh migrated database,
+- Playwright: 7 Chromium scenarios passing locally against a fresh migrated database,
   real API and worker. CI runs the same suite on PostgreSQL. They cover the primary
   product journey, idempotency, auth-realm isolation, live SSE state changes,
   environment-based admin bootstrap, rejection of later registration, file-backed photo

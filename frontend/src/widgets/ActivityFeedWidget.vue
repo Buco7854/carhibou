@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget, SegmentKind, Segments } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
+import { formatFixedNumber } from '../numberFormat'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { EMPTY_SEGMENTS, loadSegments } from '../api/segments'
 import { formatInstant, formatSpan } from '../vehicleDisplay'
@@ -22,16 +23,18 @@ const rows = computed(() => filter.value === 'all' ? feed.value : feed.value.fil
 function headline(segment: FeedSegment): string {
   if (segment.kind === 'drive') {
     const distance = segment.drive?.distance_km
-    return distance === undefined ? t('insights.drive') : t('insights.driveDistance', { distance: distance.toFixed(1) })
+    return distance === undefined ? t('insights.drive') : t('insights.driveDistance', { distance: formatFixedNumber(distance, locale.value, 1) })
   }
   const energy = segment.charge?.energy_kwh
-  return energy === undefined ? t('insights.charge') : t('insights.chargeEnergy', { energy: energy.toFixed(1) })
+  return energy === undefined ? t('insights.charge') : t('insights.chargeEnergy', { energy: formatFixedNumber(energy, locale.value, 1) })
 }
 
 function detail(segment: FeedSegment): string {
   const parts = [formatInstant(segment.start), formatSpan(segment.duration_seconds, locale.value)]
   const soc = segment.kind === 'drive' ? segment.drive : segment.charge
-  if (soc?.soc_start !== undefined && soc?.soc_end !== undefined) parts.push(`${Math.round(soc.soc_start)}% → ${Math.round(soc.soc_end)}%`)
+  if (soc?.soc_start !== undefined && soc?.soc_end !== undefined) {
+    parts.push(`${formatFixedNumber(soc.soc_start, locale.value, 0)}% → ${formatFixedNumber(soc.soc_end, locale.value, 0)}%`)
+  }
   return parts.join(' · ')
 }
 

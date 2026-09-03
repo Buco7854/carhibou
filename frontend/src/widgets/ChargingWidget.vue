@@ -3,11 +3,12 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
+import { formatFixedNumber } from '../numberFormat'
 import { chargingState } from '../vehicleDisplay'
 import { useDashboardVehicle } from './dashboardContext'
 
 const props = defineProps<{ widget: DashboardWidget }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const vehicle = useDashboardVehicle(props.widget)
 const state = computed(() => chargingState(vehicle.value))
 </script>
@@ -18,7 +19,7 @@ const state = computed(() => chargingState(vehicle.value))
     <template v-if="state.active !== null">
       <div class="charging-state">
         <strong :class="{ 'is-charging':state.active }">{{ state.active ? t('vehicles.charging') : t('vehicles.notCharging') }}</strong>
-        <span v-if="state.active && state.power !== null" class="rate">{{ state.power.toFixed(1) }}<em>kW</em></span>
+        <span v-if="state.active && state.power !== null" class="rate">{{ formatFixedNumber(state.power, locale, 1) }}<em>kW</em></span>
       </div>
       <!-- The charge level belongs to the energy card, which says it larger and
            says it once. Repeating it here made a card about the charge into a

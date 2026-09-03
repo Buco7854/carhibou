@@ -14,7 +14,7 @@ import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import VehicleMap from '../components/VehicleMap.vue'
 import { formatMetricNumber, historyValue, metricDefinition, metricLabel, preferredHistoryMetric } from '../vehicleDisplay'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const route = useRoute()
 const vehicle = ref<Vehicle | null>(null)
 
@@ -71,7 +71,7 @@ const series = computed(() => [{
   }),
 }])
 const latestValue = computed(() => [...(series.value[0]?.data ?? [])].at(-1)?.[1])
-const latestDisplay = computed(() => latestValue.value === undefined ? '—' : formatMetricNumber(latestValue.value, selectedMetric.value))
+const latestDisplay = computed(() => latestValue.value === undefined ? '—' : formatMetricNumber(latestValue.value, selectedMetric.value, locale.value))
 
 async function load() {
   error.value = ''
