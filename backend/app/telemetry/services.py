@@ -23,7 +23,11 @@ from backend.app.telemetry.schemas import Observation, TelemetryBatch, Telemetry
 from backend.app.vehicle_state.models import VehicleState
 from backend.app.vehicles.models import Vehicle
 
-HOOK_TRIGGER_SAMPLE_LIMIT = 200
+# Transport and side-effect batches have different constraints. The agent may
+# ingest 200 samples efficiently, but a hook can legitimately perform one
+# external request per sample. Ten requests fit the default 10-second hook
+# budget at the observed Traccar latency while still amortizing child startup.
+HOOK_TRIGGER_SAMPLE_LIMIT = 10
 
 
 @dataclass

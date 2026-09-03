@@ -193,7 +193,7 @@ ctx.log.info("Current state of charge", percent=soc.value, observed_at=soc.obser
 `ctx.telemetry.triggering` is the tuple of immutable observations that caused this run.
 Each item includes `telemetry_id`, `key`, `value`, `observed_at`, source identity,
 channel, and method. Atomic position observations use the key `position` and an object
-value. A hook run contains at most 200 samples, so a long offline backlog becomes several
+value. A hook run contains at most 10 samples, so a long offline backlog becomes several
 bounded runs in recorded order rather than one process large enough to exhaust memory.
 The tuple may therefore contain several samples recorded at different times.
 

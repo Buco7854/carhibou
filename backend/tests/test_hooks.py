@@ -346,9 +346,9 @@ def test_large_ingest_splits_hook_triggers_into_bounded_batches(
     trigger_ids = [
         [str(value) for value in trigger.payload["telemetry_ids"]] for trigger in triggers
     ]
-    assert [len(values) for values in trigger_ids] == [200, 200, 50]
+    assert [len(values) for values in trigger_ids] == [10] * 45
     assert [value for values in trigger_ids for value in values] == identifiers
-    assert len(jobs) == 3
+    assert len(jobs) == 45
 
 
 def test_complete_hook_log_is_available_in_bounded_pages(

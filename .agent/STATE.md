@@ -123,9 +123,10 @@ Updated: 2026-08-29
   requests. Hooks have revisions, state, encrypted write-only secrets, redacted logs,
   HTTP/geometry helpers, manual dry-run and execution history.
 - Catch-up uploads drain the durable agent outbox in independently acknowledged chunks of
-  at most 200 samples. Ingestion applies the same 200-sample ceiling to hook triggers even
-  for another client sending a larger accepted request, so a long outage cannot turn into
-  one unbounded hook process. SDK version 3 exposes the triggering observations, the
+  at most 200 samples. Ingestion independently splits those requests into hook triggers of
+  at most 10 samples, leaving enough time for hooks that perform one external request per
+  position, so a long outage cannot turn into one unbounded hook process. SDK version 3
+  exposes the triggering observations, the
   current resolved state, shared state-at-time reconstruction and bounded raw history
   queries without pretending each sparse sample is a complete vehicle snapshot. Hook
   previews are bounded, complete structured logs are persisted separately and exposed

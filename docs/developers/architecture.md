@@ -129,10 +129,10 @@ credential; channel and observation time travel with each value. A unique sample
 makes retries idempotent without changing history or rerunning hooks.
 
 One transaction stores immutable observations, advances newer per-source candidates,
-resolves the vehicle's live readings, creates generic triggers of at most 200 samples and
-queues matching hook jobs. The Go agent also sends catch-up data in independently
-acknowledged requests of at most 200 samples; the server-side split protects other
-clients that use the larger transport limit. A delayed observation can update one metric
+resolves the vehicle's live readings, creates generic triggers of at most 10 samples and
+queues matching hook jobs. The Go agent sends catch-up data in independently acknowledged
+requests of at most 200 samples; the smaller hook bound leaves time for a hook that makes
+one external request per sample. A delayed observation can update one metric
 without overwriting a newer unrelated one. Candidate freshness follows the source cadence recorded with the observation;
 safety-sensitive values expire to unknown while persistent values remain visibly stale.
 PostgreSQL is the time-series store at the intended scale.
