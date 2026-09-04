@@ -18,6 +18,13 @@ const route = computed<Array<[number,number]>>(() => (history.value?.points ?? [
 const position = computed(() => vehicle.value?.state?.position)
 const hasMapData = computed(() => Boolean(position.value) || route.value.length > 0)
 const positionLabel = computed(() => position.value ? formatCoordinates(position.value.latitude, position.value.longitude) : t('dashboard.noPosition'))
+/* The head is on the card, and the card is behind the map once it fills the
+   viewport, so the map takes what the head said with it. */
+const heading = computed(() => [
+  props.widget.title || t('dashboard.mapAndRoute'),
+  positionLabel.value,
+  history.value ? t('dashboard.sampleCount', { count: history.value.original_count }) : '',
+].filter(Boolean).join(' · '))
 
 async function loadRoute(): Promise<void> {
   const current = ++request
@@ -36,7 +43,7 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days, runtime.data
       <div><h2>{{ widget.title||t('dashboard.mapAndRoute') }}</h2><span class="mono">{{ positionLabel }}</span></div>
       <small v-if="history">{{ t('dashboard.sampleCount',{count:history.original_count}) }}</small>
     </div>
-    <div v-if="hasMapData" class="map-stage"><VehicleMap :position="position" :route="route" :subject="vehicle?.id ?? ''" /></div>
+    <div v-if="hasMapData" class="map-stage"><VehicleMap :position="position" :route="route" :heading="heading" :subject="vehicle?.id ?? ''" /></div>
     <DashboardWidgetEmpty v-else icon="location" :loading="Boolean(vehicle)&&history===null" />
   </article>
 </template>

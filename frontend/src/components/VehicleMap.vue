@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import type { GeoJSONSource, Map as MapLibreMap, Marker as MapLibreMarker } from 'maplibre-gl'
+import type { GeoJSONSource, Map as MapLibreMap, MapGeoJSONFeature, Marker as MapLibreMarker } from 'maplibre-gl'
 import type { Feature, FeatureCollection } from 'geojson'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PositionFix } from '../api/types'
 import { layerHost } from '../layerHost'
 import { resolvedMapStyle } from '../mapPreferences'
+import { bandFor, speedBands, type SpeedBand } from '../mapSpeedScale'
+import { SPEED_KEY, formatInstant, formatMetricNumber, metricDefinition } from '../vehicleDisplay'
 import AppIcon from './AppIcon.vue'
 
-export interface TrailPoint { lat: number; lng: number; speed: number | null }
+export interface TrailPoint { lat: number; lng: number; speed: number | null; at?: string }
 
 const props = defineProps<{
   position: PositionFix | null | undefined
@@ -20,14 +22,23 @@ const props = defineProps<{
    * to the same subject redraw without touching the reader's viewport.
    */
   subject?: string | undefined
+  /**
+   * What this map is of, said on the map itself once it fills the viewport.
+   *
+   * A card names its map in its own head, which the expanded map leaves behind
+   * on the page underneath. Rather than repeat the head in the card, the name
+   * is shown only where it would otherwise be missing.
+   */
+  heading?: string | undefined
 }>()
 const emit = defineEmits<{ pick: [index: number] }>()
+const frame = ref<HTMLDivElement>()
 const element = ref<HTMLDivElement>()
 const tilesLoading = ref(true)
 const tilesUnavailable = ref(false)
 const expanded = ref(false)
 const wheelHint = ref(false)
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const host = computed(layerHost)
 
 /* MapLibre is about a megabyte of parser and renderer, and most pages never
@@ -42,6 +53,7 @@ let hintTimer: ReturnType<typeof setTimeout> | undefined
 const ROUTE_SOURCE = 'carhibou-route'
 const TRAIL_SOURCE = 'carhibou-trail'
 const POINT_SOURCE = 'carhibou-points'
+const TRAIL_HIT_LAYER = 'carhibou-trail-hit'
 
 /*
  * Line weight.
@@ -68,26 +80,56 @@ const CASING_WIDTH: unknown = ['interpolate', ['linear'], ['zoom'],
  */
 const ARROW_SPACING = 40
 
-const SPEED_STOPS = [0, 30, 60, 90, 120]
+/** Wide enough to hit with a thumb, and never drawn. */
+const TRAIL_HIT_WIDTH = 20
 
-/** MapLibre paints from real colours, so the tokens are resolved here. */
+/*
+ * Which cartography is under the drawing.
+ *
+ * Map style and interface theme are separate settings, so a light interface can
+ * carry a dark basemap. Everything painted onto the ground — the route ramp, the
+ * halo that holds it — belongs to the ground's tone rather than to the
+ * interface's. The floating chips are app chrome and stay with the interface.
+ */
+const darkGround = computed(() => resolvedMapStyle.value.style.tone === 'dark')
+
+const speedDefinition = metricDefinition(SPEED_KEY)
+
+/** The bands the plotted speeds earn. Empty when nothing reported a speed. */
+const scale = computed(() => speedBands((props.trail ?? []).map((point) => point.speed)))
+/** A scale of one band encodes nothing, so it is not offered as a key. */
+const legend = computed<SpeedBand[]>(() => (scale.value.length > 1 ? scale.value : []))
+const legendTop = computed(() => legend.value.at(-1)?.to ?? 0)
+const legendHasUnknown = computed(() => Boolean(legend.value.length
+  && props.trail?.some((point) => typeof point.speed !== 'number')))
+
+function speedLabel(speed: number): string {
+  return formatMetricNumber(speed, speedDefinition, locale.value)
+}
+
+/**
+ * MapLibre paints from real colours, so the tokens are resolved here.
+ *
+ * Read from the frame rather than from the document, because the ramp and the
+ * halo are declared on the frame and follow the basemap's tone.
+ */
 function palette(): Record<string, string> {
-  const styles = getComputedStyle(document.documentElement)
+  const styles = getComputedStyle(frame.value ?? document.documentElement)
   const read = (name: string) => styles.getPropertyValue(name).trim()
-  return {
+  const colors: Record<string, string> = {
     accent: read('--accent'),
     panel: read('--panel'),
     halo: read('--map-route-halo') || read('--panel'),
     muted: read('--muted-2'),
-    chart1: read('--chart-1'), chart2: read('--chart-2'),
-    chart3: read('--chart-3'), chart4: read('--chart-4'),
   }
+  for (let step = 1; step <= 5; step += 1) colors[`trail${step}`] = read(`--trail-${step}`)
+  return colors
 }
 
+/** The ramp step a speed earns, or the muted ink when it reported none. */
 function speedColor(speed: number | null, colors: Record<string, string>): string {
-  if (speed === null) return colors.muted!
-  const slot = SPEED_STOPS.findIndex((stop) => speed < stop)
-  return colors[`chart${slot <= 0 ? 4 : Math.min(slot, 4)}`]!
+  const band = bandFor(speed, scale.value)
+  return band ? colors[`trail${band.step}`] || colors.muted! : colors.muted!
 }
 
 /* Leaflet spoke in [lat, lng] and MapLibre speaks in [lng, lat]; every crossing
@@ -133,15 +175,15 @@ function positionElement(heading: number | null | undefined): HTMLElement {
 const CHEVRON_PX = 13
 
 function chevronImage(color: string, halo: string): ImageData {
-  const scale = Math.max(1, Math.round(window.devicePixelRatio || 1))
-  const size = CHEVRON_PX * scale
+  const scaling = Math.max(1, Math.round(window.devicePixelRatio || 1))
+  const size = CHEVRON_PX * scaling
   const canvas = document.createElement('canvas')
   canvas.width = size
   canvas.height = size
   const context = canvas.getContext('2d')!
   const draw = (stroke: string, width: number) => {
     context.strokeStyle = stroke
-    context.lineWidth = width * scale
+    context.lineWidth = width * scaling
     context.lineCap = 'round'
     context.lineJoin = 'round'
     context.beginPath()
@@ -170,7 +212,7 @@ function emptyCollection(): FeatureCollection {
 let framedSubject: string | undefined
 let framedOnce = false
 
-function frame(apply: () => void): void {
+function frameOnce(apply: () => void): void {
   const subject = props.subject ?? ''
   if (framedOnce && framedSubject === subject) return
   framedOnce = true
@@ -203,7 +245,8 @@ function draw(): void {
     ? { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: path } }
     : emptyCollection())
 
-  // One feature per leg, each carrying the colour its speed earns.
+  // One feature per leg, each carrying the colour its speed earns and the
+  // reading that earned it, so hovering the line can say what it means.
   const legs: Feature[] = []
   if (props.trail?.length) {
     for (let index = 0; index < props.trail.length - 1; index += 1) {
@@ -211,7 +254,12 @@ function draw(): void {
       const to = props.trail[index + 1]!
       legs.push({
         type: 'Feature',
-        properties: { color: speedColor(from.speed, colors) },
+        properties: {
+          color: speedColor(from.speed, colors),
+          speed: from.speed,
+          at: from.at ?? '',
+          index,
+        },
         geometry: { type: 'LineString', coordinates: [[from.lng, from.lat], [to.lng, to.lat]] },
       })
     }
@@ -249,13 +297,13 @@ function draw(): void {
   }
 
   if (path.length > 1) {
-    frame(() => {
+    frameOnce(() => {
       const bounds = new gl!.LngLatBounds(path[0]!, path[0]!)
       for (const at of path) bounds.extend(at)
       map!.fitBounds(bounds, { padding: 34, maxZoom: 15, animate: false })
     })
   } else if (props.position) {
-    frame(() => map!.jumpTo({ center: [props.position!.longitude, props.position!.latitude], zoom: 14 }))
+    frameOnce(() => map!.jumpTo({ center: [props.position!.longitude, props.position!.latitude], zoom: 14 }))
   }
 }
 
@@ -269,6 +317,7 @@ function install(): void {
   installing = true
   try {
     addLayers()
+    bindInteractions()
   } finally {
     installing = false
   }
@@ -284,12 +333,14 @@ function addLayers(): void {
   map.addSource(TRAIL_SOURCE, { type: 'geojson', data: emptyCollection() })
   map.addSource(POINT_SOURCE, { type: 'geojson', data: emptyCollection() })
 
-  // The single-colour route keeps a casing; the speed ramp does not need one.
+  // Both lines keep a casing. The speed ramp starts pale where the car was
+  // slowest, and a pale hairline over a pale street is a line nobody can
+  // follow; the casing is what makes every band of the ramp hold its ground.
   map.addLayer({
     id: 'carhibou-route-casing', type: 'line', source: ROUTE_SOURCE,
     filter: ['==', ['geometry-type'], 'LineString'],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': colors.halo!, 'line-width': CASING_WIDTH as never, 'line-opacity': props.trail?.length ? 0 : 0.9 },
+    paint: { 'line-color': colors.halo!, 'line-width': CASING_WIDTH as never, 'line-opacity': 0.9 },
   })
   map.addLayer({
     id: 'carhibou-route-line', type: 'line', source: ROUTE_SOURCE,
@@ -301,6 +352,13 @@ function addLayers(): void {
     id: 'carhibou-trail-line', type: 'line', source: TRAIL_SOURCE,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': ['get', 'color'] as never, 'line-width': ROUTE_WIDTH as never },
+  })
+  // A two-pixel line is not a target. This one is never painted; it exists so a
+  // pointer near the trail counts as a pointer on it.
+  map.addLayer({
+    id: TRAIL_HIT_LAYER, type: 'line', source: TRAIL_SOURCE,
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': colors.accent!, 'line-width': TRAIL_HIT_WIDTH, 'line-opacity': 0 },
   })
   map.addLayer({
     id: 'carhibou-direction', type: 'symbol', source: ROUTE_SOURCE,
@@ -317,8 +375,10 @@ function addLayers(): void {
     id: 'carhibou-picks', type: 'circle', source: POINT_SOURCE,
     filter: ['==', ['get', 'kind'], 'pick'],
     paint: {
-      // The unpicked ones are the click targets and are never drawn.
-      'circle-radius': ['case', ['==', ['get', 'picked'], 1], 4.5, 4] as never,
+      // The unpicked ones are never drawn, so their radius is a target size
+      // rather than a mark size: a downsampled trail puts its points far
+      // enough apart that a thumb needs the room.
+      'circle-radius': ['case', ['==', ['get', 'picked'], 1], 5, 9] as never,
       'circle-color': ['get', 'color'] as never,
       'circle-opacity': ['case', ['==', ['get', 'picked'], 1], 1, 0] as never,
       'circle-stroke-color': colors.accent!,
@@ -338,13 +398,6 @@ function addLayers(): void {
     },
   })
 
-  map.on('click', 'carhibou-picks', (event) => {
-    const index = event.features?.[0]?.properties?.['index']
-    if (typeof index === 'number') emit('pick', index)
-  })
-  map.on('mouseenter', 'carhibou-picks', () => { if (map) map.getCanvas().style.cursor = 'pointer' })
-  map.on('mouseleave', 'carhibou-picks', () => { if (map) map.getCanvas().style.cursor = '' })
-
   /*
    * What the renderer drew, for the tests that ask.
    *
@@ -354,6 +407,114 @@ function addLayers(): void {
    * and this is the only way to let them.
    */
   ;(element.value as unknown as { carhibouMap?: unknown }).carhibouMap = map
+}
+
+/*
+ * The reading behind a coloured segment.
+ *
+ * Colour on its own is decoration: a reader could see that one stretch is
+ * redder than another and had no way to learn what either meant. Pointing at
+ * the trail says the speed and when it was measured; on a touch screen the
+ * same tap pins it, and a tap anywhere else puts it away.
+ */
+interface TrailReading { speed: number | null; at: string; x: number; y: number; below: boolean; pinned: boolean }
+const reading = ref<TrailReading | null>(null)
+
+const readingText = computed(() => {
+  const current = reading.value
+  if (!current) return null
+  return {
+    speed: current.speed === null
+      ? t('history.speedUnknown')
+      : `${speedLabel(current.speed)} ${speedDefinition.unit}`,
+    at: current.at ? formatInstant(current.at) : '',
+  }
+})
+
+const readingStyle = computed(() => {
+  const current = reading.value
+  if (!current) return undefined
+  return {
+    left: `${current.x}px`,
+    top: `${current.y + (current.below ? 18 : -14)}px`,
+    transform: current.below ? 'translate(-50%,0)' : 'translate(-50%,-100%)',
+  }
+})
+
+function showReading(feature: MapGeoJSONFeature | undefined, at: { x: number; y: number }, pinned: boolean): void {
+  if (!feature) return
+  const speed = feature.properties?.['speed']
+  const observed = feature.properties?.['at']
+  const width = element.value?.clientWidth ?? 0
+  reading.value = {
+    speed: typeof speed === 'number' ? speed : null,
+    at: typeof observed === 'string' ? observed : '',
+    // Kept clear of the frame's edges, so the readout is never half off the map.
+    x: width ? Math.min(Math.max(at.x, 76), width - 76) : at.x,
+    y: at.y,
+    below: at.y < 70,
+    pinned,
+  }
+}
+
+let interactionsBound = false
+
+function bindInteractions(): void {
+  if (!map || interactionsBound) return
+  interactionsBound = true
+  const cursor = (shape: string) => { if (map) map.getCanvas().style.cursor = shape }
+
+  map.on('click', 'carhibou-picks', (event) => {
+    const index = event.features?.[0]?.properties?.['index']
+    if (typeof index === 'number') emit('pick', index)
+  })
+  map.on('mouseenter', 'carhibou-picks', () => cursor('pointer'))
+  map.on('mouseleave', 'carhibou-picks', () => cursor(''))
+
+  map.on('mousemove', TRAIL_HIT_LAYER, (event) => {
+    cursor('pointer')
+    if (!reading.value?.pinned) showReading(event.features?.[0], event.point, false)
+  })
+  map.on('mouseleave', TRAIL_HIT_LAYER, () => {
+    cursor('')
+    if (!reading.value?.pinned) reading.value = null
+  })
+  // One handler for the whole canvas rather than two that race: a tap on the
+  // trail pins its reading, and a tap anywhere else dismisses it.
+  map.on('click', (event) => {
+    const found = map?.queryRenderedFeatures(event.point, { layers: [TRAIL_HIT_LAYER] }) ?? []
+    if (found.length) showReading(found[0], event.point, true)
+    else reading.value = null
+  })
+  // The readout is anchored in screen pixels, so it stops meaning anything the
+  // moment the ground moves under it.
+  map.on('movestart', () => { reading.value = null })
+  map.on('zoom', trackZoom)
+}
+
+/*
+ * How far in the map already is.
+ *
+ * The zoom buttons are the app's own, so they also own saying when they can do
+ * nothing: a control that looks live and answers nothing reads as a broken map.
+ */
+const zoomLevel = ref(0)
+const zoomFloor = ref(0)
+const zoomCeiling = ref(20)
+const canZoomIn = computed(() => zoomLevel.value < zoomCeiling.value - 0.01)
+const canZoomOut = computed(() => zoomLevel.value > zoomFloor.value + 0.01)
+
+function trackZoom(): void {
+  if (!map) return
+  zoomLevel.value = map.getZoom()
+  zoomFloor.value = map.getMinZoom()
+  zoomCeiling.value = map.getMaxZoom()
+}
+
+function zoomBy(step: number): void {
+  if (!map) return
+  reading.value = null
+  map.easeTo({ zoom: map.getZoom() + step, duration: 180 })
 }
 
 /*
@@ -384,10 +545,18 @@ function onWheel(event: WheelEvent): void {
   hintTimer = setTimeout(() => { wheelHint.value = false }, 1400)
 }
 
+/* A map over the whole viewport is the only thing on it, so the page behind it
+   does not scroll while it is open. */
+function lockPage(locked: boolean): void {
+  document.body.style.overflow = locked ? 'hidden' : ''
+}
+
 function toggleExpanded(): void {
   expanded.value = !expanded.value
   wheelHint.value = false
+  reading.value = null
   applyWheelPolicy()
+  lockPage(expanded.value)
   // The frame changes size when it moves, and the renderer only knows once told.
   requestAnimationFrame(() => map?.resize())
 }
@@ -412,10 +581,14 @@ async function build(): Promise<void> {
     // A vector map has no reason to stop where a raster tileset ran out.
     maxZoom: 20,
   })
-  // Their guide: with MapLibre the attribution is added automatically, because
-  // the tile source declares it. Nothing is passed here on purpose.
-  map.addControl(new gl.AttributionControl({ compact: true }), 'bottom-right')
-  map.addControl(new gl.NavigationControl({ showCompass: false }), 'bottom-right')
+  /*
+   * Their guide: with MapLibre the attribution is added automatically, because
+   * the tile source declares it. Nothing is passed here on purpose, and no
+   * option either: left to decide for itself the control carries the full
+   * credit on a map wide enough for it and the compact toggle on a card, which
+   * is the behaviour a 300-pixel widget and a full viewport both want.
+   */
+  map.addControl(new gl.AttributionControl(), 'bottom-right')
   map.addControl(new gl.ScaleControl({ maxWidth: 90, unit: 'metric' }), 'bottom-left')
   map.on('error', () => { tilesUnavailable.value = true })
   map.on('load', () => {
@@ -423,6 +596,7 @@ async function build(): Promise<void> {
     tilesUnavailable.value = false
     ready = true
     install()
+    trackZoom()
     draw()
   })
   // A style swap drops every layer this component owns, so they go back on.
@@ -441,12 +615,15 @@ onMounted(() => {
 watch(() => [props.position, props.route, props.trail, props.marks], draw, { deep: true })
 // Another vehicle, or another range, is another thing to look at: that earns a
 // new frame, which is what this releases.
-watch(() => props.subject, () => { framedOnce = false; draw() })
+watch(() => props.subject, () => { framedOnce = false; reading.value = null; draw() })
+// A new basemap is a new style, and a style swap puts the drawing back with
+// the ramp and the halo the new ground earns.
 watch(() => resolvedMapStyle.value.url, (url) => { map?.setStyle(url) })
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown)
   clearTimeout(hintTimer)
+  lockPage(false)
   marker?.remove()
   map?.remove()
 })
@@ -460,24 +637,70 @@ onBeforeUnmount(() => {
        the viewport and the reader's own panning all survive the trip. -->
   <Teleport :to="host" :disabled="!expanded">
     <div
+      ref="frame"
       class="map-frame"
-      :class="{ unavailable: tilesUnavailable, expanded }"
+      :class="{ unavailable: tilesUnavailable, expanded, 'dark-ground': darkGround }"
       :aria-busy="tilesLoading"
       @wheel="onWheel"
     >
-      <div ref="element" class="vehicle-map" role="region" :aria-label="t('history.route')" />
-      <span v-if="tilesLoading && !tilesUnavailable" class="map-state" aria-live="polite">{{ t('history.mapLoading') }}</span>
-      <span v-if="tilesUnavailable" class="map-state unavailable-message" role="status">{{ t('history.mapUnavailable') }}</span>
-      <span v-if="!position && !route?.length" class="map-empty">{{ t('dashboard.noPosition') }}</span>
-      <span v-if="wheelHint" class="map-hint" role="status">{{ t('history.wheelHint') }}</span>
-      <button
-        class="map-expand"
-        type="button"
-        :aria-label="expanded ? t('history.mapCollapse') : t('history.mapExpand')"
-        @click="toggleExpanded"
-      >
-        <AppIcon :name="expanded ? 'close' : 'expand'" :size="15" />
-      </button>
+      <div class="map-view">
+        <div ref="element" class="vehicle-map" role="region" :aria-label="heading || t('history.route')" />
+        <span v-if="expanded && heading" class="map-heading">{{ heading }}</span>
+        <span v-if="tilesLoading && !tilesUnavailable" class="map-state" aria-live="polite">{{ t('history.mapLoading') }}</span>
+        <span v-if="tilesUnavailable" class="map-state unavailable-message" role="status">{{ t('history.mapUnavailable') }}</span>
+        <span v-if="!position && !route?.length" class="map-empty">{{ t('dashboard.noPosition') }}</span>
+        <span v-if="wheelHint" class="map-hint" role="status">{{ t('history.wheelHint') }}</span>
+
+        <!-- What the colours on the trail stand for. The edges are the drive's
+             own, so they are printed rather than implied by a gradient. -->
+        <div v-if="legend.length" class="map-legend" role="group" :aria-label="t('history.speedLegend')">
+          <ol>
+            <li v-for="band in legend" :key="band.step">
+              <i :style="{ background: `var(--trail-${band.step})` }" />
+              <span>{{ speedLabel(band.from) }}</span>
+            </li>
+            <li class="legend-top"><span>{{ speedLabel(legendTop) }}</span></li>
+          </ol>
+          <p>
+            <span>{{ speedDefinition.unit }}</span>
+            <span v-if="legendHasUnknown" class="legend-unknown"><i />{{ t('history.speedUnknown') }}</span>
+          </p>
+        </div>
+
+        <div v-if="readingText" class="map-reading" :style="readingStyle" aria-hidden="true">
+          <strong>{{ readingText.speed }}</strong>
+          <span v-if="readingText.at">{{ readingText.at }}</span>
+        </div>
+
+        <div class="map-controls">
+          <button
+            class="map-control map-expand"
+            type="button"
+            :aria-label="expanded ? t('history.mapCollapse') : t('history.mapExpand')"
+            @click="toggleExpanded"
+          >
+            <AppIcon :name="expanded ? 'close' : 'expand'" :size="16" />
+          </button>
+          <div class="map-zoom">
+            <button class="map-control" type="button" :disabled="!canZoomIn" :aria-label="t('history.mapZoomIn')" @click="zoomBy(1)">
+              <AppIcon name="plus" :size="16" />
+            </button>
+            <button class="map-control" type="button" :disabled="!canZoomOut" :aria-label="t('history.mapZoomOut')" @click="zoomBy(-1)">
+              <AppIcon name="minus" :size="16" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!--
+        Whatever the card said about this map, said inside the map.
+
+        It used to sit in the card around the frame, and the frame is what
+        travels to the viewport when the map is expanded: the reader who opened
+        the map to see the route better lost the readout describing it. Kept in
+        here, it goes where the map goes.
+      -->
+      <div v-if="$slots.context" class="map-context"><slot name="context" /></div>
     </div>
   </Teleport>
 </template>
@@ -488,11 +711,24 @@ onBeforeUnmount(() => {
    those numbers in the page's context, where they outrank the nav rail and
    the mobile nav bar. Isolating the frame confines them, so app chrome wins
    on its own much smaller numbers and no map internal can ever compete. */
-.map-frame{--map-route-halo:rgba(255,255,255,.9);position:relative;isolation:isolate;width:100%;height:100%;min-height:300px;overflow:hidden;background:var(--panel-2)}
+.map-frame{
+  /* The ramp the speed trail is painted with: one hue, palest where the car was
+     slowest and deepest red where it was fastest, so the colour reads as
+     "careful" in the direction it should. Stepped for a pale basemap here and
+     for a dark one below, rather than one set filtered into two. */
+  --trail-1:#e59289;--trail-2:#d06d63;--trail-3:#b5493f;--trail-4:#93302a;--trail-5:#6d1f1c;
+  --map-route-halo:rgba(255,255,255,.9);
+  position:relative;isolation:isolate;width:100%;height:100%;min-height:300px;
+  display:grid;grid-template-rows:minmax(0,1fr) auto;overflow:hidden;background:var(--panel-2);
+}
+/* The ground's tone, not the interface's: a light interface may carry a dark
+   basemap, and the ink drawn onto the ground belongs to the ground. */
+.map-frame.dark-ground{
+  --trail-1:#93392f;--trail-2:#b0473a;--trail-3:#cd5544;--trail-4:#e9634e;--trail-5:#ff7a5c;
+  --map-route-halo:rgba(16,16,16,.86);
+}
+.map-view{position:relative;min-height:0;min-width:0}
 .vehicle-map{width:100%;height:100%;min-height:300px;background:var(--panel-2)}
-/* The halo the route casing and the chevrons are drawn against, which is the
-   panel colour of whichever theme the map itself is wearing. */
-:global([data-theme="dark"] .map-frame){--map-route-halo:rgba(13,16,14,.86)}
 
 /* The marker's own box: the renderer positions this absolutely, and an inline
    span would collapse to nothing around its child. */
@@ -510,39 +746,114 @@ onBeforeUnmount(() => {
   filter:drop-shadow(0 0 1px var(--panel));
 }
 
-.map-state,.map-empty{position:absolute;z-index:500;top:10px;left:10px;padding:5px 8px;color:var(--muted);background:color-mix(in srgb,var(--panel) 90%,transparent);border:1px solid var(--line);border-radius:var(--radius);font:400 12px/1.3 "IBM Plex Sans",sans-serif;pointer-events:none}
+.map-state,.map-empty,.map-heading{position:absolute;z-index:500;top:10px;left:10px;padding:5px 8px;color:var(--muted);background:color-mix(in srgb,var(--panel) 90%,transparent);border:1px solid var(--line);border-radius:var(--radius);font:400 12px/1.3 "IBM Plex Sans",sans-serif;pointer-events:none}
+.map-heading{max-width:min(60%,420px);overflow:hidden;color:var(--text);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+/* With a name in the corner, the transient chips queue under it. */
+.map-frame.expanded .map-state{top:48px}
 .map-empty{top:50%;left:50%;max-width:220px;transform:translate(-50%,-50%);color:var(--text);text-align:center}
 .unavailable-message{color:var(--danger)}
 
+/* What a colour on the trail is worth, in the numbers of this drive. */
+.map-legend{
+  position:absolute;z-index:550;bottom:38px;left:10px;
+  padding:6px 8px 5px;color:var(--muted);
+  background:color-mix(in srgb,var(--panel) 92%,transparent);
+  border:1px solid var(--line);border-radius:var(--radius);
+  font:400 11px/1.3 "IBM Plex Sans",sans-serif;pointer-events:none;
+}
+.map-legend ol{display:flex;align-items:flex-end;margin:0;padding:0;list-style:none}
+.map-legend li{display:grid;justify-items:start;gap:3px;min-width:26px}
+.map-legend li i{width:100%;height:4px;border-radius:2px}
+.map-legend li span{font-variant-numeric:tabular-nums;transform:translateX(-50%)}
+.map-legend li:first-child span{transform:none}
+.map-legend .legend-top{min-width:0}
+.map-legend .legend-top span{padding-left:1px}
+.map-legend p{display:flex;align-items:center;gap:10px;margin:3px 0 0;color:var(--muted-2)}
+.legend-unknown{display:inline-flex;align-items:center;gap:4px}
+.legend-unknown i{width:10px;height:4px;border-radius:2px;background:var(--muted-2)}
 
-/* MapLibre's own controls, dressed to match the rest of the interface. */
-:deep(.maplibregl-ctrl-group){margin:0 10px 10px 0!important;overflow:hidden;background:transparent!important;border:1px solid var(--line-strong)!important;border-radius:var(--radius)!important;box-shadow:var(--shadow-soft)!important}
-:deep(.maplibregl-ctrl-group button){width:28px!important;height:26px!important;background:color-mix(in srgb,var(--panel) 94%,transparent)!important;border-bottom:1px solid var(--line)!important}
-:deep(.maplibregl-ctrl-group button:last-child){border-bottom:0!important}
-:deep(.maplibregl-ctrl-group button:hover){background:var(--panel)!important}
+/* The reading behind a segment, anchored where the pointer asked. */
+.map-reading{
+  position:absolute;z-index:600;display:grid;gap:1px;
+  min-width:96px;padding:6px 9px;
+  color:var(--text);background:var(--panel);
+  border:1px solid var(--line-strong);border-radius:var(--radius);
+  box-shadow:var(--shadow-soft);pointer-events:none;
+}
+.map-reading strong{font-size:13px;font-weight:500;font-variant-numeric:tabular-nums}
+.map-reading span{color:var(--muted);font-size:11px}
+
+/*
+ * The map's own controls, as app buttons rather than as the renderer's.
+ *
+ * The zoom pair used to be MapLibre's navigation control: 29 pixels square,
+ * with its own artwork, its own English-only labels and a hairline between the
+ * two halves that stayed white whatever the theme. Owning the buttons is what
+ * makes them the size of a target, legible on either ground, named in the
+ * reader's language and styled once with everything else.
+ */
+.map-controls{position:absolute;z-index:600;top:8px;right:8px;display:grid;gap:8px;justify-items:end}
+.map-zoom{display:grid;overflow:hidden;border-radius:var(--radius)}
+.map-control{
+  width:34px;height:34px;display:grid;place-items:center;
+  color:var(--text);background:color-mix(in srgb,var(--panel) 94%,transparent);
+  border:1px solid var(--line-strong);border-radius:var(--radius);cursor:pointer;
+  box-shadow:var(--shadow-soft);
+  transition:background-color .12s,border-color .12s,color .12s;
+}
+.map-control:hover:not(:disabled){background:var(--panel);color:var(--accent)}
+.map-control:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.map-control:disabled{color:var(--muted-2);cursor:not-allowed}
+/* One block of two: a shared hairline between them rather than two rings. */
+.map-zoom .map-control{border-radius:0}
+.map-zoom .map-control:first-child{border-radius:var(--radius) var(--radius) 0 0}
+.map-zoom .map-control:last-child{border-top-width:0;border-radius:0 0 var(--radius) var(--radius)}
+/* A finger is not a mouse pointer: where there is no hover, the targets grow to
+   the size the platform guidelines ask for. */
+@media(hover:none){
+  .map-control{width:42px;height:42px}
+  .map-controls{gap:10px}
+}
+
+/* Whatever the card said about the map, carried inside the frame. */
+.map-context{
+  min-width:0;padding:9px 12px;
+  background:var(--panel);border-top:1px solid var(--line);
+}
+.map-frame.expanded .map-context{padding:10px 16px;box-shadow:0 -1px 0 var(--line)}
+
+/* MapLibre's remaining chrome, dressed to match the rest of the interface. */
 :deep(.maplibregl-ctrl-scale){margin:0 0 10px 10px!important;padding:1px 6px;color:var(--muted);background:color-mix(in srgb,var(--panel) 82%,transparent);border-color:var(--line-strong);border-top:0;font:400 11px/1.5 var(--mono)}
-:deep(.maplibregl-ctrl-attrib){padding:2px 5px!important;color:var(--muted);background:color-mix(in srgb,var(--panel) 84%,transparent)!important;font-size:11px}
+/*
+ * The attribution, which has to stay readable and complete.
+ *
+ * The compact form parks a 24-pixel toggle over the text's own box and reserves
+ * room for it with padding; a flat padding override took that room away, so the
+ * button sat on top of "OpenStreetMap". The reservation is restored here, on the
+ * side the control actually sits, and the text wraps rather than being clipped.
+ */
+:deep(.maplibregl-ctrl-attrib){
+  max-width:min(460px,calc(100% - 20px));margin:0 10px 10px 0!important;padding:3px 8px;
+  color:var(--muted);background:color-mix(in srgb,var(--panel) 88%,transparent)!important;
+  border:1px solid var(--line);border-radius:var(--radius)!important;
+  font:400 11px/1.45 "IBM Plex Sans",sans-serif;white-space:normal;
+}
+:deep(.maplibregl-ctrl-attrib.maplibregl-compact){min-height:26px;padding:0}
+:deep(.maplibregl-ctrl-attrib.maplibregl-compact-show){padding:4px 34px 4px 9px}
+:deep(.maplibregl-ctrl-attrib-button){
+  top:1px;right:1px;width:24px;height:24px;
+  background-color:transparent!important;border-radius:var(--radius-sm);opacity:.75;
+}
+:deep(.maplibregl-ctrl-attrib-button:hover){opacity:1}
+:deep(.maplibregl-ctrl-attrib-button:focus-visible){outline:2px solid var(--accent);outline-offset:1px;box-shadow:none}
 :deep(.maplibregl-ctrl-attrib a){color:var(--accent)}
-:deep(.maplibregl-ctrl-attrib-button){background-color:transparent!important}
 :deep(.maplibregl-canvas){outline:none}
-/* The renderer's own glyphs are dark artwork; in dark theme they are inverted
-   rather than replaced, which is the one thing left worth filtering. */
-:global([data-theme="dark"] .map-frame .maplibregl-ctrl-group button span){filter:invert(1)}
+/* The renderer's own glyph is dark artwork on a panel that is not, in one theme
+   of two; inverting it is cheaper than replacing the control. */
+:global([data-theme="dark"] .map-frame .maplibregl-ctrl-attrib-button){filter:invert(1)}
 
 /* Nothing to draw the ground with: dim what did arrive rather than pretend. */
 .map-frame.unavailable :deep(.maplibregl-canvas){opacity:.12}
-
-/* An icon on the map, where the map's own controls are, rather than a bar of
-   chrome above it. */
-.map-expand{
-  position:absolute;z-index:600;top:8px;right:8px;width:30px;height:30px;
-  display:grid;place-items:center;color:var(--text);
-  background:color-mix(in srgb,var(--panel) 92%,transparent);
-  border:1px solid var(--line);border-radius:var(--radius);cursor:pointer;
-  transition:background-color .12s,border-color .12s;
-}
-.map-expand:hover{background:var(--panel);border-color:var(--line-strong)}
-.map-expand:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* Full viewport, above everything, and the same element that was in the card. */
 .map-frame.expanded{

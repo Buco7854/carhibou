@@ -477,10 +477,58 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(surface, 'the map renders to a canvas').not.toBeNull()
   expect(surface!.backing).toBeGreaterThanOrEqual(Math.floor(surface!.css * surface!.dpr * 0.9))
 
+  /*
+   * The map's own controls, as targets rather than as decoration.
+   *
+   * Expand and the zoom pair are the app's buttons now: named in the reader's
+   * language, sized for a finger, and styled once with everything else. The
+   * renderer's navigation control was 29 pixels square with an English label
+   * and a hairline between its halves that stayed white in dark theme.
+   */
+  const controlGeometry = await mapFrame.locator('.map-control').evaluateAll((buttons) => buttons.map((button) => {
+    const box = button.getBoundingClientRect()
+    return { label: button.getAttribute('aria-label'), width: box.width, height: box.height }
+  }))
+  expect(controlGeometry.map((control) => control.label)).toEqual(['Expand map', 'Zoom in', 'Zoom out'])
+  expect(controlGeometry.every((control) => control.width >= 34 && control.height >= 34)).toBeTruthy()
+
+  /*
+   * The attribution, whole and unobstructed.
+   *
+   * OpenFreeMap requires the credit its TileJSON declares, and MapLibre injects
+   * it; what went wrong was ours. A flat padding override took away the room the
+   * compact form reserves for its toggle, so the button sat on top of the word
+   * "OpenStreetMap". This asserts the two boxes do not share pixels.
+   */
+  const attribution = await page.evaluate(() => {
+    const control = document.querySelector('.map-frame .maplibregl-ctrl-attrib')
+    const inner = control?.querySelector('.maplibregl-ctrl-attrib-inner')
+    const toggle = control?.querySelector('.maplibregl-ctrl-attrib-button')
+    if (!inner || !toggle) return null
+    const text = inner.getBoundingClientRect()
+    const button = toggle.getBoundingClientRect()
+    return {
+      credit: (inner.textContent ?? '').trim(),
+      overlaps: text.right > button.left && text.left < button.right
+        && text.bottom > button.top && text.top < button.bottom,
+      clipped: inner.scrollWidth > Math.ceil(inner.clientWidth) + 1,
+    }
+  })
+  expect(attribution, 'the attribution control is present').not.toBeNull()
+  expect(attribution!.credit).toContain('OpenStreetMap')
+  expect(attribution!.overlaps, 'the toggle must not sit on the credit').toBe(false)
+  expect(attribution!.clipped, 'the credit must not be cut off').toBe(false)
+
   // The map opens to the whole viewport and closes again on Escape.
-  await mapFrame.locator('.map-expand').click()
+  const routeFrame = page.locator('[data-widget-type="route-map"] .map-frame')
+  // What the card says about the map is inside the frame, so it travels with it:
+  // the readout describing a picked leg used to stay on the page underneath.
+  await expect(routeFrame.locator('.map-context')).toContainText('Tap two points')
+  await routeFrame.locator('.map-expand').click()
   await expect(page.locator('.map-frame.expanded')).toHaveCount(1)
   await expect(page.locator('.map-placeholder')).toHaveCount(1)
+  await expect(page.locator('.map-frame.expanded .map-context')).toContainText('Tap two points')
+  await expect(page.locator('.map-frame.expanded .map-heading')).toContainText('Route')
   await page.keyboard.press('Escape')
   await expect(page.locator('.map-frame.expanded')).toHaveCount(0)
   const overMap = await page.evaluate(() => {

@@ -26,7 +26,12 @@ Updated: 2026-09-04
   persistent Light, Dark and Auto themes work across the application. Maps may follow
   the interface with separately selected provider styles for light and dark, or keep one
   provider style regardless of interface and browser theme; Liberty and Dark are the
-  defaults.
+  defaults. Map controls (expand, zoom) are the app's own buttons, translated and sized
+  as targets; the speed trail is painted with a data-relative quantile ramp in one hue
+  that follows the basemap's tone rather than the interface theme, with a legend printing
+  the drive's own band edges and a hover/tap readout of speed and time per segment; the
+  card context (A-to-B readout, pick hint, heading) lives inside the map frame so it
+  travels with the map when expanded. OpenFreeMap's automatic attribution is kept intact.
   Primary actions carry the accent blue rather than near-black ink, in both themes.
   Surfaces carry no decorative section kickers, self-describing subtitles, duplicated
   KPI strips or status theater; page copy states what a control does and stops.

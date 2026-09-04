@@ -56,6 +56,10 @@ const lastPosition = computed<PositionFix | null>(() => {
   const point = [...(history.value?.points ?? [])].reverse().find((row) => row.latitude !== null && row.longitude !== null)
   return point ? { latitude: point.latitude!, longitude: point.longitude!, altitude: null, speed: point.speed, heading: point.heading, accuracy: null } : null
 })
+/* The panel header stays on the page when the map fills the viewport, so the
+   map itself says whose route this is. */
+const routeHeading = computed(() => [vehicle.value?.name, t('history.route')].filter(Boolean).join(' · '))
+
 const metricOptions = computed(() => {
   const options = new Set(history.value?.available_metrics ?? [])
   if ((history.value?.points ?? []).some((point) => typeof point.speed === 'number')) options.add('vehicle.speed')
@@ -138,7 +142,7 @@ onMounted(load)
       </section>
       <section class="panel route-panel">
         <header><h2>{{ t('history.route') }}</h2><span class="route-count">{{ routePoints.length }}</span></header>
-        <div class="route-map"><VehicleMap :position="lastPosition" :route="routePoints" :subject="`${vehicleId}:${days}`" /></div>
+        <div class="route-map"><VehicleMap :position="lastPosition" :route="routePoints" :heading="routeHeading" :subject="`${vehicleId}:${days}`" /></div>
       </section>
     </div>
     <div v-else class="panel empty">{{ t('history.noData') }}</div>

@@ -25,10 +25,14 @@ const follow = computed(() => followSelection(mergeSegments(segments.value ?? EM
 const drive = computed(() => follow.value.state === 'segment' ? follow.value.segment : null)
 const outOfRange = computed(() => follow.value.state === 'out-of-range')
 const points = computed(() => (history.value?.points ?? []).filter((point) => point.latitude !== null && point.longitude !== null))
-const trail = computed<TrailPoint[]>(() => points.value.map((point) => ({ lat: point.latitude!, lng: point.longitude!, speed: point.speed })))
+const trail = computed<TrailPoint[]>(() => points.value.map((point) => ({ lat: point.latitude!, lng: point.longitude!, speed: point.speed, at: point.recorded_at })))
 const position = computed(() => vehicle.value?.state?.position ?? null)
 const hasTrail = computed(() => trail.value.length > 1)
 const hasMapData = computed(() => !outOfRange.value && (hasTrail.value || Boolean(position.value)))
+const when = computed(() => drive.value ? formatInstant(drive.value.start) : t('insights.wholeRange'))
+/* Expanded, the map is the whole viewport and the card head is behind it, so
+   the map carries the same two facts the head does. */
+const heading = computed(() => `${props.widget.title || t('dashboards.routeMap')} · ${when.value}`)
 
 function pick(index: number): void {
   const chosen = marks.value.includes(index) ? marks.value.filter((mark) => mark !== index) : [...marks.value, index]
@@ -91,20 +95,35 @@ watch([() => vehicle.value?.id, () => drive.value && `${drive.value.start}-${dri
     <div class="widget-head">
       <div>
         <h2>{{ widget.title || t('dashboards.routeMap') }}</h2>
-        <span>{{ drive ? formatInstant(drive.start) : t('insights.wholeRange') }}</span>
+        <span>{{ when }}</span>
       </div>
-      <small>{{ t('insights.pickHint') }}</small>
     </div>
     <div v-if="hasMapData" class="map-stage">
-      <VehicleMap :position="position" :trail="trail" :marks="marks" :subject="`${vehicle?.id ?? ''}:${widget.time_range_days ?? 1}`" @pick="pick" />
+      <!-- The readout belongs to the map, not to the card around it: the frame
+           is what fills the viewport when the map is expanded, and anything
+           left outside it goes behind that. -->
+      <VehicleMap
+        :position="position"
+        :trail="trail"
+        :marks="marks"
+        :heading="heading"
+        :subject="`${vehicle?.id ?? ''}:${widget.time_range_days ?? 1}`"
+        @pick="pick"
+      >
+        <template #context>
+          <dl v-if="readout" class="route-readout">
+            <div><dt>{{ readout.estimated ? t('insights.distanceEstimate') : t('insights.distance') }}</dt><dd>{{ readout.distance }} km</dd></div>
+            <div><dt>{{ t('insights.duration') }}</dt><dd>{{ readout.duration }}</dd></div>
+            <div v-if="readout.soc"><dt>{{ t('insights.socUsed') }}</dt><dd>{{ readout.soc }}</dd></div>
+            <div v-if="readout.energy"><dt>{{ t('insights.energyUsed') }}</dt><dd>{{ readout.energy }}</dd></div>
+          </dl>
+          <!-- The hint sits where the picking happens rather than in the head,
+               so it is still there once the map is the whole screen. -->
+          <p v-else class="route-hint">{{ t('insights.pickHint') }}</p>
+        </template>
+      </VehicleMap>
     </div>
     <DashboardWidgetEmpty v-else icon="location" :loading="Boolean(vehicle)&&!outOfRange&&history===null" :message="outOfRange ? t('insights.notInRange') : t('insights.noRoute')" />
-    <dl v-if="readout" class="route-readout">
-      <div><dt>{{ readout.estimated ? t('insights.distanceEstimate') : t('insights.distance') }}</dt><dd>{{ readout.distance }} km</dd></div>
-      <div><dt>{{ t('insights.duration') }}</dt><dd>{{ readout.duration }}</dd></div>
-      <div v-if="readout.soc"><dt>{{ t('insights.socUsed') }}</dt><dd>{{ readout.soc }}</dd></div>
-      <div v-if="readout.energy"><dt>{{ t('insights.energyUsed') }}</dt><dd>{{ readout.energy }}</dd></div>
-    </dl>
   </article>
 </template>
 
@@ -115,11 +134,11 @@ watch([() => vehicle.value?.id, () => drive.value && `${drive.value.start}-${dri
 .route-map-widget .widget-head>div{min-width:0}
 .route-map-widget h2{margin:0;overflow:hidden;color:var(--muted);font-size:var(--font-caption);font-weight:500;letter-spacing:.01em;text-overflow:ellipsis;white-space:nowrap}
 .route-map-widget .widget-head span{display:block;margin-top:2px;overflow:hidden;color:var(--text);font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}
-.route-map-widget .widget-head small{flex:none;color:var(--muted-2);font-size:var(--font-micro);text-align:right}
 .map-stage{position:relative;min-height:0;flex:1}
 .map-stage :deep(.map-frame),.map-stage :deep(.vehicle-map){height:100%;min-height:0}
-.route-readout{display:flex;flex-wrap:wrap;gap:6px 20px;margin:0;padding:10px 14px;border-top:1px solid var(--line)}
+.route-readout{display:flex;flex-wrap:wrap;gap:6px 20px;margin:0}
 .route-readout dt{color:var(--muted);font-size:var(--font-micro)}
 .route-readout dd{margin:1px 0 0;font-size:var(--font-caption);font-weight:500;font-variant-numeric:tabular-nums}
-@media(max-width:700px){.route-map-widget .widget-head small{display:none}.route-readout{gap:6px 14px}}
+.route-hint{margin:0;color:var(--muted-2);font-size:var(--font-micro)}
+@media(max-width:700px){.route-readout{gap:6px 14px}}
 </style>

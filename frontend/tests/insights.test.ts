@@ -8,13 +8,23 @@ import { dashboardRuntimeKey } from '../src/widgets/dashboardContext'
 import { widgetRegistry } from '../src/widgets/registry'
 import { adminUser, charge, drive, jsonResponse, mockApi, readings, vehicle } from './helpers'
 
+/*
+ * The map, as far as a widget test is concerned: the trail as clickable points,
+ * and the context a host renders inside the frame. The context slot is not
+ * decoration — it is where a host's own readout lives, so that it travels with
+ * the frame when the map is expanded, and a stub without it would test a
+ * component that no longer exists.
+ */
 vi.mock('../src/components/VehicleMap.vue', () => ({
   default: defineComponent({
-    props: { position: { type: Object, default: null }, trail: { type: Array, default: () => [] }, marks: { type: Array, default: () => [] } },
+    props: { position: { type: Object, default: null }, trail: { type: Array, default: () => [] }, marks: { type: Array, default: () => [] }, heading: { type: String, default: '' } },
     emits: ['pick'],
-    setup(props, { emit }) {
-      return () => h('div', { class: 'vehicle-map-stub' }, (props.trail as unknown[]).map((_point, index) =>
-        h('button', { class: 'trail-point', onClick: () => emit('pick', index) }, String(index))))
+    setup(props, { emit, slots }) {
+      return () => h('div', { class: 'vehicle-map-stub' }, [
+        ...(props.trail as unknown[]).map((_point, index) =>
+          h('button', { class: 'trail-point', onClick: () => emit('pick', index) }, String(index))),
+        h('div', { class: 'map-context-stub' }, slots.context?.()),
+      ])
     },
   }),
 }))
@@ -181,12 +191,24 @@ describe('driving insight widgets', () => {
     expect(wrapper.find('.route-readout').exists()).toBe(false)
     await points[2]!.trigger('click')
 
-    const readout = wrapper.get('.route-readout')
+    // Inside the map's own frame, not in the card around it: the frame is what
+    // fills the viewport when the map is expanded, and a readout left in the
+    // card went behind the expanded map with it.
+    const readout = wrapper.get('.map-context-stub .route-readout')
     expect(readout.text()).toContain('Distance')
     expect(readout.text()).toContain('Duration')
     // 82% to 71% over a 16 kWh pack is 1.8 kWh.
     expect(readout.text()).toContain('11%')
     expect(readout.text()).toContain('1.8 kWh')
+  })
+
+  it('keeps the picking hint with the map rather than with the card head', async () => {
+    api({ segments: { drives: [drive()], charges: [] } })
+    const { wrapper } = mountWidget('route-map')
+    await flushPromises()
+    // Nothing picked yet, so the strip inside the frame says what picking does.
+    expect(wrapper.get('.map-context-stub').text()).toContain('Tap two points')
+    expect(wrapper.get('.widget-head').text()).not.toContain('Tap two points')
   })
 
   it('totals a period and compares it with the one before', async () => {
