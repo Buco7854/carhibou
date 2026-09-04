@@ -63,7 +63,14 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm audit --audit-level=high
+      - name: npm audit
+        run: |
+          for attempt in 1 2 3; do
+            npm audit --audit-level=high && exit 0
+            echo "npm audit attempt $attempt failed (the advisories-bulk endpoint is flaky under CI network conditions); retrying..." >&2
+            sleep 15
+          done
+          exit 1
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
@@ -82,7 +89,14 @@ jobs:
           cache: npm
           cache-dependency-path: docs/package-lock.json
       - run: npm ci
-      - run: npm audit --audit-level=high
+      - name: npm audit
+        run: |
+          for attempt in 1 2 3; do
+            npm audit --audit-level=high && exit 0
+            echo "npm audit attempt $attempt failed (the advisories-bulk endpoint is flaky under CI network conditions); retrying..." >&2
+            sleep 15
+          done
+          exit 1
       - run: npm run docs:build
 
   browser-e2e:
