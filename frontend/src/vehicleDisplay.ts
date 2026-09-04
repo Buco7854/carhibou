@@ -458,6 +458,26 @@ export function formatInstantOrNever(value: string | null | undefined, never: st
 }
 
 /**
+ * An instant with the date left off when it is today's.
+ *
+ * For a caption or a chart legend, where the full stamp is mostly noise: a
+ * charge that started this morning is "09:54", and one that started before
+ * today keeps its date because "09:54" would then be a different day's claim.
+ * The provenance panel and the history table keep `formatInstant`, which never
+ * drops the date: there, the date is the point.
+ */
+export function formatInstantBrief(value: string | null | undefined, locale: string): string {
+  if (!value) return ''
+  const at = new Date(value)
+  const now = new Date()
+  const sameDay = at.getFullYear() === now.getFullYear()
+    && at.getMonth() === now.getMonth()
+    && at.getDate() === now.getDate()
+  const clock = at.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+  return sameDay ? clock : `${at.toLocaleDateString(locale, { day: 'numeric', month: 'short' })} ${clock}`
+}
+
+/**
  * The tone a card paints an energy level with, named for the token it uses.
  *
  * Both boundaries are inclusive at the low side: exactly 20 is danger, exactly

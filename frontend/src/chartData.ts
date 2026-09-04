@@ -2,16 +2,20 @@ export type ChartPoint = [string | number, number]
 export type ChartDatum = ChartPoint | null
 
 /**
- * Break an XY line whenever its x value moves against its dominant direction.
+ * Split an XY line wherever its x value moves against its dominant direction.
  *
  * XY history is ordered by observation time, not by x. Connecting a later
  * charge that starts at a lower SOC to the previous charge draws a diagonal
  * across data that never existed. A naturally descending plot remains intact:
- * only a change against the series' prevailing direction is a reversal. A null
- * is ECharts' explicit line break, so every monotonic run remains visible
- * without inventing the join between them.
+ * only a change against the series' prevailing direction is a reversal, and
+ * each stretch between two reversals is one run — for a charge curve, one
+ * session.
+ *
+ * Runs are returned rather than only broken apart because who they belong to is
+ * worth saying: a caller that knows when each run began can name it, and a
+ * caller that does not can join them back with a break between.
  */
-export function breakAtXReversals(points: ChartPoint[]): ChartDatum[] {
+export function splitAtXReversals(points: ChartPoint[]): ChartPoint[][] {
   const numeric = points.flatMap(([x]) => typeof x === 'number' ? [x] : [])
   let rises = 0
   let falls = 0
@@ -20,16 +24,31 @@ export function breakAtXReversals(points: ChartPoint[]): ChartDatum[] {
     if (numeric[index]! < numeric[index - 1]!) falls += 1
   }
   const direction = rises === falls ? 0 : rises > falls ? 1 : -1
-  const data: ChartDatum[] = []
+  const runs: ChartPoint[][] = []
+  let run: ChartPoint[] = []
   let previousX: number | null = null
   for (const point of points) {
     const x = typeof point[0] === 'number' ? point[0] : null
     const change = x !== null && previousX !== null ? x - previousX : 0
-    if (direction !== 0 && change !== 0 && Math.sign(change) !== direction) data.push(null)
-    data.push(point)
+    if (direction !== 0 && change !== 0 && Math.sign(change) !== direction && run.length) {
+      runs.push(run)
+      run = []
+    }
+    run.push(point)
     previousX = x
   }
-  return data
+  if (run.length) runs.push(run)
+  return runs
+}
+
+/**
+ * The same runs as one series, with ECharts' explicit break between them.
+ *
+ * For a caller with nothing to say about which run is which: every monotonic
+ * run stays visible and the join between them is never invented.
+ */
+export function breakAtXReversals(points: ChartPoint[]): ChartDatum[] {
+  return splitAtXReversals(points).flatMap<ChartDatum>((run, index) => (index ? [null, ...run] : run))
 }
 
 /**

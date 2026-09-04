@@ -25,7 +25,13 @@ interface Option {
   tooltip: { formatter?: (params: unknown) => string }
   xAxis: Axis
   yAxis: Axis
-  series: Array<{ connectNulls?: boolean; smoothMonotone?: string; data: unknown[] }>
+  series: Array<{
+    name?: string
+    connectNulls?: boolean
+    smoothMonotone?: string
+    data: unknown[]
+    lineStyle?: { color?: string }
+  }>
 }
 
 const points: Array<[string, number]> = [['2026-01-01T00:00:00Z', 1], ['2026-01-01T00:01:00Z', 2]]
@@ -96,6 +102,27 @@ describe('chart chrome', () => {
     expect(option.series[0]?.data).toEqual([[55, 3.2], [100, 0.2], null, [42, 3.3]])
     expect(option.series[0]?.connectNulls).toBe(false)
     expect(option.series[0]?.smoothMonotone).toBe('x')
+  })
+
+  it('walks the palette in series order and starts over past the fourth', () => {
+    /*
+     * One line per charge session, coloured by the order the sessions came in.
+     * The slots are the app's own chart palette rather than ECharts' default
+     * spectrum, and a fifth series returns to the first slot: cycling in fixed
+     * order is what keeps a colour attached to a session rather than to a rank.
+     */
+    for (const slot of [1, 2, 3, 4]) {
+      document.documentElement.style.setProperty(`--chart-${slot}`, `#00000${slot}`)
+    }
+    const option = draw({
+      series: ['09:54', '13:20', '17:05', '20:10', '23:40'].map((name) => ({ name, unit: 'kW', data: points })),
+      xType: 'value', xUnit: '%',
+    })
+    expect(option.series.map((item) => item.name)).toEqual(['09:54', '13:20', '17:05', '20:10', '23:40'])
+    expect(option.series.map((item) => item.lineStyle?.color))
+      .toEqual(['#000001', '#000002', '#000003', '#000004', '#000001'])
+    expect(option.legend.data).toEqual(['09:54', '13:20', '17:05', '20:10', '23:40'])
+    for (const slot of [1, 2, 3, 4]) document.documentElement.style.removeProperty(`--chart-${slot}`)
   })
 
   it('names the metric on the axis only when the title cannot have', () => {

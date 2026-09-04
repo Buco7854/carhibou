@@ -5,8 +5,8 @@ import { EMPTY_SEGMENTS, loadHistory, loadSegments, rangeStart } from '../api/se
 import type { DashboardWidget, History, Segments } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
-import { breakAtXReversals, medianGap } from '../chartData'
-import { formatMetricNumber, historyValue, metricDefinition, metricLabel } from '../vehicleDisplay'
+import { medianGap, splitAtXReversals, type ChartPoint } from '../chartData'
+import { formatInstantBrief, formatMetricNumber, historyValue, metricDefinition, metricLabel } from '../vehicleDisplay'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { followSelection, mergeSegments } from './segments'
 
@@ -47,6 +47,19 @@ const follow = computed(() => runtime.selectedSegment.value
   ? followSelection(mergeSegments(segments.value ?? EMPTY_SEGMENTS), runtime.selectedSegment.value)
   : ({ state: 'none' } as const))
 const outOfRange = computed(() => follow.value.state === 'out-of-range')
+const scoped = computed(() => (follow.value.state === 'segment' ? follow.value.segment : null))
+/**
+ * That the chart is showing one session rather than the range.
+ *
+ * Picking a charge in the activity feed narrows this card to that window, which
+ * looks identical to a range that happens to hold one session: the other lines
+ * are gone and nothing says they were dropped on purpose. Naming the session is
+ * what tells the two apart. The way back is the tap that got here — the feed row
+ * is a toggle — so this is a caption and not another control.
+ */
+const scopeLabel = computed(() => (scoped.value
+  ? `${t(`insights.kind.${scoped.value.kind}`)} · ${formatInstantBrief(scoped.value.start, locale.value)}`
+  : ''))
 
 
 
@@ -78,7 +91,9 @@ function carryWindow(xStamps: number[], yStamps: number[]): number {
   return Math.min(MAX_CARRY_MS, Math.max(MIN_CARRY_MS, slower * 4))
 }
 
-const paired = computed<Array<[number, number]>>(() => {
+interface PairedReading { at: number; x: number; y: number }
+
+const paired = computed<PairedReading[]>(() => {
   const points = history.value?.points ?? []
   const xStamps: number[] = []
   const yStamps: number[] = []
@@ -95,7 +110,7 @@ const paired = computed<Array<[number, number]>>(() => {
   if (!xStamps.length || !yStamps.length) return []
 
   const window = carryWindow(xStamps, yStamps)
-  const pairs: Array<[number, number]> = []
+  const pairs: PairedReading[] = []
   let lastX: { at: number; value: number } | null = null
   let lastY: { at: number; value: number } | null = null
   for (const sample of observed) {
@@ -105,21 +120,54 @@ const paired = computed<Array<[number, number]>>(() => {
     // Both ends must still be recent enough to describe the same moment.
     if (sample.at - lastX.at > window || sample.at - lastY.at > window) continue
     const previous = pairs.at(-1)
-    if (previous && previous[0] === lastX.value && previous[1] === lastY.value) continue
-    pairs.push([lastX.value, lastY.value])
+    if (previous && previous.x === lastX.value && previous.y === lastY.value) continue
+    pairs.push({ at: sample.at, x: lastX.value, y: lastY.value })
   }
   return pairs
 })
 
-const series = computed(() => [{
-  name: metricLabel(yDefinition.value, t),
-  unit: yDefinition.value.unit,
-  data: breakAtXReversals(paired.value),
-}])
+/**
+ * The plot's monotonic runs, each with the moment it began.
+ *
+ * On a charge curve a run is a session: the x axis is the charge level, so it
+ * climbs while one session lasts and drops back when the next one starts lower.
+ * The runs come out in order and lose no points, so walking the pairs alongside
+ * them recovers when each one started.
+ */
+const runs = computed<Array<{ startedAt: number; data: ChartPoint[] }>>(() => {
+  let offset = 0
+  return splitAtXReversals(paired.value.map((pair) => [pair.x, pair.y] as ChartPoint)).map((data) => {
+    const startedAt = paired.value[offset]?.at ?? 0
+    offset += data.length
+    return { startedAt, data }
+  })
+})
+
+/**
+ * One series per run, named for when it began.
+ *
+ * Several sessions used to share one colour and one name, so a reader saw two
+ * anonymous lines and no way to tell this morning's charge from tonight's. A
+ * run now carries its own start, its own palette slot and its own legend entry.
+ * One run keeps exactly what it had: the metric's own name, no legend, and the
+ * single-series tooltip that does not repeat a name the card's head has said.
+ */
+const series = computed(() => {
+  const unit = yDefinition.value.unit
+  if (runs.value.length < 2) {
+    return [{ name: metricLabel(yDefinition.value, t), unit, data: runs.value[0]?.data ?? [] }]
+  }
+  return runs.value.map((run) => ({
+    name: formatInstantBrief(new Date(run.startedAt).toISOString(), locale.value),
+    unit,
+    data: run.data,
+  }))
+})
 const hasData = computed(() => paired.value.length > 1)
-const peak = computed(() => paired.value.length ? Math.max(...paired.value.map((point) => point[1])) : undefined)
+// Both figures describe everything the range holds, however many runs it took.
+const peak = computed(() => paired.value.length ? Math.max(...paired.value.map((pair) => pair.y)) : undefined)
 const average = computed(() => paired.value.length
-  ? paired.value.reduce((total, point) => total + point[1], 0) / paired.value.length
+  ? paired.value.reduce((total, pair) => total + pair.y, 0) / paired.value.length
   : undefined)
 
 async function load(): Promise<void> {
@@ -155,7 +203,10 @@ watch(
 <template>
   <article class="widget-card xy-chart-widget">
     <div class="widget-head">
-      <h2>{{ heading }}</h2>
+      <div class="chart-title">
+        <h2>{{ heading }}</h2>
+        <span v-if="scopeLabel" class="chart-scope">{{ scopeLabel }}</span>
+      </div>
       <small v-if="hasData && peak !== undefined">{{ t('insights.peakAverage', { peak: formatMetricNumber(peak, yDefinition, locale), average: formatMetricNumber(average ?? 0, yDefinition, locale) }) }}</small>
     </div>
     <div v-if="hasData" class="chart">
@@ -184,4 +235,7 @@ watch(
 <style scoped>
 .xy-chart-widget{padding:12px 14px 4px}
 .chart{min-width:0;min-height:110px;flex:1}
+.chart-title{min-width:0}
+/* Which session the card was narrowed to, under the shape's own name. */
+.chart-scope{display:block;margin-top:2px;overflow:hidden;color:var(--text);font-size:var(--font-caption);text-overflow:ellipsis;white-space:nowrap}
 </style>
