@@ -119,3 +119,41 @@ class HistoryTableResponse(BaseModel):
     limit: int
     offset: int
     rows: list[HistoryTableRow]
+
+
+class SegmentPosition(BaseModel):
+    latitude: float
+    longitude: float
+
+
+class DriveSegment(BaseModel):
+    start: datetime
+    end: datetime
+    duration_seconds: float
+    unreported_seconds: float
+    start_position: SegmentPosition | None = None
+    end_position: SegmentPosition | None = None
+    distance_km: float | None = None
+    avg_speed: float | None = None
+    max_speed: float | None = None
+    soc_start: float | None = None
+    soc_end: float | None = None
+    energy_kwh: float | None = None
+
+
+class ChargeSegment(BaseModel):
+    start: datetime
+    end: datetime
+    duration_seconds: float
+    unreported_seconds: float
+    position: SegmentPosition | None = None
+    soc_start: float | None = None
+    soc_end: float | None = None
+    energy_kwh: float | None = None
+    peak_power: float | None = None
+    avg_power: float | None = None
+
+
+class SegmentsResponse(BaseModel):
+    drives: list[DriveSegment]
+    charges: list[ChargeSegment]

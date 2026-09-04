@@ -2,12 +2,17 @@ from datetime import datetime, timedelta
 from math import asin, cos, radians, sin, sqrt
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 from sqlalchemy import select
 
 from backend.app.access.dependencies import ViewVehicle
 from backend.app.auth.dependencies import Db
 from backend.app.common.time import as_utc, utcnow
+from backend.app.history.schemas import (
+    ChargeSegment,
+    DriveSegment,
+    SegmentPosition,
+    SegmentsResponse,
+)
 from backend.app.telemetry.models import Telemetry
 from backend.app.telemetry.values import finite_number
 
@@ -18,42 +23,6 @@ MAXIMUM_RANGE = timedelta(days=92)
 DRIVING_STATES = {"drive", "driving", "moving", "ready", "in_use"}
 # Below 0.5 kW, charger readings overlap with parked pack noise and auxiliary loads.
 CHARGING_POWER_FLOOR_KW = 0.5
-
-
-class SegmentPosition(BaseModel):
-    latitude: float
-    longitude: float
-
-
-class DriveSegment(BaseModel):
-    start: datetime
-    end: datetime
-    duration_seconds: float
-    start_position: SegmentPosition | None = None
-    end_position: SegmentPosition | None = None
-    distance_km: float | None = None
-    avg_speed: float | None = None
-    max_speed: float | None = None
-    soc_start: float | None = None
-    soc_end: float | None = None
-    energy_kwh: float | None = None
-
-
-class ChargeSegment(BaseModel):
-    start: datetime
-    end: datetime
-    duration_seconds: float
-    position: SegmentPosition | None = None
-    soc_start: float | None = None
-    soc_end: float | None = None
-    energy_kwh: float | None = None
-    peak_power: float | None = None
-    avg_power: float | None = None
-
-
-class SegmentsResponse(BaseModel):
-    drives: list[DriveSegment]
-    charges: list[ChargeSegment]
 
 
 def _position(row: Telemetry) -> SegmentPosition | None:
@@ -96,6 +65,9 @@ def _drive_evidence(row: Telemetry, previous: Telemetry | None) -> bool:
         return signal
     state = row.metrics.get("vehicle.state")
     if isinstance(state, str) and state.strip().lower() in DRIVING_STATES:
+        return True
+    speed = finite_number(row.metrics.get("vehicle.speed"))
+    if speed is not None and speed > 1:
         return True
     if row.gps_speed is not None and row.gps_speed > 1:
         return True
@@ -219,6 +191,34 @@ def _speeds(rows: list[Telemetry]) -> list[float]:
     return values
 
 
+def _has_motion(rows: list[Telemetry]) -> bool:
+    odometer_start, odometer_end = _metric_edges(rows, "vehicle.odometer")
+    if odometer_start is not None and odometer_end is not None and odometer_end > odometer_start:
+        return True
+    if any(
+        (speed := finite_number(row.metrics.get("vehicle.speed"))) is not None
+        and speed > 1
+        or row.gps_speed is not None
+        and row.gps_speed > 1
+        for row in rows
+    ):
+        return True
+    positions = _positions(rows)
+    return any(
+        _distance(left, right) > 0 for left, right in zip(positions, positions[1:], strict=False)
+    )
+
+
+def _unreported_seconds(rows: list[Telemetry]) -> float:
+    unreported = 0.0
+    for left, right in zip(rows, rows[1:], strict=False):
+        gap = (as_utc(right.recorded_at) - as_utc(left.recorded_at)).total_seconds()
+        expected = left.reporting_interval or int(JOIN_GAP.total_seconds())
+        if gap > expected * 3:
+            unreported += gap
+    return unreported
+
+
 def _power_integral(rows: list[Telemetry]) -> tuple[float | None, float | None]:
     energy = 0.0
     seconds = 0.0
@@ -243,7 +243,7 @@ def _drive_segment(rows: list[Telemetry], capacity: float | None) -> DriveSegmen
     start = as_utc(rows[0].recorded_at)
     end = as_utc(rows[-1].recorded_at)
     duration = end - start
-    if duration < MINIMUM_SEGMENT:
+    if duration < MINIMUM_SEGMENT or not _has_motion(rows):
         return None
     positions = _positions(rows)
     # A final false lifecycle reading dates the parked boundary but is not part
@@ -259,6 +259,7 @@ def _drive_segment(rows: list[Telemetry], capacity: float | None) -> DriveSegmen
         start=start,
         end=end,
         duration_seconds=duration.total_seconds(),
+        unreported_seconds=_unreported_seconds(rows),
         start_position=positions[0] if positions else None,
         end_position=positions[-1] if positions else None,
         distance_km=_distance_km(rows),
@@ -293,6 +294,7 @@ def _charge_segment(rows: list[Telemetry]) -> ChargeSegment | None:
         start=start,
         end=end,
         duration_seconds=(end - start).total_seconds(),
+        unreported_seconds=_unreported_seconds(rows),
         position=positions[0] if positions else None,
         soc_start=soc_start,
         soc_end=soc_end,

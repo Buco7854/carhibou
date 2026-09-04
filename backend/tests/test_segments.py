@@ -30,6 +30,7 @@ def _row(
     agent_data: dict[str, object] | None = None,
     latitude: float | None = None,
     longitude: float | None = None,
+    reporting_interval: int | None = None,
 ) -> Telemetry:
     telemetry_id = str(uuid4())
     observed_at = base + timedelta(seconds=seconds)
@@ -40,7 +41,7 @@ def _row(
         boot_id="boot",
         sequence=sequence,
         recorded_at=observed_at,
-        reporting_interval=None,
+        reporting_interval=reporting_interval,
         event_driven=False,
         agent_data=agent_data or {},
         observation_rows=[
@@ -252,6 +253,7 @@ def test_segments_follow_lifecycle_signals_and_derive_statistics(
     assert len(result["drives"]) == 1
     drive = result["drives"][0]
     assert drive["duration_seconds"] == 700
+    assert drive["unreported_seconds"] == 0
     assert drive["distance_km"] == 2
     assert drive["avg_speed"] == 100 / 3
     assert drive["max_speed"] == 50
@@ -264,6 +266,7 @@ def test_segments_follow_lifecycle_signals_and_derive_statistics(
     assert len(result["charges"]) == 2
     charge, integrated_charge = result["charges"]
     assert charge["duration_seconds"] == 120
+    assert charge["unreported_seconds"] == 0
     assert charge["soc_start"] == 20
     assert charge["soc_end"] == 30
     assert charge["energy_kwh"] == 2
@@ -312,17 +315,23 @@ def test_segments_omit_missing_values_and_enforce_range_boundaries(
         credential,
         base,
         [
-            (0, {"vehicle.in_use": True}, None),
-            (60, {"vehicle.in_use": True}, None),
+            (0, {"vehicle.in_use": True, "vehicle.odometer": 10}, None),
+            (60, {"vehicle.in_use": True, "vehicle.odometer": 11}, None),
             (300, {"charging.active": True}, None),
             (360, {"charging.active": True}, None),
         ],
     )
     result = _segments(client, vehicle["id"], base, base + timedelta(hours=1))
     drive = result["drives"][0]
-    assert set(drive) == {"start", "end", "duration_seconds"}
+    assert set(drive) == {
+        "start",
+        "end",
+        "duration_seconds",
+        "unreported_seconds",
+        "distance_km",
+    }
     charge = result["charges"][0]
-    assert set(charge) == {"start", "end", "duration_seconds"}
+    assert set(charge) == {"start", "end", "duration_seconds", "unreported_seconds"}
 
     endpoint = f"/api/v1/vehicles/{vehicle['id']}/segments"
     assert client.get(endpoint).status_code == 422
@@ -506,6 +515,149 @@ def test_explicit_park_and_depart_produce_two_drives() -> None:
     ]
 
 
+def test_signal_bounded_group_without_motion_is_not_a_drive() -> None:
+    base = datetime(2026, 9, 4, 11, 14, 54, tzinfo=UTC)
+    rows = [
+        _row(base, 0, metrics={"charging.active": True, "vehicle.odometer": 72161}),
+        _row(
+            base,
+            88,
+            metrics={"charging.active": False, "vehicle.odometer": 72161, "vehicle.speed": 0},
+            agent_data={"vehicle_in_use": True},
+            latitude=48.0,
+            longitude=2.0,
+        ),
+        *[
+            _row(
+                base,
+                seconds,
+                metrics={"vehicle.odometer": 72161, "vehicle.speed": 0},
+                agent_data={"vehicle_in_use": True},
+                latitude=48.0,
+                longitude=2.0,
+            )
+            for seconds in (104, 119, 134, 149)
+        ],
+        _row(
+            base,
+            2_394,
+            metrics={"vehicle.odometer": 72161},
+            agent_data={"vehicle_in_use": False},
+            latitude=48.0,
+            longitude=2.0,
+        ),
+    ]
+
+    groups = _drive_groups(rows)
+    assert len(groups) == 1
+    assert _drive_segment(groups[0], None) is None
+
+
+def test_unreported_seconds_uses_declared_cadence_and_fallback() -> None:
+    base = datetime(2026, 9, 4, 8, 13, 51, tzinfo=UTC)
+    drive = _drive_segment(
+        [
+            _row(
+                base,
+                0,
+                metrics={"vehicle.odometer": 72131},
+                agent_data={"vehicle_in_use": True},
+                reporting_interval=15,
+            ),
+            *[
+                _row(
+                    base,
+                    seconds,
+                    metrics={"vehicle.odometer": 72131},
+                    agent_data={"vehicle_in_use": True},
+                    reporting_interval=15,
+                )
+                for seconds in range(15, 141, 15)
+            ],
+            _row(
+                base,
+                141,
+                metrics={"vehicle.odometer": 72132},
+                agent_data={"vehicle_in_use": True},
+                reporting_interval=15,
+            ),
+            _row(
+                base,
+                6_057,
+                metrics={"charging.active": True, "vehicle.odometer": 72161},
+                reporting_interval=600,
+            ),
+        ],
+        None,
+    )
+    assert drive is not None
+    assert drive.distance_km == 30
+    assert drive.duration_seconds == 6_057
+    assert drive.unreported_seconds == 5_916
+
+    charge = _charge_segment(
+        [
+            _row(base, 0, metrics={"charging.active": True}),
+            _row(base, 600, metrics={"charging.active": False}),
+        ]
+    )
+    assert charge is not None
+    assert charge.unreported_seconds == 600
+
+
+def test_segments_api_exposes_unreported_seconds(
+    registered: tuple[TestClient, str],
+) -> None:
+    client, csrf = registered
+    vehicle, credential = _source(client, csrf)
+    base = datetime.now(UTC) - timedelta(hours=3)
+    samples = [
+        _sample_payload(
+            base,
+            0,
+            0,
+            {"vehicle.in_use": True, "vehicle.odometer": 72131},
+            None,
+        ),
+        *[
+            _sample_payload(
+                base,
+                sequence,
+                seconds,
+                {"vehicle.in_use": True, "vehicle.odometer": 72131},
+                None,
+            )
+            for sequence, seconds in enumerate(range(15, 141, 15), start=1)
+        ],
+        _sample_payload(
+            base,
+            10,
+            141,
+            {"vehicle.in_use": True, "vehicle.odometer": 72132},
+            None,
+        ),
+        _sample_payload(
+            base,
+            11,
+            6_057,
+            {"charging.active": True, "vehicle.odometer": 72161},
+            None,
+        ),
+    ]
+    for sample in samples:
+        sample["reporting_interval"] = 15
+    response = client.post(
+        "/api/v1/agent/telemetry/batch",
+        headers={"Authorization": f"Agent {credential}"},
+        json={"boot_id": str(uuid4()), "samples": samples},
+    )
+    assert response.status_code == 200, response.text
+
+    drive = _segments(client, vehicle["id"], base, base + timedelta(hours=2))["drives"][0]
+    assert drive["distance_km"] == 30
+    assert drive["unreported_seconds"] == 5_916
+
+
 @pytest.mark.parametrize(
     ("metrics", "expected"),
     [
@@ -545,8 +697,8 @@ def test_segments_require_minimum_duration_and_two_soc_samples() -> None:
 
     drive = _drive_segment(
         [
-            _row(base, 0, metrics={"battery.soc": 80}),
-            _row(base, 60),
+            _row(base, 0, metrics={"battery.soc": 80, "vehicle.odometer": 1}),
+            _row(base, 60, metrics={"vehicle.odometer": 2}),
         ],
         50,
     )
@@ -631,10 +783,10 @@ def test_segments_range_is_start_inclusive_and_end_exclusive(
         credential,
         base,
         [
-            (0, {"vehicle.in_use": True}, None),
-            (60, {"vehicle.in_use": True}, None),
-            (120, {"vehicle.in_use": True}, None),
-            (180, {"vehicle.in_use": True}, None),
+            (0, {"vehicle.in_use": True, "vehicle.odometer": 0}, None),
+            (60, {"vehicle.in_use": True, "vehicle.odometer": 1}, None),
+            (120, {"vehicle.in_use": True, "vehicle.odometer": 2}, None),
+            (180, {"vehicle.in_use": True, "vehicle.odometer": 3}, None),
         ],
     )
 
