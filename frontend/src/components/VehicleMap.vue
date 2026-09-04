@@ -99,12 +99,60 @@ const speedDefinition = metricDefinition(SPEED_KEY)
 const scale = computed(() => speedBands((props.trail ?? []).map((point) => point.speed)))
 /** A scale of one band encodes nothing, so it is not offered as a key. */
 const legend = computed<SpeedBand[]>(() => (scale.value.length > 1 ? scale.value : []))
-const legendTop = computed(() => legend.value.at(-1)?.to ?? 0)
 const legendHasUnknown = computed(() => Boolean(legend.value.length
   && props.trail?.some((point) => typeof point.speed !== 'number')))
+const legendFloor = computed(() => legend.value[0]?.from ?? 0)
+const legendTop = computed(() => legend.value.at(-1)?.to ?? 0)
+
+/*
+ * How much room the key has.
+ *
+ * The same card is 360 pixels wide on a phone and twice that in a desktop
+ * column. Five labelled ranges are worth their space on the second and take a
+ * third of the map on the first, so under 480 pixels of canvas the key is a bar
+ * with the two ends of the scale on it, and a reader who wants the ranges asks
+ * for them. Asking is not remembered: the key returns to the bar on the next
+ * card, because the bar is what it should be most of the time.
+ */
+const COMPACT_MAP_WIDTH = 480
+const compactLegend = ref(false)
+const legendOpen = ref(false)
+let sizeObserver: ResizeObserver | undefined
+
+const legendAttrs = computed(() => (compactLegend.value
+  ? { type: 'button', 'aria-expanded': legendOpen.value ? 'true' : 'false', 'aria-label': t('history.speedLegendToggle') }
+  : { role: 'group', 'aria-label': t('history.speedLegend') }))
+
+function toggleLegend(): void {
+  if (compactLegend.value) legendOpen.value = !legendOpen.value
+}
+
+function watchMapWidth(): void {
+  if (!element.value || typeof ResizeObserver === 'undefined') return
+  sizeObserver = new ResizeObserver((entries) => {
+    const width = entries[0]?.contentRect.width ?? element.value?.clientWidth ?? 0
+    if (!width) return
+    compactLegend.value = width < COMPACT_MAP_WIDTH
+    if (!compactLegend.value) legendOpen.value = false
+  })
+  sizeObserver.observe(element.value)
+}
 
 function speedLabel(speed: number): string {
   return formatMetricNumber(speed, speedDefinition, locale.value)
+}
+
+/**
+ * One band, said as the range it covers.
+ *
+ * The numbers used to sit on the boundaries between swatches, with the top of
+ * the scale closing the row: an axis, and correct, but five colours came with
+ * six numbers and it read as one number per band plus a stray. A band now
+ * carries its own two ends, which is the thing a reader wants anyway — what a
+ * colour on the line means, without counting along the row to work it out.
+ */
+function bandLabel(band: SpeedBand): string {
+  return `${speedLabel(band.from)}\u2013${speedLabel(band.to)}`
 }
 
 /**
@@ -120,6 +168,9 @@ function palette(): Record<string, string> {
     accent: read('--accent'),
     panel: read('--panel'),
     halo: read('--map-route-halo') || read('--panel'),
+    trailCasing: read('--trail-casing'),
+    chevronInk: read('--map-chevron-ink'),
+    chevronHalo: read('--map-chevron-halo'),
     muted: read('--muted-2'),
   }
   for (let step = 1; step <= 5; step += 1) colors[`trail${step}`] = read(`--trail-${step}`)
@@ -239,6 +290,14 @@ function draw(): void {
   if (!map || !gl || !ready) return
   const colors = palette()
   const path = routeCoordinates()
+  const painted = Boolean(props.trail?.length)
+
+  // Which line the casing is under can change without the style reloading, so
+  // it is set here rather than only where the layer is added.
+  if (map.getLayer('carhibou-route-casing')) {
+    map.setPaintProperty('carhibou-route-casing', 'line-color', painted ? colors.trailCasing! : colors.halo!)
+    map.setPaintProperty('carhibou-route-casing', 'line-opacity', painted ? 1 : 0.9)
+  }
 
   const route = map.getSource(ROUTE_SOURCE) as GeoJSONSource | undefined
   route?.setData(path.length > 1
@@ -327,15 +386,22 @@ function addLayers(): void {
   if (!map || !gl) return
   const colors = palette()
   if (!map.hasImage('carhibou-chevron')) {
-    map.addImage('carhibou-chevron', chevronImage(colors.accent!, colors.halo!), { pixelRatio: Math.max(1, Math.round(window.devicePixelRatio || 1)) })
+    map.addImage('carhibou-chevron', chevronImage(colors.chevronInk!, colors.chevronHalo!), { pixelRatio: Math.max(1, Math.round(window.devicePixelRatio || 1)) })
   }
   map.addSource(ROUTE_SOURCE, { type: 'geojson', data: emptyCollection() })
   map.addSource(TRAIL_SOURCE, { type: 'geojson', data: emptyCollection() })
   map.addSource(POINT_SOURCE, { type: 'geojson', data: emptyCollection() })
 
-  // Both lines keep a casing. The speed ramp starts pale where the car was
-  // slowest, and a pale hairline over a pale street is a line nobody can
-  // follow; the casing is what makes every band of the ramp hold its ground.
+  /*
+   * Both lines keep a casing, and the trail's is not the route's.
+   *
+   * The speed ramp is a cold-to-hot sweep, so its bands run from a mid blue to
+   * a light amber and no single ground can hold all five: the casing carries
+   * that contrast instead. It is a dark, opaque stroke under the colour, which
+   * clears the pale basemap by 15.7:1 and leaves every band at least 3:1
+   * against the casing it sits on. The plain accent route keeps the ground's
+   * own halo, which is what a single dark-blue line wants.
+   */
   map.addLayer({
     id: 'carhibou-route-casing', type: 'line', source: ROUTE_SOURCE,
     filter: ['==', ['geometry-type'], 'LineString'],
@@ -589,7 +655,7 @@ async function build(): Promise<void> {
    * is the behaviour a 300-pixel widget and a full viewport both want.
    */
   map.addControl(new gl.AttributionControl(), 'bottom-right')
-  map.addControl(new gl.ScaleControl({ maxWidth: 90, unit: 'metric' }), 'bottom-left')
+  map.addControl(new gl.ScaleControl({ maxWidth: 70, unit: 'metric' }), 'bottom-left')
   map.on('error', () => { tilesUnavailable.value = true })
   map.on('load', () => {
     tilesLoading.value = false
@@ -609,6 +675,7 @@ async function build(): Promise<void> {
 
 onMounted(() => {
   void build()
+  watchMapWidth()
   document.addEventListener('keydown', onKeydown)
 })
 
@@ -622,6 +689,7 @@ watch(() => resolvedMapStyle.value.url, (url) => { map?.setStyle(url) })
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown)
+  sizeObserver?.disconnect()
   clearTimeout(hintTimer)
   lockPage(false)
   marker?.remove()
@@ -645,26 +713,64 @@ onBeforeUnmount(() => {
     >
       <div class="map-view">
         <div ref="element" class="vehicle-map" role="region" :aria-label="heading || t('history.route')" />
-        <span v-if="expanded && heading" class="map-heading">{{ heading }}</span>
-        <span v-if="tilesLoading && !tilesUnavailable" class="map-state" aria-live="polite">{{ t('history.mapLoading') }}</span>
-        <span v-if="tilesUnavailable" class="map-state unavailable-message" role="status">{{ t('history.mapUnavailable') }}</span>
         <span v-if="!position && !route?.length" class="map-empty">{{ t('dashboard.noPosition') }}</span>
         <span v-if="wheelHint" class="map-hint" role="status">{{ t('history.wheelHint') }}</span>
 
-        <!-- What the colours on the trail stand for. The edges are the drive's
-             own, so they are printed rather than implied by a gradient. -->
-        <div v-if="legend.length" class="map-legend" role="group" :aria-label="t('history.speedLegend')">
-          <ol>
-            <li v-for="band in legend" :key="band.step">
-              <i :style="{ background: `var(--trail-${band.step})` }" />
-              <span>{{ speedLabel(band.from) }}</span>
-            </li>
-            <li class="legend-top"><span>{{ speedLabel(legendTop) }}</span></li>
-          </ol>
-          <p>
-            <span>{{ speedDefinition.unit }}</span>
-            <span v-if="legendHasUnknown" class="legend-unknown"><i />{{ t('history.speedUnknown') }}</span>
-          </p>
+        <!--
+          Everything the map says about itself, in one column.
+
+          The renderer owns the two bottom corners: the scale bar on the left and
+          the attribution on the right, which opens itself on load and wraps to
+          two or three lines on a phone. Anything of ours parked down there has
+          to be placed around a height only MapLibre knows, so none of it is: the
+          chips and the key stack from the top-left corner instead, in reading
+          order, and the credit keeps the whole bottom to itself.
+        -->
+        <div class="map-corner">
+          <span v-if="expanded && heading" class="map-heading">{{ heading }}</span>
+          <span v-if="tilesLoading && !tilesUnavailable" class="map-state" aria-live="polite">{{ t('history.mapLoading') }}</span>
+          <span v-if="tilesUnavailable" class="map-state unavailable-message" role="status">{{ t('history.mapUnavailable') }}</span>
+
+          <!--
+            What the colours on the trail stand for.
+
+            The edges are the drive's own, so they are printed rather than
+            implied by a gradient. Both renditions are in the markup and the
+            width decides which one shows: on a narrow map the ramp is one bar
+            carrying the ends of the scale, and the whole chip is the control
+            that opens the ranges — by tap, or by keyboard focus, which reveals
+            them without changing what the next reader sees.
+          -->
+          <component
+            :is="compactLegend ? 'button' : 'div'"
+            v-if="legend.length"
+            class="map-legend"
+            :class="{ 'is-compact': compactLegend, open: legendOpen }"
+            v-bind="legendAttrs"
+            @click="toggleLegend"
+          >
+            <span class="legend-strip">
+              <span class="legend-bar">
+                <i v-for="band in legend" :key="band.step" :style="{ background: `var(--trail-${band.step})` }" />
+              </span>
+              <span class="legend-ends">
+                <span>{{ speedLabel(legendFloor) }}</span>
+                <span>{{ speedLabel(legendTop) }} {{ speedDefinition.unit }}</span>
+              </span>
+            </span>
+            <span class="legend-full">
+              <span class="legend-bands">
+                <span v-for="band in legend" :key="band.step" class="legend-band">
+                  <i :style="{ background: `var(--trail-${band.step})` }" />
+                  <span>{{ bandLabel(band) }}</span>
+                </span>
+              </span>
+              <span class="legend-caption">
+                <span>{{ speedDefinition.unit }}</span>
+                <span v-if="legendHasUnknown" class="legend-unknown"><i />{{ t('history.speedUnknown') }}</span>
+              </span>
+            </span>
+          </component>
         </div>
 
         <div v-if="readingText" class="map-reading" :style="readingStyle" aria-hidden="true">
@@ -712,22 +818,64 @@ onBeforeUnmount(() => {
    the mobile nav bar. Isolating the frame confines them, so app chrome wins
    on its own much smaller numbers and no map internal can ever compete. */
 .map-frame{
-  /* The ramp the speed trail is painted with: one hue, palest where the car was
-     slowest and deepest red where it was fastest, so the colour reads as
-     "careful" in the direction it should. Stepped for a pale basemap here and
-     for a dark one below, rather than one set filtered into two. */
-  --trail-1:#e59289;--trail-2:#d06d63;--trail-3:#b5493f;--trail-4:#93302a;--trail-5:#6d1f1c;
+  /*
+   * The ramp the speed trail is painted with: cold to hot as the car goes faster.
+   *
+   * Two earlier ramps were single-hue and stepped by lightness. The first
+   * measured 8.5 ΔE2000 between neighbouring bands, the second 18.8, and a
+   * reader on a phone could separate neither: at two pixels wide, lightness is
+   * the channel a line has least of. Hue is the one it has most of, so the ramp
+   * sweeps blue → cyan → green → amber → red with at least 52° of OKLCH hue
+   * between neighbours and 41.9 ΔE2000 at its tightest — twice the previous
+   * ramp's separation, and the order reads as temperature rather than as depth.
+   *
+   * One ramp for both basemaps, which the casing below is what makes possible:
+   * the same speed is the same colour whichever cartography is under it, rather
+   * than a per-ground set a reader has to learn twice.
+   */
+  --trail-1:#555cca;--trail-2:#05cee5;--trail-3:#389121;--trail-4:#feaf0f;--trail-5:#bd393b;
+  /*
+   * The stroke under the ramp, and the reason the ramp can be this bright.
+   *
+   * A cold-to-hot sweep cannot hold 3:1 against a near-white basemap at both
+   * ends — the amber band alone would need a luminance no amber has — so the
+   * contrast against the ground is carried by an opaque dark casing (15.7:1 on
+   * the pale ground) and every band clears the casing instead, by 3.09:1 at
+   * worst. On a dark basemap the same casing beats a pale one measurably: with
+   * a near-white casing the cyan and amber bands would sit at 1.56:1 and
+   * 1.51:1 against their own outline, against 8.99:1 and 9.31:1 here.
+   */
+  --trail-casing:#1b1b1b;
+  /*
+   * Direction, in achromatic ink.
+   *
+   * The chevrons were the accent blue, which is 6.6 ΔE2000 from the ramp's own
+   * slowest band at the same lightness: two blues on one line, one meaning
+   * "this way" and one meaning "23 km/h". Neutral ink keeps direction and speed
+   * on different channels, and reads on all five bands (3.1:1 at worst) with
+   * the pale halo carrying it on the dark ones.
+   */
+  --map-chevron-ink:#1b1b1b;
+  --map-chevron-halo:rgba(255,255,255,.92);
   --map-route-halo:rgba(255,255,255,.9);
   position:relative;isolation:isolate;width:100%;height:100%;min-height:300px;
   display:grid;grid-template-rows:minmax(0,1fr) auto;overflow:hidden;background:var(--panel-2);
 }
-/* The ground's tone, not the interface's: a light interface may carry a dark
-   basemap, and the ink drawn onto the ground belongs to the ground. */
+/*
+ * The ground's tone, not the interface's: a light interface may carry a dark
+ * basemap, and the ink drawn onto the ground belongs to the ground.
+ *
+ * The speed ramp is deliberately not here. It is stroked over its own casing
+ * rather than over the cartography, so it does not change with the ground; only
+ * what the plain accent route is haloed against does.
+ */
 .map-frame.dark-ground{
-  --trail-1:#93392f;--trail-2:#b0473a;--trail-3:#cd5544;--trail-4:#e9634e;--trail-5:#ff7a5c;
   --map-route-halo:rgba(16,16,16,.86);
 }
-.map-view{position:relative;min-height:0;min-width:0}
+/* A query container, so the key can size itself to the map rather than to the
+   window: the same widget is 360 pixels wide on a phone and 300 in a narrow
+   dashboard column, and the viewport says nothing about either. */
+.map-view{position:relative;min-height:0;min-width:0;container-type:inline-size}
 .vehicle-map{width:100%;height:100%;min-height:300px;background:var(--panel-2)}
 
 /* The marker's own box: the renderer positions this absolutely, and an inline
@@ -746,31 +894,66 @@ onBeforeUnmount(() => {
   filter:drop-shadow(0 0 1px var(--panel));
 }
 
-.map-state,.map-empty,.map-heading{position:absolute;z-index:500;top:10px;left:10px;padding:5px 8px;color:var(--muted);background:color-mix(in srgb,var(--panel) 90%,transparent);border:1px solid var(--line);border-radius:var(--radius);font:400 12px/1.3 "IBM Plex Sans",sans-serif;pointer-events:none}
-.map-heading{max-width:min(60%,420px);overflow:hidden;color:var(--text);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
-/* With a name in the corner, the transient chips queue under it. */
-.map-frame.expanded .map-state{top:48px}
-.map-empty{top:50%;left:50%;max-width:220px;transform:translate(-50%,-50%);color:var(--text);text-align:center}
+/* The corner the map speaks from: one column, so each chip is placed by the one
+   above it rather than by a hand-tuned offset that the next chip invalidates. */
+.map-corner{
+  position:absolute;z-index:550;top:10px;left:10px;
+  max-width:calc(100% - 20px);
+  display:flex;flex-direction:column;align-items:flex-start;gap:6px;
+  pointer-events:none;
+}
+.map-state,.map-empty,.map-heading{padding:5px 8px;color:var(--muted);background:color-mix(in srgb,var(--panel) 90%,transparent);border:1px solid var(--line);border-radius:var(--radius);font:400 12px/1.3 "IBM Plex Sans",sans-serif;pointer-events:none}
+.map-heading{max-width:100%;overflow:hidden;color:var(--text);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+.map-empty{position:absolute;z-index:500;top:50%;left:50%;max-width:220px;transform:translate(-50%,-50%);color:var(--text);text-align:center}
 .unavailable-message{color:var(--danger)}
 
-/* What a colour on the trail is worth, in the numbers of this drive. */
+/* What a colour on the trail is worth, in the numbers of this drive. Opaque:
+   the swatches are being compared with each other, and whatever the map draws
+   underneath is one more thing between the reader and that comparison. */
 .map-legend{
-  position:absolute;z-index:550;bottom:38px;left:10px;
   padding:6px 8px 5px;color:var(--muted);
-  background:color-mix(in srgb,var(--panel) 92%,transparent);
+  background:var(--panel);
   border:1px solid var(--line);border-radius:var(--radius);
   font:400 11px/1.3 "IBM Plex Sans",sans-serif;pointer-events:none;
 }
-.map-legend ol{display:flex;align-items:flex-end;margin:0;padding:0;list-style:none}
-.map-legend li{display:grid;justify-items:start;gap:3px;min-width:26px}
-.map-legend li i{width:100%;height:4px;border-radius:2px}
-.map-legend li span{font-variant-numeric:tabular-nums;transform:translateX(-50%)}
-.map-legend li:first-child span{transform:none}
-.map-legend .legend-top{min-width:0}
-.map-legend .legend-top span{padding-left:1px}
-.map-legend p{display:flex;align-items:center;gap:10px;margin:3px 0 0;color:var(--muted-2)}
-.legend-unknown{display:inline-flex;align-items:center;gap:4px}
-.legend-unknown i{width:10px;height:4px;border-radius:2px;background:var(--muted-2)}
+/* Swatches deep enough to compare against each other: a four-pixel sliver of
+   colour is no more legible in the key than it is on the line, and the gap
+   between two of them is what stops the row reading as one gradient. */
+.legend-bands{display:flex;flex-wrap:nowrap;align-items:flex-end;gap:3px}
+.legend-band{min-width:0;display:grid;gap:4px}
+.legend-band i{width:100%;height:9px;border-radius:2px}
+/* Each band is labelled with its own range, centred under the colour it
+   describes, and never wraps: a key that reflows is a key that has to be read
+   twice. The swatch takes the width its range needs. */
+.legend-band span{padding:0 3px;font-size:var(--font-caption);font-variant-numeric:tabular-nums;text-align:center;white-space:nowrap}
+.legend-caption{display:flex;align-items:center;gap:10px;margin-top:4px;color:var(--muted-2)}
+.legend-unknown{display:inline-flex;align-items:center;gap:5px}
+.legend-unknown i{width:12px;height:9px;border-radius:2px;background:var(--muted-2)}
+
+/* The bar the key collapses to: the ramp itself, its two ends, and the unit. */
+.legend-strip{display:none}
+.legend-bar{display:flex;gap:2px;width:112px;height:9px}
+.legend-bar i{flex:1;border-radius:2px}
+.legend-ends{display:flex;justify-content:space-between;gap:12px;margin-top:4px;font-size:var(--font-micro);font-variant-numeric:tabular-nums;white-space:nowrap}
+.legend-full{display:grid;justify-items:start}
+/* Narrow map: the bar, and the ranges only while asked for. A keyboard reader
+   gets them on focus, which asks for nothing and changes no state. */
+.map-legend.is-compact{pointer-events:auto;text-align:left;cursor:pointer}
+.map-legend.is-compact .legend-strip{display:grid}
+.map-legend.is-compact .legend-full{display:none}
+.map-legend.is-compact.open .legend-strip,
+.map-legend.is-compact:focus-visible .legend-strip{display:none}
+.map-legend.is-compact.open .legend-full,
+.map-legend.is-compact:focus-visible .legend-full{display:grid}
+.map-legend.is-compact:hover{border-color:var(--line-strong)}
+.map-legend.is-compact:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* Narrow map, same five ranges once open: the type steps down to the smallest
+   size in the scale before anything is allowed to wrap or be cut. */
+@container (max-width: 340px){
+  .map-legend{padding:5px 6px 4px}
+  .legend-bands{gap:2px}
+  .legend-band span{padding:0 2px;font-size:var(--font-micro)}
+}
 
 /* The reading behind a segment, anchored where the pointer asked. */
 .map-reading{
@@ -841,7 +1024,11 @@ onBeforeUnmount(() => {
  * !important is the deciding vote, not just a stronger selector.
  */
 :deep(.maplibregl-ctrl-attrib){
-  max-width:min(460px,calc(100% - 20px));margin:0 10px 10px 0!important;padding:3px 8px;
+  /* The bottom row belongs to the renderer's two controls, and on a phone the
+     credit is wide enough to reach the scale bar in the opposite corner. The
+     reservation is the scale's own strip plus both margins: a 70-pixel bar and
+     its padding come to about 92, and the credit starts clear of that. */
+  max-width:min(460px,calc(100% - 128px));margin:0 10px 10px 0!important;padding:3px 8px;
   color:var(--muted)!important;background:color-mix(in srgb,var(--panel) 88%,transparent)!important;
   border:1px solid var(--line);border-radius:var(--radius)!important;
   font:400 11px/1.45 "IBM Plex Sans",sans-serif;white-space:normal;

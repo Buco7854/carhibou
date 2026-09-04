@@ -519,6 +519,109 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   expect(attribution!.overlaps, 'the toggle must not sit on the credit').toBe(false)
   expect(attribution!.clipped, 'the credit must not be cut off').toBe(false)
 
+  /*
+   * Nothing of ours over the credit, whatever state it is in.
+   *
+   * The compact control opens itself on load and wraps to two or three lines on
+   * a phone, so its height is MapLibre's to know, not ours to guess. The speed
+   * key used to sit at a fixed offset above the bottom edge tuned for the
+   * collapsed pill, and at 375 pixels it landed on "OpenStreetMap". Ours now
+   * stack from the top-left corner and the renderer keeps the bottom row.
+   */
+  const bottomRow = await page.evaluate(() => {
+    const frame = document.querySelector('.map-frame')!
+    const box = (selector: string) => {
+      const found = frame.querySelector(selector)
+      return found ? found.getBoundingClientRect() : null
+    }
+    const overlap = (a: DOMRect | null, b: DOMRect | null) => Boolean(a && b
+      && a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom)
+    const credit = box('.maplibregl-ctrl-attrib')
+    return {
+      hasCredit: Boolean(credit),
+      hasLegend: Boolean(box('.map-legend')),
+      creditLines: credit ? Math.round(credit.height / 16) : 0,
+      legendOverCredit: overlap(box('.map-legend'), credit),
+      cornerOverCredit: overlap(box('.map-corner'), credit),
+      scaleOverCredit: overlap(box('.maplibregl-ctrl-scale'), credit),
+    }
+  })
+  expect(bottomRow.hasCredit && bottomRow.hasLegend, 'this proves nothing without both on screen').toBe(true)
+  // The reported case: the credit open and wrapped, not the collapsed pill.
+  expect(bottomRow.creditLines).toBeGreaterThan(1)
+  expect(bottomRow.legendOverCredit, 'the speed key must clear the credit').toBe(false)
+  expect(bottomRow.cornerOverCredit, 'nothing in the corner column may reach the credit').toBe(false)
+  expect(bottomRow.scaleOverCredit, 'the scale bar must clear the credit').toBe(false)
+
+  /*
+   * The speed key on a phone: a bar, until it is asked for the numbers.
+   *
+   * Five labelled ranges are worth their room on a desktop column and take a
+   * third of a phone map, so under 480 pixels of canvas the key is the ramp as
+   * one bar with the ends of the scale on it, and the whole chip is the control
+   * that opens the ranges. The ranges themselves must never reflow: this is the
+   * narrowest map the application draws.
+   */
+  const legend = page.locator('.map-frame .map-legend')
+  await expect(legend).toHaveAttribute('aria-expanded', 'false')
+  await expect(legend).toHaveAttribute('aria-label', 'Speed scale, tap for ranges')
+  const key = () => page.evaluate(() => {
+    const found = document.querySelector('.map-frame .map-legend')
+    if (!found) return null
+    const shown = (selector: string) => {
+      const node = found.querySelector(selector)
+      return node ? getComputedStyle(node).display !== 'none' : false
+    }
+    const bands = found.querySelector('.legend-bands')!
+    return {
+      tag: found.tagName,
+      strip: shown('.legend-strip'),
+      ranges: shown('.legend-full'),
+      ends: [...found.querySelectorAll('.legend-ends span')].map((span) => (span.textContent ?? '').trim()),
+      swatches: found.querySelectorAll('.legend-band i').length,
+      labels: [...found.querySelectorAll('.legend-band span')].map((span) => (span.textContent ?? '').trim()),
+      caption: (found.querySelector('.legend-caption')?.textContent ?? '').trim(),
+      clipped: bands.scrollWidth > Math.ceil(bands.clientWidth) + 1,
+      lines: Math.round(bands.getBoundingClientRect().height / 26),
+      insideFrame: found.getBoundingClientRect().right
+        <= document.querySelector('.map-frame')!.getBoundingClientRect().right,
+    }
+  })
+  const collapsed = await key()
+  expect(collapsed, 'the speed key is on screen').not.toBeNull()
+  expect(collapsed!.tag, 'a key a reader operates is a button').toBe('BUTTON')
+  expect(collapsed!.strip).toBe(true)
+  expect(collapsed!.ranges).toBe(false)
+  // The slowest edge at one end, the fastest and the unit at the other.
+  expect(collapsed!.ends).toHaveLength(2)
+  expect(collapsed!.ends[0]).toMatch(/^\d+$/)
+  expect(collapsed!.ends[1]).toMatch(/^\d+ km\/h$/)
+
+  await legend.click()
+  await expect(legend).toHaveAttribute('aria-expanded', 'true')
+  const opened = await key()
+  expect(opened!.strip).toBe(false)
+  expect(opened!.ranges).toBe(true)
+  expect(opened!.labels).toHaveLength(opened!.swatches)
+  for (const label of opened!.labels) expect(label).toMatch(/^\d+–\d+$/)
+  expect(opened!.caption).toBe('km/h')
+  expect(opened!.clipped, 'the ranges must not be cut off').toBe(false)
+  expect(opened!.lines, 'the ranges must not wrap').toBe(1)
+  expect(opened!.insideFrame).toBe(true)
+  // Open, the key is taller: it still has to leave the credit alone.
+  const openOverlap = await page.evaluate(() => {
+    const frame = document.querySelector('.map-frame')!
+    const box = (selector: string) => frame.querySelector(selector)?.getBoundingClientRect() ?? null
+    const one = box('.map-legend')
+    const two = box('.maplibregl-ctrl-attrib')
+    return Boolean(one && two && one.right > two.left && one.left < two.right
+      && one.bottom > two.top && one.top < two.bottom)
+  })
+  expect(openOverlap, 'the opened key must still clear the credit').toBe(false)
+
+  await legend.click()
+  await expect(legend).toHaveAttribute('aria-expanded', 'false')
+
   // The map opens to the whole viewport and closes again on Escape.
   const routeFrame = page.locator('[data-widget-type="route-map"] .map-frame')
   // What the card says about the map is inside the frame, so it travels with it:
@@ -1078,4 +1181,132 @@ test('what the dashboard stores is what it draws', async ({ page }) => {
   await settled()
   expect(await card.getAttribute('gs-x'), 'the saved position did not survive a reload').toBe(moved)
   expect(await stored()).toBe(await drawn())
+})
+
+/*
+ * The reading behind a coloured segment, on the device that has no pointer.
+ *
+ * The trail's colours are only information if a reader can ask what they mean,
+ * and on a phone the only way to ask is to tap. Hover is covered by the unit
+ * tests, which can call the handler; a tap is a browser fact — the renderer has
+ * to turn touchend into a click, the twenty-pixel hit line has to be what the
+ * thumb lands on, and the pinned readout has to go away on the next tap
+ * somewhere else. So this runs in a context with a touchscreen and no mouse.
+ */
+test('a tap on the speed trail pins its reading, and a tap away puts it back', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true })
+  const page = await context.newPage()
+  try {
+    await page.goto('/login')
+    await page.getByLabel('Email').fill('browser-owner@example.com')
+    await page.getByLabel('Password').fill('browser-e2e-password-2026')
+    await page.getByRole('button', { name: 'Sign in' }).click()
+    await expect(page).toHaveURL('/')
+
+    const vehicle = await browserJson<VehicleRecord>(page, 'post', '/api/v1/vehicles', { name: 'Trail tapper' })
+    const enrollment = await browserJson<Enrollment>(page, 'post', `/api/v1/vehicles/${vehicle.id}/enrollments`, { implementation_id: 'carhibou.go' })
+    const enrolled = await browserJson<EnrolledAgent>(page, 'post', '/api/v1/agent/enroll', {
+      token: enrollment.token, implementation_id: 'carhibou.go', protocol_version: 2,
+      agent_version: 'e2e-1.0.0', hostname: 'tap-simulator', hardware: {},
+    })
+
+    // A short drive with a spread of speeds, so the scale has more than one band
+    // and a tapped segment has a number worth reading.
+    const speeds = [0, 14, 31, 52, 74, 96]
+    const samples = speeds.map((speed, index) => sample({
+      sequence: index + 1,
+      recordedAt: new Date(Date.now() - (speeds.length - index) * 60_000).toISOString(),
+      position: {
+        latitude: 48.85 + index * 0.004, longitude: 2.35 + index * 0.004,
+        altitude: 40, speed, heading: 45, accuracy: 4,
+      },
+      metrics: { 'vehicle.speed': speed },
+      agent: { mobile_signal: -70 },
+    }))
+    const batch = await page.request.post('/api/v1/agent/telemetry/batch', {
+      headers: { Authorization: `Agent ${enrolled.credential}` },
+      data: { boot_id: randomUUID(), samples },
+    })
+    expect(batch.status(), await batch.text()).toBe(200)
+
+    await page.goto('/')
+    await page.locator('.sidebar').getByRole('link', { name: 'Dashboards', exact: true }).click()
+    await page.getByRole('button', { name: /Overview/ }).click()
+    const selector = page.locator('[data-widget-type="vehicle-selector"]')
+    await selector.getByRole('combobox').click()
+    await page.getByPlaceholder('Search vehicles…').fill('Trail tapper')
+    await page.getByRole('option', { name: 'Trail tapper' }).click()
+
+    const map = page.locator('[data-widget-type="route-map"] .vehicle-map')
+    await expect(map).toBeVisible()
+    const trail = () => page.evaluate(() => {
+      const container = document.querySelector('[data-widget-type="route-map"] .vehicle-map') as unknown as {
+        carhibouMap?: { queryRenderedFeatures: (box?: unknown, options?: { layers?: string[] }) => unknown[] }
+      }
+      return container?.carhibouMap?.queryRenderedFeatures(undefined, { layers: ['carhibou-trail-hit'] }).length ?? 0
+    })
+    await expect.poll(trail, { timeout: 20_000 }).toBeGreaterThan(0)
+
+    /*
+     * Where a thumb would land on the line: the middle of a drawn segment, in
+     * viewport coordinates, taken from the renderer rather than guessed — and
+     * only a segment that is actually reachable. The mobile nav bar is fixed and
+     * paints above the map by design, so the bottom of a scrolled map is under
+     * it: a tap there would land on the navigation, as the first attempt at this
+     * test discovered by ending up on the Vehicles page.
+     */
+    await page.locator('[data-widget-type="route-map"]').scrollIntoViewIfNeeded()
+    const onTrail = await page.evaluate(() => {
+      const container = document.querySelector('[data-widget-type="route-map"] .vehicle-map')!
+      const map = (container as unknown as {
+        carhibouMap: {
+          queryRenderedFeatures: (box?: unknown, options?: { layers?: string[] }) => Array<{
+            geometry: { coordinates: Array<[number, number]> }
+            properties: Record<string, unknown>
+          }>
+          project: (at: [number, number]) => { x: number; y: number }
+        }
+      }).carhibouMap
+      const box = container.getBoundingClientRect()
+      for (const leg of map.queryRenderedFeatures(undefined, { layers: ['carhibou-trail-hit'] })) {
+        const [from, to] = leg.geometry.coordinates
+        const middle = map.project([(from![0] + to![0]) / 2, (from![1] + to![1]) / 2])
+        const x = box.left + middle.x
+        const y = box.top + middle.y
+        const under = document.elementFromPoint(x, y)
+        if (under && container.contains(under)) return { x, y, speed: leg.properties['speed'] }
+      }
+      return null
+    })
+    expect(onTrail, 'no segment of the trail is reachable by a tap').not.toBeNull()
+    const readout = page.locator('[data-widget-type="route-map"] .map-reading')
+    await expect(readout).toHaveCount(0)
+    await page.touchscreen.tap(onTrail!.x, onTrail!.y)
+    await expect(readout).toContainText('km/h')
+    await expect(readout).toContainText(String(onTrail!.speed))
+
+    // Somewhere the line is not: the reading is pinned, so only another tap
+    // clears it, and this proves the tap did the clearing.
+    const offTrail = await page.evaluate(() => {
+      const container = document.querySelector('[data-widget-type="route-map"] .vehicle-map')!
+      const map = (container as unknown as {
+        carhibouMap: { queryRenderedFeatures: (box?: unknown, options?: { layers?: string[] }) => unknown[] }
+      }).carhibouMap
+      const box = container.getBoundingClientRect()
+      for (const [across, down] of [[0.08, 0.12], [0.08, 0.5], [0.4, 0.12], [0.5, 0.5], [0.08, 0.75]]) {
+        const point: [number, number] = [box.width * across!, box.height * down!]
+        if (map.queryRenderedFeatures(point, { layers: ['carhibou-trail-hit'] }).length) continue
+        const x = box.left + point[0]
+        const y = box.top + point[1]
+        const under = document.elementFromPoint(x, y)
+        if (under && container.contains(under)) return { x, y }
+      }
+      return null
+    })
+    expect(offTrail, 'no empty ground to tap: the trail fills the map').not.toBeNull()
+    await page.touchscreen.tap(offTrail!.x, offTrail!.y)
+    await expect(readout).toHaveCount(0)
+  } finally {
+    await context.close()
+  }
 })
