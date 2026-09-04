@@ -9,6 +9,7 @@ import (
 
 	"github.com/Buco7854/carhibou/agent/internal/model"
 	"github.com/Buco7854/carhibou/agent/internal/profile"
+	"github.com/Buco7854/carhibou/agent/internal/usbrecovery"
 )
 
 // servicePreparationTimeout bounds one preparation attempt against an adapter
@@ -42,14 +43,17 @@ var canProtocols = []struct {
 const protocolTrial = 2 * time.Second
 
 const (
+	// profileBurstWindow covers every identifier in the C-Zero profile several
+	// times: its observed broadcasts repeat every 10-100 ms.
+	profileBurstWindow = time.Second
+	// parkedWakePollInterval listens for one second each minute while ordinary
+	// parked samples remain ten minutes apart, a roughly 1.7% serial duty cycle.
+	parkedWakePollInterval = time.Minute
 	// auxVoltageInterval paces the adapter's own supply reading. It answers with
 	// the vehicle asleep, which is the whole point of it, so it is the one thing
-	// worth asking for on a bus that has gone quiet. Asking often would interrupt
-	// the frame stream for nothing: a 12V battery does not move quickly.
+	// worth asking for on a bus that has gone quiet. Asking often would spend
+	// serial time for nothing: a 12V battery does not move quickly.
 	auxVoltageInterval = 5 * time.Minute
-	// auxVoltageTimeout bounds one interleaved reading so a wedged adapter cannot
-	// stall the monitor.
-	auxVoltageTimeout = 10 * time.Second
 	// auxVoltageFailureLimit is how many consecutive unanswered readings mean the
 	// adapter itself has gone, rather than one reading being lost to a busy bus.
 	auxVoltageFailureLimit = 3
@@ -76,9 +80,6 @@ const (
 	// called sleep. A momentary pause between broadcasts is not the ignition
 	// going off, and reporting it as one would park a moving car.
 	quietSettleMargin = 5 * time.Second
-	// quietPoll is how often the gap since the last frame is measured. Nothing
-	// calls in when a bus stops, so the transition has to be looked for.
-	quietPoll = time.Second
 )
 
 // AuxVoltageMetric is the canonical name for the adapter's supply reading. It is
@@ -111,7 +112,6 @@ type ProfileProvider struct {
 	monitorReport MonitorReport
 
 	voltageInterval time.Duration
-	voltageTimeout  time.Duration
 	lastVoltageAt   time.Time
 	voltageFailures int
 	attached        bool
@@ -130,14 +130,18 @@ type ProfileProvider struct {
 	lastSpeed        float64
 	lastSpeedSeen    bool
 	quietSettle      time.Duration
-	quietPoll        time.Duration
 	busQuiet         bool
+	burstWindow      time.Duration
+	wakePollInterval time.Duration
+	lastBurstRequest time.Time
+	burstRequests    chan struct{}
+	resetUSB         func(string) error
+	lastUSBReset     time.Time
+	now              func() time.Time
 
-	sessionStop chan struct{}
 	sessionDone sync.WaitGroup
 
-	stop    chan struct{}
-	stopped sync.WaitGroup
+	stop chan struct{}
 }
 
 func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *ProfileProvider {
@@ -148,11 +152,21 @@ func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *Pr
 	return &ProfileProvider{
 		adapter: adapter, decoder: decoder, trial: protocolTrial,
 		allowed: allowed, observations: model.MetricObservations{},
-		voltageInterval: auxVoltageInterval, voltageTimeout: auxVoltageTimeout,
-		eventGap: eventDebounce, eventValues: map[string]any{},
+		voltageInterval: auxVoltageInterval,
+		eventGap:        eventDebounce, eventValues: map[string]any{},
 		auditInterval: filterAuditInterval, auditBurst: filterAuditBurst,
-		quietSettle: protocolTrial + quietSettleMargin, quietPoll: quietPoll,
+		quietSettle: protocolTrial + quietSettleMargin,
+		burstWindow: profileBurstWindow, wakePollInterval: parkedWakePollInterval,
+		burstRequests: make(chan struct{}, 1),
+		resetUSB:      func(string) error { return fmt.Errorf("USB reset is not configured") },
+		now:           time.Now,
 	}
+}
+
+// SetUSBRecovery supplies the service's narrowly scoped physical reset. Tests
+// replace it to verify escalation without touching host hardware.
+func (provider *ProfileProvider) SetUSBRecovery(reset func(string) error) {
+	provider.resetUSB = reset
 }
 
 // Status explains why the provider is publishing nothing.
@@ -173,12 +187,12 @@ func (provider *ProfileProvider) State() string {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
 	parts := []string{}
-	silent := provider.stop != nil && (provider.lastDecoded.IsZero() || time.Since(provider.lastDecoded) > provider.trial)
+	silent := provider.stop != nil && (provider.lastDecoded.IsZero() || provider.busQuiet)
 	// The mode is reported whenever one is in force, working or not, because
 	// "filtered and hearing nothing" and "unfiltered and hearing nothing" are
 	// different problems and the interface cannot tell them apart otherwise.
 	if provider.stop != nil {
-		parts = append(parts, "monitor: "+provider.modeDescription())
+		parts = append(parts, "listen bursts: "+provider.modeDescription())
 	}
 	if silent {
 		parts = append(parts, provider.quietDescription())
@@ -220,10 +234,10 @@ func (provider *ProfileProvider) modeDescription() string {
 // names the duration rather than implying a fault. The caller holds the mutex.
 func (provider *ProfileProvider) quietDescription() string {
 	if provider.lastFrame.IsZero() {
-		return "monitoring, bus quiet since start"
+		return "bus quiet since start"
 	}
 	quiet := time.Since(provider.lastFrame).Round(time.Second)
-	return fmt.Sprintf("monitoring, bus quiet for %s", quiet)
+	return fmt.Sprintf("bus quiet for %s", quiet)
 }
 
 // Live reports whether a frame arrived recently.
@@ -234,22 +248,25 @@ func (provider *ProfileProvider) quietDescription() string {
 func (provider *ProfileProvider) Live() bool {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
-	return !provider.lastFrame.IsZero() && time.Since(provider.lastFrame) < provider.trial
+	return !provider.lastFrame.IsZero() && !provider.busQuiet && time.Since(provider.lastFrame) < 2*provider.wakePollInterval
 }
 
-// ReadObservations returns the values the background monitor has collected.
-//
-// It does not wait for the bus. Frames arrive continuously whether or not anyone
-// is reading, so sampling is a snapshot of what the monitor has kept current: a
-// one-second cadence is a one-second cadence, rather than a second of listening
-// plus everything else the sample needs.
+// ReadObservations schedules a bounded listen and returns the last completed
+// snapshot. The session goroutine owns every serial byte, so sampling and GNSS
+// never wait behind the adapter.
 func (provider *ProfileProvider) ReadObservations() (model.MetricObservations, error) {
 	provider.mutex.Lock()
-	defer provider.mutex.Unlock()
-	return copyObservations(provider.observations), nil
+	observations := copyObservations(provider.observations)
+	provider.lastBurstRequest = time.Now()
+	provider.mutex.Unlock()
+	select {
+	case provider.burstRequests <- struct{}{}:
+	default:
+	}
+	return observations, nil
 }
 
-// Start connects and begins monitoring. The retrying runtime owner calls it on
+// Start connects and begins the burst session. The retrying runtime owner calls it on
 // its acquisition goroutine; reads only take snapshots and never touch hardware.
 func (provider *ProfileProvider) Start() {
 	provider.mutex.Lock()
@@ -268,47 +285,21 @@ func (provider *ProfileProvider) Start() {
 	// the vehicle asleep, so a bus that never speaks still produces a sample with
 	// something true in it from the first collection onwards.
 	provider.readVoltage()
-	preparation, err := PrepareProfileMonitor(
-		provider.adapter, provider.decoder.CANIDs(), provider.trial, 0, false, provider.record,
-		nil, time.Now().Add(servicePreparationTimeout),
-	)
-	if err != nil {
+	if err := provider.prepare(); err != nil {
 		provider.adapter.Close()
 		provider.fail(err.Error())
 		return
 	}
 
 	stop := make(chan struct{})
-	sessionStop := make(chan struct{})
 	provider.mutex.Lock()
 	provider.stop = stop
-	provider.sessionStop = sessionStop
 	provider.monitorStartedAt = time.Now().UTC()
 	provider.failure = ""
-	provider.unfiltered = preparation.UseUnfiltered
-	provider.baseReport = preparationMonitorReport(preparation)
-	provider.monitorReport = provider.baseReport
 	provider.mutex.Unlock()
 
-	provider.sessionDone.Add(3)
-	go provider.pollVoltage(sessionStop)
-	go provider.auditFilters(sessionStop)
-	go provider.watchQuiet(sessionStop)
-
-	provider.stopped.Add(1)
-	go func() {
-		defer provider.stopped.Done()
-		err := provider.adapter.MonitorUntilWithReport(
-			stop, preparation.UseUnfiltered, provider.record, provider.updateMonitorReport,
-		)
-		provider.mutex.Lock()
-		provider.stop = nil
-		if err != nil {
-			provider.failure = "CAN monitoring stopped on " + preparation.Protocol + ": " + err.Error()
-		}
-		provider.mutex.Unlock()
-		provider.adapter.Close()
-	}()
+	provider.sessionDone.Add(1)
+	go provider.runSession(stop)
 }
 func (provider *ProfileProvider) record(frame model.CANFrame) {
 	observedAt := frameTime(frame)
@@ -363,61 +354,105 @@ func (provider *ProfileProvider) fail(reason string) {
 func (provider *ProfileProvider) Close() {
 	provider.mutex.Lock()
 	stop := provider.stop
-	sessionStop := provider.sessionStop
 	provider.stop = nil
-	provider.sessionStop = nil
 	provider.mutex.Unlock()
-	// Both background loops interleave themselves with the monitor, so they have
-	// to be gone before the monitor is asked to stop or their requests outlive
-	// the goroutine that serves them.
-	if sessionStop != nil {
-		close(sessionStop)
-		provider.sessionDone.Wait()
-	}
 	if stop != nil {
 		close(stop)
-		provider.stopped.Wait()
-		return
+		provider.sessionDone.Wait()
 	}
 	provider.adapter.Close()
 }
 
-// pollVoltage keeps the adapter's own supply reading current.
-//
-// The reading is served by the monitor goroutine because that goroutine owns the
-// port. On a bus that has gone quiet this is the only traffic the adapter sees,
-// and it is what separates a sleeping vehicle from an adapter somebody unplugged.
-func (provider *ProfileProvider) pollVoltage(stop <-chan struct{}) {
+func (provider *ProfileProvider) runSession(stop <-chan struct{}) {
 	defer provider.sessionDone.Done()
-	ticker := time.NewTicker(provider.voltageInterval)
-	defer ticker.Stop()
+	wake := time.NewTicker(provider.wakePollInterval)
+	voltage := time.NewTicker(provider.voltageInterval)
+	audit := time.NewTicker(provider.auditInterval)
+	defer wake.Stop()
+	defer voltage.Stop()
+	defer audit.Stop()
 	for {
 		select {
 		case <-stop:
 			return
-		case <-ticker.C:
+		case <-provider.burstRequests:
+			if err := provider.runBurstWithRecovery(); err != nil {
+				provider.fail("CAN listen burst failed: " + err.Error())
+				return
+			}
+		case <-wake.C:
+			provider.mutex.Lock()
+			due := time.Since(provider.lastBurstRequest) >= provider.wakePollInterval
+			provider.mutex.Unlock()
+			if due {
+				if err := provider.runBurstWithRecovery(); err != nil {
+					provider.fail("CAN wake poll failed: " + err.Error())
+					return
+				}
+			}
+		case <-voltage.C:
 			provider.readVoltage()
+		case <-audit.C:
+			provider.runFilterAudit()
 		}
 	}
 }
 
-// readVoltage takes one supply reading, interleaving it with the frame stream
-// when a monitor is running and taking the port directly when one is not.
-func (provider *ProfileProvider) readVoltage() {
-	var reading string
-	var err error
-	take := func(adapter *OBDAdapter) { reading, err = adapter.Voltage() }
-	if !provider.adapter.DuringMonitor(take, provider.voltageTimeout) {
-		provider.mutex.Lock()
-		monitoring := provider.stop != nil
-		provider.mutex.Unlock()
-		if monitoring {
-			// A monitor is running but did not serve the request in time. That is
-			// a busy adapter, not a missing one, so it is not counted against it.
-			return
-		}
-		take(provider.adapter)
+func (provider *ProfileProvider) runBurstWithRecovery() error {
+	if err := provider.runBurst(); err == nil {
+		return nil
 	}
+	if err := provider.adapter.Reset(); err == nil {
+		if err = provider.prepare(); err == nil {
+			return nil
+		}
+	}
+	provider.adapter.Close()
+	if err := provider.adapter.Connect(); err == nil {
+		if err = provider.prepare(); err == nil {
+			return nil
+		}
+	}
+	provider.adapter.Close()
+	now := provider.now()
+	if provider.lastUSBReset.IsZero() || now.Sub(provider.lastUSBReset) >= usbrecovery.Cooldown {
+		provider.lastUSBReset = now
+		if err := provider.resetUSB(provider.adapter.device); err != nil {
+			return fmt.Errorf("reset, reopen, and USB recovery failed: %w", err)
+		}
+	}
+	return fmt.Errorf("adapter remained unavailable after reset and reopen")
+}
+
+func (provider *ProfileProvider) prepare() error {
+	preparation, err := PrepareProfileMonitor(
+		provider.adapter, provider.decoder.CANIDs(), provider.trial, 0, false, provider.record,
+		nil, time.Now().Add(servicePreparationTimeout),
+	)
+	if err != nil {
+		return err
+	}
+	provider.mutex.Lock()
+	provider.unfiltered = preparation.UseUnfiltered
+	provider.baseReport = preparationMonitorReport(preparation)
+	provider.monitorReport = provider.baseReport
+	provider.mutex.Unlock()
+	return nil
+}
+
+func (provider *ProfileProvider) runBurst() error {
+	provider.mutex.Lock()
+	unfiltered := provider.unfiltered
+	provider.mutex.Unlock()
+	trace, err := provider.adapter.InspectMonitor(provider.burstWindow, unfiltered, 0, provider.record)
+	provider.updateMonitorReport(trace.Report)
+	provider.noteQuietOnset(time.Now().UTC())
+	return err
+}
+
+// readVoltage runs between listen bursts on the session goroutine.
+func (provider *ProfileProvider) readVoltage() {
+	reading, err := provider.adapter.Voltage()
 	value, ok := ParseSupplyVoltage(reading)
 	if err != nil || !ok {
 		provider.recordVoltageFailure()
@@ -474,20 +509,6 @@ func (provider *ProfileProvider) recordVoltageFailure() {
 // on the filtered stream then and never revisiting it is how an adapter whose
 // STFAP is accepted but applied wrongly goes deaf for the rest of the session
 // while its supply reading keeps working perfectly.
-func (provider *ProfileProvider) auditFilters(stop <-chan struct{}) {
-	defer provider.sessionDone.Done()
-	ticker := time.NewTicker(provider.auditInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-stop:
-			return
-		case <-ticker.C:
-			provider.runFilterAudit()
-		}
-	}
-}
-
 func (provider *ProfileProvider) runFilterAudit() {
 	provider.mutex.Lock()
 	settled := provider.unfiltered || provider.failure != ""
@@ -509,8 +530,7 @@ func (provider *ProfileProvider) runFilterAudit() {
 		}
 		provider.record(frame)
 	}
-	burst := func(adapter *OBDAdapter) { _, _ = adapter.SampleMonitorAll(provider.auditBurst, count) }
-	if !provider.adapter.DuringMonitor(burst, provider.auditBurst+provider.voltageTimeout) {
+	if _, err := provider.adapter.SampleMonitorAll(provider.auditBurst, count); err != nil {
 		return
 	}
 	// Only frames this profile asked for decide it. Unrelated traffic proves the
@@ -530,7 +550,6 @@ func (provider *ProfileProvider) runFilterAudit() {
 	provider.fellBack = true
 	provider.contradictions++
 	provider.mutex.Unlock()
-	provider.adapter.SwitchMonitor("STMA")
 }
 
 // Attached reports whether the adapter itself is still answering.
@@ -596,20 +615,6 @@ func (provider *ProfileProvider) noteBusActivity(at time.Time) {
 
 // watchQuiet notices the bus stopping. Nothing calls in when frames cease, so
 // the absence has to be looked for rather than waited on.
-func (provider *ProfileProvider) watchQuiet(stop <-chan struct{}) {
-	defer provider.sessionDone.Done()
-	ticker := time.NewTicker(provider.quietPoll)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-stop:
-			return
-		case <-ticker.C:
-			provider.noteQuietOnset(time.Now().UTC())
-		}
-	}
-}
-
 // noteQuietOnset turns the bus falling silent into one event.
 //
 // The sample it triggers carries whatever the drive last decoded — the closing

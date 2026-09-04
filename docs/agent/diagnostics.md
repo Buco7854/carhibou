@@ -119,10 +119,10 @@ physical status. Never promote simulation to verification.
 
 ### Reusable lessons from hardware
 
-- Diagnostics must not share live serial streams with the service; continuous CAN
-  monitoring makes exclusive ownership essential.
-- CAN monitoring must be continuous, try supported protocols and apply profile pass
-  filters before reading. Displayed frame length is accepted only in its exact format so
+- Diagnostics must not share serial access with the service; even bounded CAN bursts
+  require exclusive ownership while they run.
+- CAN reads must be bounded, try supported protocols and apply profile pass filters
+  before listening. Displayed frame length is accepted only in its exact format so
   a payload byte cannot shift every decoder offset.
 - A serial sweep needs process-isolated per-port watchdogs, a hardware-keyed cache and
   multi-capability classification. Returning from a timed-out goroutine is insufficient:

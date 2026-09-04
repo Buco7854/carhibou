@@ -14,6 +14,18 @@ func TestReleaseArtifactName(t *testing.T) {
 	}
 }
 
+func TestServiceAlwaysRestartsAndUsesSystemdWatchdog(t *testing.T) {
+	unit := serviceUnit()
+	for _, line := range []string{"Restart=always", "RestartSec=10", "WatchdogSec=90"} {
+		if !strings.Contains(unit, line) {
+			t.Fatalf("service unit is missing %q:\n%s", line, unit)
+		}
+	}
+	if strings.Contains(unit, "NotifyAccess=none") {
+		t.Fatalf("service unit disables watchdog notifications:\n%s", unit)
+	}
+}
+
 type udevRecorder struct {
 	writes       []string
 	writeData    []byte
@@ -58,21 +70,24 @@ func (recorder *udevRecorder) operations() udevOperations {
 func TestSIMComUdevRuleIsNarrowlyScoped(t *testing.T) {
 	rule := simcomUdevRule()
 	lines := strings.Split(strings.TrimSpace(rule), "\n")
-	if len(lines) != 3 {
+	if len(lines) != 4 {
 		t.Fatalf("rule has %d lines:\n%s", len(lines), rule)
 	}
 	for _, line := range lines[1:] {
 		for _, scope := range []string{
 			`SUBSYSTEM=="usb"`,
 			`ENV{DEVTYPE}=="usb_device"`,
-			`ATTR{idVendor}=="1e0e"`,
 		} {
 			if !strings.Contains(line, scope) {
 				t.Errorf("rule line is missing scope %q: %s", scope, line)
 			}
 		}
+		if !strings.Contains(line, `ATTR{idVendor}=="1e0e"`) && !strings.Contains(line, `ATTR{idVendor}=="0403"`) {
+			t.Errorf("rule line allows an unexpected vendor: %s", line)
+		}
 	}
-	if !strings.Contains(lines[1], `GROUP="carhibou-agent"`) || !strings.Contains(lines[1], `MODE="0660"`) {
+	if !strings.Contains(lines[1], `GROUP="carhibou-agent"`) || !strings.Contains(lines[1], `MODE="0660"`) ||
+		!strings.Contains(lines[3], `ATTR{idVendor}=="0403"`) {
 		t.Errorf("device permission rule is incomplete: %s", lines[1])
 	}
 	if !strings.Contains(lines[2], `ATTR{power/control}="on"`) {
@@ -106,6 +121,7 @@ func TestInstallSIMComUdevRuleWritesAndRefreshesOnlyMatchingUSBDevices(t *testin
 	wantCommands := [][]string{
 		{"udevadm", "control", "--reload-rules"},
 		{"udevadm", "trigger", "--settle", "--subsystem-match=usb", "--attr-match=idVendor=1e0e", "--action=change"},
+		{"udevadm", "trigger", "--settle", "--subsystem-match=usb", "--attr-match=idVendor=0403", "--action=change"},
 	}
 	if !reflect.DeepEqual(recorder.commands, wantCommands) {
 		t.Fatalf("commands = %#v", recorder.commands)
@@ -139,7 +155,7 @@ func TestUninstallSIMComUdevRuleRemovesOwnedFileAndRefreshes(t *testing.T) {
 	if !reflect.DeepEqual(recorder.removes, []string{path}) {
 		t.Fatalf("removes = %v", recorder.removes)
 	}
-	if len(recorder.commands) != 2 {
+	if len(recorder.commands) != 3 {
 		t.Fatalf("commands = %#v", recorder.commands)
 	}
 }

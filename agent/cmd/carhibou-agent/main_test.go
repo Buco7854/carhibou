@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +15,45 @@ import (
 	"github.com/Buco7854/carhibou/agent/internal/store"
 	"github.com/Buco7854/carhibou/agent/internal/usbrecovery"
 )
+
+func TestLoopWatchdogDumpsStacksAndExits(t *testing.T) {
+	var heartbeat atomic.Int64
+	heartbeat.Store(time.Now().Add(-time.Minute - time.Second).UnixNano())
+	written := make(chan string, 1)
+	exited := make(chan int, 1)
+	stop := make(chan struct{})
+	defer close(stop)
+	go runLoopWatchdog(
+		&heartbeat, time.Millisecond,
+		func() []byte { return []byte("all goroutine stacks") },
+		func(content []byte) { written <- string(content) },
+		func(code int) { exited <- code }, stop,
+	)
+	select {
+	case content := <-written:
+		if content != "all goroutine stacks" {
+			t.Fatalf("dump=%q", content)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watchdog did not dump stacks")
+	}
+	if code := <-exited; code != 1 {
+		t.Fatalf("exit code=%d, want 1", code)
+	}
+}
+
+func TestStartupSystemdNotifierSendsImmediately(t *testing.T) {
+	stop := make(chan struct{})
+	notified := make(chan struct{}, 1)
+	go runSystemdNotifier(stop, time.Hour, func() { notified <- struct{}{} })
+	select {
+	case <-notified:
+		close(stop)
+	case <-time.After(time.Second):
+		close(stop)
+		t.Fatal("startup did not notify systemd immediately")
+	}
+}
 
 type cadencePosition struct{ fix *model.PositionFix }
 

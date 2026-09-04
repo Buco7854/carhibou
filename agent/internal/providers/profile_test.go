@@ -98,6 +98,130 @@ func TestProfileStartsMonitoringAndRetainsFramesBeforeTheFirstRead(t *testing.T)
 	}
 }
 
+func TestProfileBurstStopsAfterItsWindow(t *testing.T) {
+	port := &profilePipelinePort{protocolFrame: true, filteredFrame: true}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 10 * time.Millisecond
+	provider.burstWindow = 25 * time.Millisecond
+	provider.wakePollInterval = time.Hour
+	provider.auditInterval = time.Hour
+	defer provider.Close()
+	provider.Start()
+
+	started := time.Now()
+	if err := provider.runBurst(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed < provider.burstWindow || elapsed > time.Second {
+		t.Fatalf("burst duration=%s, want one bounded window", elapsed)
+	}
+	before := port.recordedCommands()
+	time.Sleep(2 * provider.burstWindow)
+	after := port.recordedCommands()
+	if len(after) != len(before) || after[len(after)-1] != "" {
+		t.Fatalf("commands continued after burst: before=%v after=%v", before, after)
+	}
+	if provider.observations["battery.soc"].Value != float64(67) {
+		t.Fatalf("burst observations=%#v", provider.observations)
+	}
+}
+
+func TestWakePollRaisesEventAfterAQuietBurst(t *testing.T) {
+	port := &wakeablePort{awake: true, filtersWork: true}
+	provider := auditProvider(t, port)
+	provider.wakePollInterval = time.Hour
+	provider.auditInterval = time.Hour
+	provider.burstWindow = 20 * time.Millisecond
+	provider.Start()
+	provider.TakeEvent()
+
+	port.setBus(false, true)
+	provider.mutex.Lock()
+	provider.lastAnyFrame = time.Now().Add(-time.Minute)
+	provider.mutex.Unlock()
+	if err := provider.runBurst(); err != nil {
+		t.Fatal(err)
+	}
+	if reason := provider.TakeEvent(); !strings.Contains(reason, "quiet") {
+		t.Fatalf("quiet event=%q", reason)
+	}
+	provider.mutex.Lock()
+	provider.lastEventAt = time.Now().Add(-2 * eventDebounce)
+	provider.mutex.Unlock()
+	port.setBus(true, true)
+	if err := provider.runBurst(); err != nil {
+		t.Fatal(err)
+	}
+	if reason := provider.TakeEvent(); !strings.Contains(reason, "woke") {
+		t.Fatalf("wake event=%q", reason)
+	}
+}
+
+type escalationPort struct {
+	profilePipelinePort
+	mute bool
+}
+
+func (port *escalationPort) Write(payload []byte) (int, error) {
+	count, err := port.profilePipelinePort.Write(payload)
+	if port.mute {
+		port.scriptedPort.pending = ""
+	}
+	return count, err
+}
+
+func (port *escalationPort) Read(buffer []byte) (int, error) {
+	if port.mute {
+		time.Sleep(time.Millisecond)
+		return 0, nil
+	}
+	return port.profilePipelinePort.Read(buffer)
+}
+
+func TestBurstFailureEscalatesResetReopenThenUSB(t *testing.T) {
+	port := &escalationPort{profilePipelinePort: profilePipelinePort{protocolFrame: true, filteredFrame: true}}
+	opens := 0
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) {
+		opens++
+		return port, nil
+	}
+	t.Cleanup(func() { openOBDPort = previousOpen })
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 5 * time.Millisecond
+	provider.burstWindow = 5 * time.Millisecond
+	provider.adapter.CommandWindow = 10 * time.Millisecond
+	provider.wakePollInterval = time.Hour
+	provider.auditInterval = time.Hour
+	usbCalls := 0
+	provider.SetUSBRecovery(func(device string) error {
+		usbCalls++
+		if opens < 2 {
+			t.Fatal("USB reset ran before reopen")
+		}
+		return errors.New("reset unavailable in test")
+	})
+	defer provider.Close()
+	provider.Start()
+	commandsBefore := len(port.recordedCommands())
+	port.mute = true
+
+	err := provider.runBurstWithRecovery()
+	if err == nil {
+		t.Fatal("dead adapter recovered unexpectedly")
+	}
+	commands := port.recordedCommands()[commandsBefore:]
+	if commandIndex(commands, "ATZ", 0) < 0 {
+		t.Fatalf("commands=%v, want ATZ before reopen", commands)
+	}
+	if opens < 2 || usbCalls != 1 {
+		t.Fatalf("opens=%d usb resets=%d, want reopen then one reset", opens, usbCalls)
+	}
+}
+
 func TestProfileFallsBackWhenFilteredSTMIsSilentButSTMAWorks(t *testing.T) {
 	port := &profilePipelinePort{protocolFrame: true, unfilteredFrame: true}
 	previousOpen := openOBDPort

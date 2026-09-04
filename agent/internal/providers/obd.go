@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/Buco7854/carhibou/agent/internal/model"
@@ -43,28 +42,12 @@ type OBDAdapter struct {
 	CommandWindow    time.Duration
 	BaudSwitchWindow time.Duration
 	baudRate         int
-	// requests carries work for the monitor goroutine to run on its own port.
-	// Monitoring streams continuously, so anything else that needs the adapter
-	// has to be served between frames by whoever already owns it.
-	requests   chan monitorRequest
-	monitoring atomic.Bool
-	// switchTo carries a new monitor command chosen while the stream was paused,
-	// so a session that proves its hardware filters useless can abandon them
-	// without being torn down and rebuilt.
-	switchTo atomic.Value
-}
-
-// monitorRequest is one command run interleaved with monitoring.
-type monitorRequest struct {
-	run  func(*OBDAdapter)
-	done chan struct{}
 }
 
 func NewOBDAdapter(device string) *OBDAdapter {
 	return &OBDAdapter{
 		device: device, buffer: make([]byte, 512), CommandWindow: obdCommandWindow,
 		BaudSwitchWindow: baudSwitchTimeout, baudRate: defaultOBDBaudRate,
-		requests: make(chan monitorRequest),
 	}
 }
 
@@ -79,6 +62,12 @@ func (adapter *OBDAdapter) Connect() error {
 		return err
 	}
 	adapter.port = port
+	return adapter.Reset()
+}
+
+// Reset returns an open adapter to the known command state used before profile
+// preparation. Each command keeps its own bounded response window.
+func (adapter *OBDAdapter) Reset() error {
 	for _, command := range []string{"ATZ", "ATE0", "ATL0", "ATS1", "ATH1"} {
 		delay := time.Duration(0)
 		if command == "ATZ" {
@@ -515,9 +504,7 @@ type MonitorTrace struct {
 	RawLines []string      `json:"raw_lines"`
 }
 
-// Monitor streams filtered frames for a fixed period. Sampling uses the
-// report-aware continuous monitor because a fixed window cannot be part of a
-// loop that samples every second.
+// Monitor streams filtered frames for a fixed period.
 func (adapter *OBDAdapter) Monitor(duration time.Duration, onFrame func(model.CANFrame)) error {
 	_, err := adapter.MonitorReport(duration, onFrame)
 	return err
@@ -527,7 +514,7 @@ func (adapter *OBDAdapter) MonitorReport(duration time.Duration, onFrame func(mo
 	stop := make(chan struct{})
 	timer := time.AfterFunc(duration, func() { close(stop) })
 	defer timer.Stop()
-	trace, err := adapter.monitorUntil(stop, "STM", onFrame, nil, 0)
+	trace, err := adapter.monitorUntil(stop, "STM", onFrame, 0)
 	return trace.Report, err
 }
 
@@ -535,7 +522,7 @@ func (adapter *OBDAdapter) MonitorAllReport(duration time.Duration, onFrame func
 	stop := make(chan struct{})
 	timer := time.AfterFunc(duration, func() { close(stop) })
 	defer timer.Stop()
-	trace, err := adapter.monitorUntil(stop, "STMA", onFrame, nil, 0)
+	trace, err := adapter.monitorUntil(stop, "STMA", onFrame, 0)
 	return trace.Report, err
 }
 
@@ -551,31 +538,13 @@ func (adapter *OBDAdapter) InspectMonitor(
 	if unfiltered {
 		command = "STMA"
 	}
-	return adapter.monitorUntil(stop, command, onFrame, nil, rawLineLimit)
-}
-
-// Monitoring is continuous on the wire whether or not anyone is reading, so a
-// sampling loop that opened a window per sample saw only the fraction of the bus
-// that fell inside its windows, and blocked for the whole of each one. Running it
-// once for the life of the connection means a sample is a snapshot of values kept
-// current in the background, which costs nothing per sample and misses nothing
-// between them.
-func (adapter *OBDAdapter) MonitorUntilWithReport(
-	stop <-chan struct{}, unfiltered bool, onFrame func(model.CANFrame), onReport func(MonitorReport),
-) error {
-	command := "STM"
-	if unfiltered {
-		command = "STMA"
-	}
-	_, err := adapter.monitorUntil(stop, command, onFrame, onReport, 0)
-	return err
+	return adapter.monitorUntil(stop, command, onFrame, rawLineLimit)
 }
 
 func (adapter *OBDAdapter) monitorUntil(
 	stop <-chan struct{},
 	command string,
 	onFrame func(model.CANFrame),
-	onReport func(MonitorReport),
 	rawLineLimit int,
 ) (MonitorTrace, error) {
 	trace := MonitorTrace{}
@@ -594,39 +563,13 @@ func (adapter *OBDAdapter) monitorUntil(
 		if line != "" && len(trace.RawLines) < rawLineLimit {
 			trace.RawLines = append(trace.RawLines, line)
 		}
-		before := trace.Report
 		observeMonitorLine(line, onFrame, &trace.Report)
-		if onReport != nil && monitorDiagnosticsChanged(before, trace.Report) {
-			onReport(trace.Report)
-		}
 	}
-	adapter.monitoring.Store(true)
-	defer adapter.monitoring.Store(false)
 	for {
 		select {
 		case <-stop:
 			err := adapter.leaveStream(observe)
-			if onReport != nil {
-				onReport(trace.Report)
-			}
 			return trace, err
-		case request := <-adapter.requests:
-			// The stream has to end before the adapter will answer anything else,
-			// so the request is served between frames by the goroutine that owns
-			// the port rather than racing it from the caller's.
-			err := adapter.leaveStream(observe)
-			request.run(adapter)
-			close(request.done)
-			if err != nil {
-				return trace, err
-			}
-			if next := adapter.takeMonitorSwitch(); next != "" {
-				command = next
-			}
-			if err := adapter.enterStream(command); err != nil {
-				return trace, err
-			}
-			continue
 		default:
 		}
 		// A short read window keeps the stop signal responsive on a quiet bus
@@ -677,20 +620,7 @@ func (adapter *OBDAdapter) enterStream(command string) error {
 	return err
 }
 
-// SwitchMonitor changes the command a running monitor resumes with. It takes
-// effect when the stream is next re-entered, which is why it is only useful from
-// inside DuringMonitor: that is the one moment the adapter is at its prompt.
-func (adapter *OBDAdapter) SwitchMonitor(command string) { adapter.switchTo.Store(command) }
-
-func (adapter *OBDAdapter) takeMonitorSwitch() string {
-	value, _ := adapter.switchTo.Swap("").(string)
-	return value
-}
-
-// SampleMonitorAll listens on the unfiltered monitor for a bounded window from a
-// caller that already holds the command prompt, which is what DuringMonitor
-// hands it. It serves no requests of its own: it is itself one, and nesting the
-// full monitor loop here would hand the port to two owners at once.
+// SampleMonitorAll listens on the unfiltered monitor for one bounded window.
 func (adapter *OBDAdapter) SampleMonitorAll(
 	window time.Duration, onFrame func(model.CANFrame),
 ) (MonitorReport, error) {
@@ -711,37 +641,6 @@ func (adapter *OBDAdapter) SampleMonitorAll(
 		observe(line)
 	}
 	return report, adapter.leaveStream(observe)
-}
-
-// DuringMonitor runs work on the adapter from inside a running monitor loop.
-//
-// It reports whether the work ran. A caller that owns the port itself does not
-// need it; one that has handed the port to a monitor goroutine cannot touch the
-// adapter any other way without interleaving its bytes with the frame stream.
-func (adapter *OBDAdapter) DuringMonitor(work func(*OBDAdapter), timeout time.Duration) bool {
-	if !adapter.monitoring.Load() {
-		return false
-	}
-	request := monitorRequest{run: work, done: make(chan struct{})}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case adapter.requests <- request:
-	case <-timer.C:
-		return false
-	}
-	select {
-	case <-request.done:
-		return true
-	case <-timer.C:
-		return false
-	}
-}
-
-func monitorDiagnosticsChanged(before, after MonitorReport) bool {
-	return before.BufferFull != after.BufferFull || before.DataErrors != after.DataErrors ||
-		before.AdapterErrors != after.AdapterErrors || before.MalformedFrames != after.MalformedFrames ||
-		before.DroppedData != after.DroppedData
 }
 
 func observeMonitorLine(line string, onFrame func(model.CANFrame), report *MonitorReport) {

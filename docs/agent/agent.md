@@ -76,10 +76,13 @@ sudo carhibou-agent config --pull
 sudo systemctl restart carhibou-agent
 ```
 
-CAN monitoring stays open continuously and each sample takes a snapshot of current
-values. That avoids missing frames between sample windows and makes a one-second cadence
-possible. Passive monitoring cannot ask the adapter to discover its protocol, so the
-agent tries the four CAN variants until one carries a frame.
+For a raw-CAN profile, the adapter listens in bounded one-second bursts at the sampling
+cadence. The C-Zero identifiers repeat every 10–100 ms, so one second covers each one
+several times without leaving the adapter in a stream indefinitely. While parked, a
+one-second wake poll runs once a minute; traffic raises an immediate sample and restores
+the driving cadence instead of waiting for the next ten-minute parked sample. Passive
+monitoring cannot ask the adapter to discover its protocol, so preparation tries the four
+CAN variants until one carries a frame and applies the profile filters before each burst.
 
 ## Select serial hardware
 

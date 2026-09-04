@@ -123,27 +123,7 @@ func ServiceRunning() bool {
 }
 
 func InstallService() error {
-	unit := `[Unit]
-Description=Carhibou vehicle telemetry agent
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=carhibou-agent
-Group=carhibou-agent
-ExecStart=/usr/local/bin/carhibou-agent run
-Restart=always
-RestartSec=10
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/carhibou-agent /etc/carhibou-agent
-
-[Install]
-WantedBy=multi-user.target
-`
+	unit := serviceUnit()
 	warnIfSIMComUdevRuleUnavailable(installSIMComUdevRule(hostUdevOperations(), simcomUdevRulePath))
 	if err := os.WriteFile("/etc/systemd/system/"+ServiceName, []byte(unit), 0o644); err != nil {
 		return err
@@ -155,6 +135,31 @@ WantedBy=multi-user.target
 		return fmt.Errorf("start service: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
+}
+
+func serviceUnit() string {
+	return `[Unit]
+Description=Carhibou vehicle telemetry agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=carhibou-agent
+Group=carhibou-agent
+ExecStart=/usr/local/bin/carhibou-agent run
+Restart=always
+RestartSec=10
+WatchdogSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/carhibou-agent /etc/carhibou-agent
+
+[Install]
+WantedBy=multi-user.target
+`
 }
 
 func Uninstall(yes bool) error {
@@ -299,9 +304,10 @@ func warnIfSIMComUdevRuleUnavailable(err error) {
 }
 
 func simcomUdevRule() string {
-	return `# Managed by Carhibou. Grants USB reset access only to SIMCom devices.
+	return `# Managed by Carhibou. Grants USB reset access only to supported telemetry devices.
 ACTION=="add|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1e0e", GROUP="carhibou-agent", MODE="0660"
 ACTION=="add|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1e0e", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0403", GROUP="carhibou-agent", MODE="0660"
 `
 }
 
@@ -329,6 +335,7 @@ func reloadSIMComUdevRules(operations udevOperations) error {
 	for _, command := range [][]string{
 		{"udevadm", "control", "--reload-rules"},
 		{"udevadm", "trigger", "--settle", "--subsystem-match=usb", "--attr-match=idVendor=1e0e", "--action=change"},
+		{"udevadm", "trigger", "--settle", "--subsystem-match=usb", "--attr-match=idVendor=0403", "--action=change"},
 	} {
 		output, err := operations.run(command[0], command[1:]...)
 		if err != nil {

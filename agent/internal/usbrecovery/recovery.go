@@ -1,6 +1,5 @@
-// Package usbrecovery provides the narrowly scoped USB reset used to recover a
-// wedged SIMCom modem. It deliberately resolves the USB device from a tty and
-// refuses every vendor except SIMCom before invoking the reset operation.
+// Package usbrecovery provides narrowly scoped USB reset primitives. SIMCom is
+// the safe default; callers must explicitly name any additional allowed vendor.
 package usbrecovery
 
 import (
@@ -11,18 +10,24 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const SIMComVendorID = "1e0e"
+const FTDIVendorID = "0403"
+
+// Cooldown prevents repeated physical resets from turning one hardware fault
+// into a reset loop.
+const Cooldown = 15 * time.Minute
 
 var (
 	// ErrNotFound means that none of the candidate tty paths currently exists
 	// with a corresponding sysfs device.
 	ErrNotFound = errors.New("USB recovery tty was not found")
-	// ErrUnsupported means that the candidate is not a tty owned by a SIMCom
-	// USB device, so no reset was attempted.
+	// ErrUnsupported means that the candidate is not owned by a USB vendor the
+	// caller explicitly allowed, so no reset was attempted.
 	ErrUnsupported = errors.New("USB recovery is unsupported for this tty")
-	// ErrPermission means that the tty belongs to a SIMCom USB device, but the
+	// ErrPermission means that the tty belongs to an allowed USB device, but the
 	// process is not allowed to open or reset its usbfs device node.
 	ErrPermission = errors.New("permission denied resetting USB device")
 	// ErrReset means that the reset operation was attempted and failed.
@@ -44,9 +49,10 @@ type ResetOperation func(path string) error
 // Config supplies alternate roots and a reset operation for tests. Zero values
 // select the Linux system locations and USBDEVFS_RESET implementation.
 type Config struct {
-	SysClassTTYRoot string
-	USBBusRoot      string
-	Reset           ResetOperation
+	SysClassTTYRoot  string
+	USBBusRoot       string
+	Reset            ResetOperation
+	AllowedVendorIDs []string
 }
 
 // Recovery resolves and resets eligible tty devices.
@@ -54,6 +60,7 @@ type Recovery struct {
 	sysClassTTYRoot string
 	usbBusRoot      string
 	reset           ResetOperation
+	allowedVendors  map[string]struct{}
 }
 
 // New constructs a recovery primitive. The returned value is safe to use with
@@ -71,10 +78,19 @@ func New(config Config) *Recovery {
 	if reset == nil {
 		reset = resetUSBDevice
 	}
+	allowed := config.AllowedVendorIDs
+	if len(allowed) == 0 {
+		allowed = []string{SIMComVendorID}
+	}
+	allowedVendors := make(map[string]struct{}, len(allowed))
+	for _, vendor := range allowed {
+		allowedVendors[strings.ToLower(vendor)] = struct{}{}
+	}
 	return &Recovery{
 		sysClassTTYRoot: sysClassTTYRoot,
 		usbBusRoot:      usbBusRoot,
 		reset:           reset,
+		allowedVendors:  allowedVendors,
 	}
 }
 
@@ -127,7 +143,7 @@ func (recovery *Recovery) resetResolved(device Device) (Device, error) {
 }
 
 // ResolveTTY returns the nearest physical USB device which owns candidateTTY,
-// but only if it is a SIMCom device eligible for reset.
+// but only when its vendor is eligible for this recovery path.
 func (recovery *Recovery) ResolveTTY(candidateTTY string) (Device, error) {
 	ttyName, err := resolveTTYName(candidateTTY)
 	if err != nil {
@@ -148,13 +164,12 @@ func (recovery *Recovery) ResolveTTY(candidateTTY string) (Device, error) {
 			return Device{}, fmt.Errorf("read USB identity for tty %q at %s: %w", candidateTTY, ancestor, err)
 		}
 		if found {
-			if attributes.vendorID != SIMComVendorID {
+			if _, allowed := recovery.allowedVendors[attributes.vendorID]; !allowed {
 				return Device{}, fmt.Errorf(
-					"%w: tty %q belongs to USB vendor %s, not SIMCom %s",
+					"%w: tty %q belongs to USB vendor %s, which this recovery path does not allow",
 					ErrUnsupported,
 					candidateTTY,
 					attributes.vendorID,
-					SIMComVendorID,
 				)
 			}
 			return Device{

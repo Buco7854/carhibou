@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -18,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -35,6 +37,14 @@ import (
 var (
 	version     = "dev"
 	buildTarget = "dev"
+)
+
+const (
+	// loopWatchdogLimit must expire before systemd's 90-second watchdog so the
+	// goroutine stacks reach the journal. The loop runs every 250 ms regardless
+	// of the vehicle sampling cadence.
+	loopWatchdogLimit     = 60 * time.Second
+	systemdNotifyInterval = 30 * time.Second
 )
 
 type paths struct{ config, data string }
@@ -1330,7 +1340,7 @@ func servicePositionAcquirer(
 }
 
 const (
-	physicalRecoveryCooldown = 15 * time.Minute
+	physicalRecoveryCooldown = usbrecovery.Cooldown
 	moduleRecoverySettle     = 8 * time.Second
 )
 
@@ -1584,6 +1594,11 @@ func commandRun(locations paths, arguments []string) error {
 	if *syncSeconds <= 0 {
 		return fmt.Errorf("--config-sync-seconds must be greater than zero")
 	}
+	startupNotifyStop := make(chan struct{})
+	var stopStartupNotifier sync.Once
+	stopStartup := func() { stopStartupNotifier.Do(func() { close(startupNotifyStop) }) }
+	defer stopStartup()
+	go runSystemdNotifier(startupNotifyStop, systemdNotifyInterval, notifySystemdWatchdog)
 	credentials, err := loadCredentials(locations)
 	if err != nil {
 		return err
@@ -1652,8 +1667,19 @@ func commandRun(locations paths, arguments []string) error {
 	agent := &agentruntime.Agent{Queue: queue, Client: api, Position: position, Vehicle: vehicle, BootID: model.NewUUID(), Sequence: sequence}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	var loopHeartbeat atomic.Int64
+	loopHeartbeat.Store(time.Now().UnixNano())
+	watchdogStop := make(chan struct{})
+	defer close(watchdogStop)
+	go runLoopWatchdog(
+		&loopHeartbeat, time.Second, dumpAllStacks,
+		func(stack []byte) { _, _ = os.Stderr.Write(stack) }, os.Exit, watchdogStop,
+	)
+	stopStartup()
 	nextSample, nextUpload, nextSync := time.Now(), time.Now(), time.Now()
 	for {
+		loopHeartbeat.Store(time.Now().UnixNano())
+		notifySystemdWatchdog()
 		select {
 		case <-ctx.Done():
 			return nil
@@ -1712,6 +1738,67 @@ func commandRun(locations paths, arguments []string) error {
 	}
 }
 
+func runLoopWatchdog(
+	heartbeat *atomic.Int64,
+	checkEvery time.Duration,
+	dump func() []byte,
+	write func([]byte),
+	exit func(int),
+	stop <-chan struct{},
+) {
+	ticker := time.NewTicker(checkEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			if time.Since(time.Unix(0, heartbeat.Load())) <= loopWatchdogLimit {
+				continue
+			}
+			write(dump())
+			exit(1)
+			return
+		}
+	}
+}
+
+func runSystemdNotifier(stop <-chan struct{}, interval time.Duration, notify func()) {
+	notify()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			notify()
+		}
+	}
+}
+
+func dumpAllStacks() []byte {
+	buffer := make([]byte, 1<<20)
+	count := runtime.Stack(buffer, true)
+	return append([]byte("agent loop watchdog expired; goroutine stacks follow\n"), buffer[:count]...)
+}
+
+func notifySystemdWatchdog() {
+	socket := os.Getenv("NOTIFY_SOCKET")
+	if socket == "" {
+		return
+	}
+	if strings.HasPrefix(socket, "@") {
+		socket = "\x00" + socket[1:]
+	}
+	connection, err := net.DialUnix("unixgram", nil, &net.UnixAddr{Name: socket, Net: "unixgram"})
+	if err != nil {
+		return
+	}
+	_, _ = connection.Write([]byte("WATCHDOG=1"))
+	_ = connection.Close()
+}
+
 func reportingInterval(configuration store.Configuration, inUse bool) int {
 	return max(configuration.Sampling.Seconds(inUse), configuration.Upload.Seconds(inUse))
 }
@@ -1748,7 +1835,14 @@ func vehicleProvider(device string, configuration store.Configuration) (agentrun
 	if decoder == nil {
 		return providers.NewStandardOBDProvider(adapter), nil
 	}
-	return providers.NewProfileProvider(adapter, decoder), nil
+	provider := providers.NewProfileProvider(adapter, decoder)
+	provider.SetUSBRecovery(func(device string) error {
+		_, err := usbrecovery.New(usbrecovery.Config{
+			AllowedVendorIDs: []string{usbrecovery.FTDIVendorID},
+		}).ResetTTY(device)
+		return err
+	})
+	return provider, nil
 }
 
 func vehicleProfileDecoder(configuration store.Configuration) (*profile.DecoderEngine, error) {

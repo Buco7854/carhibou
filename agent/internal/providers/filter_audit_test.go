@@ -141,7 +141,7 @@ func TestSleepingStartLaterProvesFiltersBrokenAndFallsBack(t *testing.T) {
 	if provider.unfiltered {
 		t.Fatal("a start against a sleeping bus proves nothing and must not fall back yet")
 	}
-	if state := provider.State(); !strings.Contains(state, "monitor: filtered") {
+	if state := provider.State(); !strings.Contains(state, "listen bursts: filtered") {
 		t.Fatalf("state=%q, want the filtered mode named", state)
 	}
 
@@ -203,7 +203,7 @@ func TestSleepingStartWithWorkingFiltersNeverFallsBack(t *testing.T) {
 	if fellBack {
 		t.Fatal("a filtered monitor that is delivering frames must not be replaced")
 	}
-	if state := provider.State(); !strings.Contains(state, "monitor: filtered") {
+	if state := provider.State(); !strings.Contains(state, "listen bursts: filtered") {
 		t.Fatalf("state=%q, want the filtered mode still named", state)
 	}
 }
@@ -228,7 +228,7 @@ func TestQuietBusKeepsReArmingWithoutStatusChurn(t *testing.T) {
 		t.Fatalf("a sleeping bus reported a failure: %q", status)
 	}
 	state := provider.State()
-	if !strings.Contains(state, "monitor: filtered") || !strings.Contains(state, "bus quiet") {
+	if !strings.Contains(state, "listen bursts: filtered") || !strings.Contains(state, "bus quiet") {
 		t.Fatalf("state=%q, want the filtered mode and the quiet bus", state)
 	}
 	// Every burst hands the filtered stream back rather than abandoning it. The
@@ -318,7 +318,7 @@ func TestLiveSessionRaisesOneEventWhenTheBusStops(t *testing.T) {
 	port := &wakeablePort{awake: true, filtersWork: true}
 	provider := auditProvider(t, port)
 	provider.quietSettle = 60 * time.Millisecond
-	provider.quietPoll = 10 * time.Millisecond
+	provider.wakePollInterval = 10 * time.Millisecond
 	provider.Start()
 
 	waitFor(t, "the drive to decode", func() bool {

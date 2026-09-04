@@ -129,6 +129,27 @@ func TestResetTTYResolvesSIMComPhysicalDevice(t *testing.T) {
 	}
 }
 
+func TestFTDIResetRequiresExplicitRecoveryPolicy(t *testing.T) {
+	tree := newFakeUSBTree(t)
+	tree.addUSBDevice("1-2", "", FTDIVendorID, "6015", "1", "8")
+	tty := tree.addTTY("ttyUSB0", "1-2", 0)
+	if _, err := tree.recovery().ResetTTY(tty); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("default recovery accepted FTDI: %v", err)
+	}
+	recovery := New(Config{
+		SysClassTTYRoot:  tree.sysClassTTY,
+		USBBusRoot:       tree.usbBusRoot,
+		AllowedVendorIDs: []string{FTDIVendorID},
+		Reset: func(path string) error {
+			tree.resetPaths = append(tree.resetPaths, path)
+			return nil
+		},
+	})
+	if _, err := recovery.ResetTTY(tty); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResetTTYAcceptsStableDevSymlink(t *testing.T) {
 	tree := newFakeUSBTree(t)
 	tree.addUSBDevice("1-2", "", SIMComVendorID, "9001", "2", "12")

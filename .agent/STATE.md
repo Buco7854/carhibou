@@ -247,13 +247,21 @@ Updated: 2026-09-04
   discarding one older than a freshness window. It previously consumed one line per
   sample against a receiver emitting about ten per second, so the reported position fell
   progressively further behind the vehicle.
-- Nothing on the agent's sampling thread opens hardware. A read of either source is a
-  snapshot; acquisition, CAN monitor preparation (now under a 90 s deadline) and the
-  standard adapter's open all run on the retrying owners' goroutines, and a provider whose
-  session dies reports that as its status so the owner tears it down and backs off. The
-  previous design let a dead CAN session re-prepare inline on the next sample with no
-  deadline, which on 2026-09-04 froze the single-threaded loop for up to two hours at a
-  time (each freeze ending when the car's bus woke) and made SIGTERM wait for SIGKILL.
+- The agent reads the CAN bus in bounded listen bursts, not a continuous stream: one
+  second of filtered STM per sample while in use, plus a one-second wake poll each minute
+  while parked so a drive start is noticed within a minute; bus-woke, bus-quiet and
+  motion-onset events derive from the bursts. Every serial operation has a deadline and
+  a tripped one escalates on the session goroutine (adapter reset and re-prepare, close
+  and reopen, then a cooled-down USB reset of the OBDLink through the same usbrecovery
+  the modem uses), so nothing on the sampling thread ever opens hardware: a read of
+  either source is a snapshot, and acquisition runs on the retrying owners' goroutines.
+  A loop watchdog dumps every goroutine's stack to the journal and exits if the run loop
+  stalls, and the shipped unit carries Restart=always plus WatchdogSec fed from the loop
+  heartbeat. This replaces continuous monitoring after 2026-09-04, when the loop froze
+  four times for up to two hours each on a bus that was awake, released on a two-hour
+  grid nobody has explained (no USB events, no timers), and SIGTERM waited for SIGKILL;
+  the reference design is the owner's father's cron script, which listened for one
+  second a minute from a reset adapter for years without a freeze.
   A non-JSON server reply is now reported with status, content type, remote address,
   final URL and a 200-byte body preview, once per distinct signature: the same day's
   uploads all failed over cellular with a 2xx HTML page from the host holding the
