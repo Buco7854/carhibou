@@ -24,6 +24,11 @@ const readableCoral = syntaxHighlighting(HighlightStyle.define([
   // Its violet keywords measure 4.43:1 on the active line, under the same
   // 4.5:1 the coral above was lightened for.
   { tag:tags.keyword, color:'#ca7ce1' },
+  // Its comments measure 3.59:1 on the plain background and worse still on
+  // the gutter, which sits on the app's own (lighter) panel token rather than
+  // One Dark's own darker one. Lightened the same blue-grey just far enough to
+  // clear 4.5:1 against both.
+  { tag:[tags.meta,tags.comment,tags.link], color:'#939baa' },
 ]))
 const darkTheme = ():Extension[] => [oneDark, Prec.high(readableCoral)]
 onMounted(()=>{
@@ -44,6 +49,10 @@ onBeforeUnmount(()=>view?.destroy())
 :deep(.cm-scroller){font-family:var(--mono)}
 :deep(.cm-editor.cm-focused){outline:0}
 .code-editor:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-:deep(.cm-gutters){background:var(--panel-2);border-right:1px solid var(--line)}
+/* One Dark's own gutter colour (stone) was tuned against its own darker
+   background; on the app's lighter panel token underneath it, it fell to
+   3:1. The app's own muted token is the one already tuned for 4.5:1 against
+   this same panel tone. */
+:deep(.cm-gutters){background:var(--panel-2);color:var(--muted);border-right:1px solid var(--line)}
 @media(max-width:620px){:deep(.cm-editor){height:220px}}
 </style>
