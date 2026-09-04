@@ -43,9 +43,17 @@ var canProtocols = []struct {
 const protocolTrial = 2 * time.Second
 
 const (
-	// profileBurstWindow covers every identifier in the C-Zero profile several
-	// times: its observed broadcasts repeat every 10-100 ms.
+	// profileBurstWindow is the wake poll's full listen window and the ceiling for
+	// sample bursts.
 	profileBurstWindow = time.Second
+	// minimumProfileBurstWindow hears every C-Zero identifier at least three
+	// times because they repeat within 10-100 ms. Using one third of the sampling
+	// interval leaves the serial line idle for two thirds of it, preserving the
+	// separation from the continuous stream that could freeze the service.
+	minimumProfileBurstWindow = 300 * time.Millisecond
+	// burstCompletionAllowance covers the bounded command round-trips that enter
+	// and leave STM without letting a sample wait on adapter recovery.
+	burstCompletionAllowance = 500 * time.Millisecond
 	// parkedWakePollInterval listens for one second each minute while ordinary
 	// parked samples remain ten minutes apart, a roughly 1.7% serial duty cycle.
 	parkedWakePollInterval = time.Minute
@@ -96,6 +104,11 @@ const AuxVoltageMetric = "battery.aux_voltage"
 // charge that started at 02:00 first appears at 02:10.
 var eventMetrics = []string{"vehicle.ready", "charging.active", "vehicle.in_use", "vehicle.state"}
 
+type profileBurstCycle struct {
+	done   chan struct{}
+	window time.Duration
+}
+
 type ProfileProvider struct {
 	adapter *OBDAdapter
 	decoder *profile.DecoderEngine
@@ -135,6 +148,8 @@ type ProfileProvider struct {
 	wakePollInterval time.Duration
 	lastBurstRequest time.Time
 	burstRequests    chan struct{}
+	burstCycle       *profileBurstCycle
+	carriedSnapshot  bool
 	resetUSB         func(string) error
 	lastUSBReset     time.Time
 	now              func() time.Time
@@ -161,6 +176,20 @@ func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *Pr
 		resetUSB:      func(string) error { return fmt.Errorf("USB reset is not configured") },
 		now:           time.Now,
 	}
+}
+
+// ProfileBurstWindow derives the service listen window from its in-use cadence.
+func ProfileBurstWindow(samplingInterval time.Duration) time.Duration {
+	third := (samplingInterval / 3).Truncate(100 * time.Millisecond)
+	return min(max(third, minimumProfileBurstWindow), profileBurstWindow)
+}
+
+// SetSamplingInterval keeps the profile burst short enough for the configured
+// in-use cadence. Parked wake polls deliberately retain their full one second.
+func (provider *ProfileProvider) SetSamplingInterval(samplingInterval time.Duration) {
+	provider.mutex.Lock()
+	provider.burstWindow = ProfileBurstWindow(samplingInterval)
+	provider.mutex.Unlock()
 }
 
 // SetUSBRecovery supplies the service's narrowly scoped physical reset. Tests
@@ -192,7 +221,11 @@ func (provider *ProfileProvider) State() string {
 	// "filtered and hearing nothing" and "unfiltered and hearing nothing" are
 	// different problems and the interface cannot tell them apart otherwise.
 	if provider.stop != nil {
-		parts = append(parts, "listen bursts: "+provider.modeDescription())
+		parts = append(parts, fmt.Sprintf("listen bursts: %s; sample window %s; wake poll window %s",
+			provider.modeDescription(), provider.burstWindow, profileBurstWindow))
+	}
+	if provider.carriedSnapshot {
+		parts = append(parts, "carried observations: requested listen burst did not finish in time")
 	}
 	if silent {
 		parts = append(parts, provider.quietDescription())
@@ -251,19 +284,55 @@ func (provider *ProfileProvider) Live() bool {
 	return !provider.lastFrame.IsZero() && !provider.busQuiet && time.Since(provider.lastFrame) < 2*provider.wakePollInterval
 }
 
-// ReadObservations schedules a bounded listen and returns the last completed
-// snapshot. The session goroutine owns every serial byte, so sampling and GNSS
-// never wait behind the adapter.
+// ReadObservations asks the session goroutine for the burst belonging to this
+// sample. Waiting on its completion rather than the hardware keeps recovery off
+// the sampling thread and gives the caller a hard upper bound.
 func (provider *ProfileProvider) ReadObservations() (model.MetricObservations, error) {
+	cycle, sampleWindow := provider.requestBurst()
+	if cycle == nil {
+		provider.mutex.Lock()
+		provider.carriedSnapshot = true
+		observations := copyObservations(provider.observations)
+		provider.mutex.Unlock()
+		return observations, nil
+	}
+	timer := time.NewTimer(sampleWindow + burstCompletionAllowance)
+	defer timer.Stop()
+	completed := false
+	select {
+	case <-cycle.done:
+		completed = true
+	case <-timer.C:
+	}
 	provider.mutex.Lock()
 	observations := copyObservations(provider.observations)
-	provider.lastBurstRequest = time.Now()
+	provider.carriedSnapshot = !completed
 	provider.mutex.Unlock()
-	select {
-	case provider.burstRequests <- struct{}{}:
-	default:
-	}
 	return observations, nil
+}
+
+func (provider *ProfileProvider) requestBurst() (*profileBurstCycle, time.Duration) {
+	provider.mutex.Lock()
+	provider.lastBurstRequest = time.Now()
+	sampleWindow := provider.burstWindow
+	if provider.stop == nil {
+		provider.mutex.Unlock()
+		return nil, sampleWindow
+	}
+	cycle := provider.burstCycle
+	created := cycle == nil
+	if created {
+		cycle = &profileBurstCycle{done: make(chan struct{}), window: provider.burstWindow}
+		provider.burstCycle = cycle
+	}
+	provider.mutex.Unlock()
+	if created {
+		select {
+		case provider.burstRequests <- struct{}{}:
+		default:
+		}
+	}
+	return cycle, sampleWindow
 }
 
 // Start connects and begins the burst session. The retrying runtime owner calls it on
@@ -376,7 +445,11 @@ func (provider *ProfileProvider) runSession(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-provider.burstRequests:
-			if err := provider.runBurstWithRecovery(); err != nil {
+			cycle := provider.pendingBurstCycle()
+			if cycle == nil {
+				continue
+			}
+			if err := provider.runBurstCycle(cycle); err != nil {
 				provider.fail("CAN listen burst failed: " + err.Error())
 				return
 			}
@@ -385,7 +458,8 @@ func (provider *ProfileProvider) runSession(stop <-chan struct{}) {
 			due := time.Since(provider.lastBurstRequest) >= provider.wakePollInterval
 			provider.mutex.Unlock()
 			if due {
-				if err := provider.runBurstWithRecovery(); err != nil {
+				cycle := provider.ensureBurstCycle(profileBurstWindow)
+				if err := provider.runBurstCycle(cycle); err != nil {
 					provider.fail("CAN wake poll failed: " + err.Error())
 					return
 				}
@@ -398,8 +472,34 @@ func (provider *ProfileProvider) runSession(stop <-chan struct{}) {
 	}
 }
 
-func (provider *ProfileProvider) runBurstWithRecovery() error {
-	if err := provider.runBurst(); err == nil {
+func (provider *ProfileProvider) pendingBurstCycle() *profileBurstCycle {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	return provider.burstCycle
+}
+
+func (provider *ProfileProvider) ensureBurstCycle(window time.Duration) *profileBurstCycle {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	if provider.burstCycle == nil {
+		provider.burstCycle = &profileBurstCycle{done: make(chan struct{}), window: window}
+	}
+	return provider.burstCycle
+}
+
+func (provider *ProfileProvider) runBurstCycle(cycle *profileBurstCycle) error {
+	err := provider.runBurstWithRecovery(cycle.window)
+	provider.mutex.Lock()
+	if provider.burstCycle == cycle {
+		provider.burstCycle = nil
+	}
+	close(cycle.done)
+	provider.mutex.Unlock()
+	return err
+}
+
+func (provider *ProfileProvider) runBurstWithRecovery(window time.Duration) error {
+	if err := provider.runBurstFor(window); err == nil {
 		return nil
 	}
 	if err := provider.adapter.Reset(); err == nil {
@@ -441,10 +541,14 @@ func (provider *ProfileProvider) prepare() error {
 }
 
 func (provider *ProfileProvider) runBurst() error {
+	return provider.runBurstFor(provider.burstWindow)
+}
+
+func (provider *ProfileProvider) runBurstFor(window time.Duration) error {
 	provider.mutex.Lock()
 	unfiltered := provider.unfiltered
 	provider.mutex.Unlock()
-	trace, err := provider.adapter.InspectMonitor(provider.burstWindow, unfiltered, 0, provider.record)
+	trace, err := provider.adapter.InspectMonitor(window, unfiltered, 0, provider.record)
 	provider.updateMonitorReport(trace.Report)
 	provider.noteQuietOnset(time.Now().UTC())
 	return err

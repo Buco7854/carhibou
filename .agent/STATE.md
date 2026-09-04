@@ -261,7 +261,12 @@ Updated: 2026-09-04
   four times for up to two hours each on a bus that was awake, released on a two-hour
   grid nobody has explained (no USB events, no timers), and SIGTERM waited for SIGKILL;
   the reference design is the owner's father's cron script, which listened for one
-  second a minute from a reset adapter for years without a freeze.
+  second a minute from a reset adapter for years without a freeze. A sample waits for
+  its own burst (bounded by the window plus 500 ms; a timeout returns the previous
+  snapshot and says so in the provider state), so a reading is as fresh as the sample,
+  and the in-use window is a third of the sampling interval clamped to 300 ms-1 s, so a
+  1 s cadence is honest: every profile identifier repeats within 100 ms. `update` now
+  rewrites the unit as well as the binary, which is what arms WatchdogSec on upgrades.
   A non-JSON server reply is now reported with status, content type, remote address,
   final URL and a 200-byte body preview, once per distinct signature: the same day's
   uploads all failed over cellular with a 2xx HTML page from the host holding the

@@ -123,16 +123,23 @@ func ServiceRunning() bool {
 }
 
 func InstallService() error {
-	unit := serviceUnit()
-	warnIfSIMComUdevRuleUnavailable(installSIMComUdevRule(hostUdevOperations(), simcomUdevRulePath))
-	if err := os.WriteFile("/etc/systemd/system/"+ServiceName, []byte(unit), 0o644); err != nil {
+	operations := hostUdevOperations()
+	warnIfSIMComUdevRuleUnavailable(installSIMComUdevRule(operations, simcomUdevRulePath))
+	if err := writeServiceUnit(operations, "/etc/systemd/system/"+ServiceName); err != nil {
 		return err
-	}
-	if output, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
-		return fmt.Errorf("reload systemd: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	if output, err := exec.Command("systemctl", "enable", "--now", ServiceName).CombinedOutput(); err != nil {
 		return fmt.Errorf("start service: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
+func writeServiceUnit(operations udevOperations, path string) error {
+	if err := operations.writeFile(path, []byte(serviceUnit()), 0o644); err != nil {
+		return fmt.Errorf("write systemd service unit: %w", err)
+	}
+	if output, err := operations.run("systemctl", "daemon-reload"); err != nil {
+		return fmt.Errorf("reload systemd: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }
@@ -244,6 +251,9 @@ func Update(api *client.Client, version, target string) error {
 		return err
 	}
 	if err := os.Rename(path, BinaryPath); err != nil {
+		return err
+	}
+	if err := writeServiceUnit(hostUdevOperations(), "/etc/systemd/system/"+ServiceName); err != nil {
 		return err
 	}
 	if output, err := exec.Command("systemctl", "restart", ServiceName).CombinedOutput(); err != nil {

@@ -26,6 +26,23 @@ func TestServiceAlwaysRestartsAndUsesSystemdWatchdog(t *testing.T) {
 	}
 }
 
+func TestUpdateServiceUnitWritesCurrentUnitAndReloadsSystemd(t *testing.T) {
+	recorder := &udevRecorder{}
+	path := "/etc/systemd/system/" + ServiceName
+	if err := writeServiceUnit(recorder.operations(), path); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(recorder.writes, []string{path}) {
+		t.Fatalf("unit writes=%v, want [%s]", recorder.writes, path)
+	}
+	if string(recorder.writeData) != serviceUnit() || recorder.writeMode != 0o644 {
+		t.Fatalf("written unit mode=%o content=%q", recorder.writeMode, recorder.writeData)
+	}
+	if !reflect.DeepEqual(recorder.commands, [][]string{{"systemctl", "daemon-reload"}}) {
+		t.Fatalf("commands=%v", recorder.commands)
+	}
+}
+
 type udevRecorder struct {
 	writes       []string
 	writeData    []byte

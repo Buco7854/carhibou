@@ -129,6 +129,56 @@ func TestProfileBurstStopsAfterItsWindow(t *testing.T) {
 	}
 }
 
+func TestReadObservationsReturnsFramesFromItsOwnBurst(t *testing.T) {
+	port := &profilePipelinePort{protocolFrame: true, filteredFrame: true}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 10 * time.Millisecond
+	provider.burstWindow = 25 * time.Millisecond
+	provider.wakePollInterval = time.Hour
+	provider.auditInterval = time.Hour
+	defer provider.Close()
+	provider.Start()
+
+	provider.mutex.Lock()
+	provider.observations = model.MetricObservations{}
+	provider.mutex.Unlock()
+	observations, err := provider.ReadObservations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := observations["battery.soc"].Value; got != float64(67) {
+		t.Fatalf("battery.soc=%v, want the frame decoded by this sample's burst", got)
+	}
+}
+
+func TestWakePollAndSampleShareOneBurst(t *testing.T) {
+	port := &profilePipelinePort{protocolFrame: true, filteredFrame: true}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 10 * time.Millisecond
+	provider.burstWindow = 100 * time.Millisecond
+	provider.wakePollInterval = 500 * time.Millisecond
+	provider.auditInterval = time.Hour
+	defer provider.Close()
+	provider.Start()
+	baseline := countCommand(port.recordedCommands(), "STM")
+
+	waitFor(t, "the wake poll burst to start", func() bool {
+		return countCommand(port.recordedCommands(), "STM") > baseline
+	})
+	if _, err := provider.ReadObservations(); err != nil {
+		t.Fatal(err)
+	}
+	if got := countCommand(port.recordedCommands(), "STM") - baseline; got != 1 {
+		t.Fatalf("listen bursts=%d, want the sample to join the wake poll", got)
+	}
+}
+
 func TestWakePollRaisesEventAfterAQuietBurst(t *testing.T) {
 	port := &wakeablePort{awake: true, filtersWork: true}
 	provider := auditProvider(t, port)
@@ -209,7 +259,7 @@ func TestBurstFailureEscalatesResetReopenThenUSB(t *testing.T) {
 	commandsBefore := len(port.recordedCommands())
 	port.mute = true
 
-	err := provider.runBurstWithRecovery()
+	err := provider.runBurstWithRecovery(provider.burstWindow)
 	if err == nil {
 		t.Fatal("dead adapter recovered unexpectedly")
 	}
@@ -219,6 +269,45 @@ func TestBurstFailureEscalatesResetReopenThenUSB(t *testing.T) {
 	}
 	if opens < 2 || usbCalls != 1 {
 		t.Fatalf("opens=%d usb resets=%d, want reopen then one reset", opens, usbCalls)
+	}
+}
+
+func TestProfileBurstWindowTracksSamplingCadence(t *testing.T) {
+	if got := ProfileBurstWindow(time.Second); got != 300*time.Millisecond {
+		t.Fatalf("one-second cadence window=%s, want 300ms", got)
+	}
+	if got := ProfileBurstWindow(15 * time.Second); got != time.Second {
+		t.Fatalf("15-second cadence window=%s, want 1s", got)
+	}
+}
+
+func TestOneSecondCadenceSampleCompletesWithinItsInterval(t *testing.T) {
+	port := &profilePipelinePort{protocolFrame: true, filteredFrame: true}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 10 * time.Millisecond
+	provider.SetSamplingInterval(time.Second)
+	provider.wakePollInterval = time.Hour
+	provider.auditInterval = time.Hour
+	defer provider.Close()
+	provider.Start()
+	state := provider.State()
+	if !strings.Contains(state, "sample window 300ms") || !strings.Contains(state, "wake poll window 1s") {
+		t.Fatalf("state=%q, want both diagnostic burst windows", state)
+	}
+
+	started := time.Now()
+	observations, err := provider.ReadObservations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("one-second cadence sample took %s", elapsed)
+	}
+	if got := observations["battery.soc"].Value; got != float64(67) {
+		t.Fatalf("battery.soc=%v, want 67", got)
 	}
 }
 
@@ -453,28 +542,42 @@ func TestStateChangesRaiseOneDebouncedEvent(t *testing.T) {
 	}
 }
 
-// Sampling must not wait for the bus. Frames arrive continuously whether or not
-// anyone is reading, and a window opened per sample both blocked for its whole
-// duration — making a one-second cadence impossible — and saw only the fraction
-// of the bus that fell inside it.
-func TestReadMetricsDoesNotWaitForTheBus(t *testing.T) {
-	adapter := NewOBDAdapter("never-answering")
-	adapter.port = &silentPort{}
-	provider := NewProfileProvider(adapter, testDecoder(t))
+func TestStalledBurstReturnsCarriedSnapshotWithinBound(t *testing.T) {
+	port := &escalationPort{profilePipelinePort: profilePipelinePort{protocolFrame: true, filteredFrame: true}}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 5 * time.Millisecond
+	provider.burstWindow = 20 * time.Millisecond
+	provider.adapter.CommandWindow = 20 * time.Millisecond
+	provider.wakePollInterval = time.Hour
+	provider.auditInterval = time.Hour
+	provider.SetUSBRecovery(func(string) error {
+		time.Sleep(2 * (provider.burstWindow + burstCompletionAllowance))
+		return errors.New("still stalled")
+	})
 	defer provider.Close()
+	provider.Start()
+	port.mute = true
 
 	started := time.Now()
-	for i := 0; i < 3; i++ {
-		if _, err := provider.ReadObservations(); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+	observations, err := provider.ReadObservations()
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
-		t.Fatalf("three samples took %s; sampling is waiting on the bus", elapsed)
+	bound := provider.burstWindow + burstCompletionAllowance
+	if elapsed < bound || elapsed > bound+150*time.Millisecond {
+		t.Fatalf("stalled read took %s, want %s..%s", elapsed, bound, bound+150*time.Millisecond)
 	}
-	if provider.Live() {
-		t.Fatal("a provider that never saw a frame is not live")
+	if got := observations["battery.soc"].Value; got != float64(67) {
+		t.Fatalf("carried battery.soc=%v, want 67", got)
 	}
+	if state := provider.State(); !strings.Contains(state, "carried observations") {
+		t.Fatalf("state=%q, want the carried reading disclosed", state)
+	}
+	t.Logf("stalled ReadObservations returned in %s (hard bound %s)", elapsed, bound)
 }
 
 // Closing must be safe whether or not a monitor ever started, because an agent
@@ -541,4 +644,14 @@ func commandIndex(commands []string, target string, start int) int {
 		}
 	}
 	return -1
+}
+
+func countCommand(commands []string, target string) int {
+	count := 0
+	for _, command := range commands {
+		if command == target {
+			count++
+		}
+	}
+	return count
 }

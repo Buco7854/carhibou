@@ -110,6 +110,7 @@ func auditProvider(t *testing.T, port *wakeablePort) *ProfileProvider {
 
 	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
 	provider.trial = 15 * time.Millisecond
+	provider.burstWindow = 20 * time.Millisecond
 	provider.auditInterval = 40 * time.Millisecond
 	provider.auditBurst = 20 * time.Millisecond
 	provider.adapter.CommandWindow = 300 * time.Millisecond
@@ -195,8 +196,14 @@ func TestSleepingStartWithWorkingFiltersNeverFallsBack(t *testing.T) {
 		return observations["battery.soc"].Value == float64(67)
 	})
 
-	// Give the audit several opportunities it should decline to take.
-	time.Sleep(6 * provider.auditInterval)
+	// Give the audit several opportunities while ordinary sample bursts keep
+	// proving that the filtered path works.
+	for range 6 {
+		time.Sleep(provider.auditInterval / 2)
+		if _, err := provider.ReadObservations(); err != nil {
+			t.Fatal(err)
+		}
+	}
 	provider.mutex.Lock()
 	fellBack := provider.unfiltered
 	provider.mutex.Unlock()

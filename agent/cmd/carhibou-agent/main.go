@@ -639,6 +639,9 @@ func commandOBDSelfTest(locations paths, arguments []string) error {
 	}
 	defer adapter.Close()
 	window := time.Duration(*seconds) * time.Second
+	serviceBurstWindow := providers.ProfileBurstWindow(
+		time.Duration(configuration.Sampling.DefaultSeconds) * time.Second,
+	)
 	// Worst case is every protocol tried, a baud fallback that tries them all
 	// again, then the filtered and unfiltered verifications.
 	overall := time.Duration(*deadlineSeconds) * time.Second
@@ -646,7 +649,8 @@ func commandOBDSelfTest(locations paths, arguments []string) error {
 		overall = window*time.Duration(2*providers.CANProtocolCount()+2) + 30*time.Second
 	}
 	started := time.Now()
-	fmt.Fprintf(os.Stderr, "Self-test on %s, up to %s. Each stage listens for %s.\n", *device, overall.Round(time.Second), window)
+	fmt.Fprintf(os.Stderr, "Self-test on %s, up to %s. Each stage listens for %s; service sample bursts listen for %s.\n",
+		*device, overall.Round(time.Second), window, serviceBurstWindow)
 	progress := func(stage string) {
 		fmt.Fprintf(os.Stderr, "[%4.0fs] %s\n", time.Since(started).Seconds(), stage)
 	}
@@ -655,10 +659,11 @@ func commandOBDSelfTest(locations paths, arguments []string) error {
 		progress, started.Add(overall),
 	)
 	result := map[string]any{
-		"device":         *device,
-		"uart_baud_rate": adapter.BaudRate(),
-		"window_seconds": *seconds,
-		"pipeline":       preparation,
+		"device":                  *device,
+		"uart_baud_rate":          adapter.BaudRate(),
+		"window_seconds":          *seconds,
+		"service_burst_window_ms": serviceBurstWindow.Milliseconds(),
+		"pipeline":                preparation,
 	}
 	if identity, identityErr := adapter.Identity(); identityErr == nil {
 		result["adapter"] = identity["adapter"]
@@ -1836,6 +1841,7 @@ func vehicleProvider(device string, configuration store.Configuration) (agentrun
 		return providers.NewStandardOBDProvider(adapter), nil
 	}
 	provider := providers.NewProfileProvider(adapter, decoder)
+	provider.SetSamplingInterval(time.Duration(configuration.Sampling.DefaultSeconds) * time.Second)
 	provider.SetUSBRecovery(func(device string) error {
 		_, err := usbrecovery.New(usbrecovery.Config{
 			AllowedVendorIDs: []string{usbrecovery.FTDIVendorID},
