@@ -12,6 +12,7 @@ import HistoryTable from '../components/HistoryTable.vue'
 import TelemetryTable from '../components/TelemetryTable.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import VehicleMap from '../components/VehicleMap.vue'
+import { breakAtTimeGaps } from '../chartData'
 import { formatMetricNumber, historyValue, metricDefinition, metricLabel, preferredHistoryMetric } from '../vehicleDisplay'
 
 const { t, locale } = useI18n()
@@ -69,10 +70,10 @@ const selectedMetric = computed(() => metricDefinition(metric.value))
 const series = computed(() => [{
   name: metricLabel(selectedMetric.value, t),
   unit: selectedMetric.value.unit,
-  data: (history.value?.points ?? []).flatMap((point) => {
+  data: breakAtTimeGaps((history.value?.points ?? []).flatMap((point) => {
     const value = historyValue(point, metric.value)
     return value !== null ? [[point.recorded_at, value] as [string, number]] : []
-  }),
+  })),
 }])
 const latestValue = computed(() => [...(series.value[0]?.data ?? [])].at(-1)?.[1])
 const latestDisplay = computed(() => latestValue.value === undefined ? '—' : formatMetricNumber(latestValue.value, selectedMetric.value, locale.value))

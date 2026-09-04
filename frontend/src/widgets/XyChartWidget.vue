@@ -5,7 +5,7 @@ import { EMPTY_SEGMENTS, loadHistory, loadSegments, rangeStart } from '../api/se
 import type { DashboardWidget, History, Segments } from '../api/types'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
-import { breakAtXReversals } from '../chartData'
+import { breakAtXReversals, medianGap } from '../chartData'
 import { formatMetricNumber, historyValue, metricDefinition, metricLabel } from '../vehicleDisplay'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { followSelection, mergeSegments } from './segments'
@@ -72,14 +72,8 @@ const outOfRange = computed(() => follow.value.state === 'out-of-range')
 const MIN_CARRY_MS = 30_000
 const MAX_CARRY_MS = 1_800_000
 
-function medianSpacing(stamps: number[]): number {
-  if (stamps.length < 2) return Number.POSITIVE_INFINITY
-  const gaps = stamps.slice(1).map((at, index) => at - stamps[index]!).sort((left, right) => left - right)
-  return gaps[Math.floor(gaps.length / 2)] ?? Number.POSITIVE_INFINITY
-}
-
 function carryWindow(xStamps: number[], yStamps: number[]): number {
-  const slower = Math.max(medianSpacing(xStamps), medianSpacing(yStamps))
+  const slower = Math.max(medianGap(xStamps), medianGap(yStamps))
   if (!Number.isFinite(slower)) return MAX_CARRY_MS
   return Math.min(MAX_CARRY_MS, Math.max(MIN_CARRY_MS, slower * 4))
 }

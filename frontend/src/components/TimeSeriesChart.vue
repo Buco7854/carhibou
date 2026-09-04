@@ -64,10 +64,13 @@ function render() {
           { axisValueLabel?: string; value?: [unknown, number] } | undefined
         if (!point) return ''
         const reading = Array.isArray(point.value) ? point.value[1] : undefined
+        // A break in the line stands for a span the source said nothing about,
+        // so a pointer landing on one shows no card rather than a blank reading.
+        if (typeof reading !== 'number' || !Number.isFinite(reading)) return ''
         const unit = props.series[0]?.unit
         const axisValue = Array.isArray(point.value) ? point.value[0] : point.axisValueLabel
         const at = [typeof axisValue === 'number' ? formatNumber(axisValue, locale.value) : axisValue, props.xUnit].filter(Boolean).join(' ')
-        const value = [typeof reading === 'number' ? formatNumber(reading, locale.value) : reading, unit].filter((part) => part !== undefined && part !== '').join(' ')
+        const value = [formatNumber(reading, locale.value), unit].filter((part) => part !== undefined && part !== '').join(' ')
         return `<span style="color:${muted}">${at}</span><br><strong>${value}</strong>`
       },
     },
