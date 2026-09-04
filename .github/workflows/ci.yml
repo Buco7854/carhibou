@@ -64,10 +64,15 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - name: npm audit
+        # Three back-to-back attempts each failed at exactly the 5-minute mark, which
+        # is npm's own fetch-timeout default (300000ms), not registry flakiness a
+        # retry would paper over: the advisories-bulk endpoint just needs longer than
+        # that to answer a request this size (295 packages here vs. docs' 131, which
+        # answers in under a minute). Two attempts at double the default timeout.
         run: |
-          for attempt in 1 2 3; do
-            npm audit --audit-level=high && exit 0
-            echo "npm audit attempt $attempt failed (the advisories-bulk endpoint is flaky under CI network conditions); retrying..." >&2
+          for attempt in 1 2; do
+            npm audit --audit-level=high --fetch-timeout=600000 && exit 0
+            echo "npm audit attempt $attempt failed; retrying..." >&2
             sleep 15
           done
           exit 1
@@ -90,10 +95,15 @@ jobs:
           cache-dependency-path: docs/package-lock.json
       - run: npm ci
       - name: npm audit
+        # Three back-to-back attempts each failed at exactly the 5-minute mark, which
+        # is npm's own fetch-timeout default (300000ms), not registry flakiness a
+        # retry would paper over: the advisories-bulk endpoint just needs longer than
+        # that to answer a request this size (295 packages here vs. docs' 131, which
+        # answers in under a minute). Two attempts at double the default timeout.
         run: |
-          for attempt in 1 2 3; do
-            npm audit --audit-level=high && exit 0
-            echo "npm audit attempt $attempt failed (the advisories-bulk endpoint is flaky under CI network conditions); retrying..." >&2
+          for attempt in 1 2; do
+            npm audit --audit-level=high --fetch-timeout=600000 && exit 0
+            echo "npm audit attempt $attempt failed; retrying..." >&2
             sleep 15
           done
           exit 1
