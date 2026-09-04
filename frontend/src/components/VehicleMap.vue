@@ -848,18 +848,24 @@ onBeforeUnmount(() => {
 }
 :deep(.maplibregl-ctrl-attrib.maplibregl-compact){min-height:26px;padding:0}
 :deep(.maplibregl-ctrl-attrib.maplibregl-compact-show){padding:4px 34px 4px 9px}
+/*
+ * Anchored to the bottom edge, not the top. The control hangs from the map's
+ * bottom-right corner, so when the credit opens and wraps to a second line the
+ * box grows upward: a top-anchored toggle rode that edge and jumped every time
+ * it was tapped. The bottom edge is the one that stays put.
+ */
 :deep(.maplibregl-ctrl-attrib-button){
-  top:1px;right:1px;width:24px;height:24px;
+  top:auto;bottom:1px;right:1px;width:24px;height:24px;
   background-color:transparent!important;border-radius:var(--radius-sm);opacity:.75;
 }
 :deep(.maplibregl-ctrl-attrib-button:hover){opacity:1}
 /*
- * :focus, not :focus-visible: MapLibre's own rule for this button fires on
- * :focus (any focus method, including a mouse click), so matching that is
- * what actually cancels its blue box-shadow on click rather than leaving it
- * to show through untouched next to a keyboard-only outline.
+ * MapLibre draws its blue box-shadow on :focus, which a tap or click also
+ * satisfies, so that is where it is cancelled; the ring itself is reserved for
+ * :focus-visible, as the rest of the interface does, so a tap leaves no halo.
  */
-:deep(.maplibregl-ctrl-attrib-button:focus){outline:2px solid var(--accent)!important;outline-offset:1px;box-shadow:none!important}
+:deep(.maplibregl-ctrl-attrib-button:focus){box-shadow:none!important;outline:none}
+:deep(.maplibregl-ctrl-attrib-button:focus-visible){outline:2px solid var(--accent)!important;outline-offset:1px}
 :deep(.maplibregl-ctrl-attrib a){color:var(--accent)}
 :deep(.maplibregl-canvas){outline:none}
 /* The renderer's own glyph is dark artwork on a panel that is not, in one theme
@@ -872,7 +878,7 @@ onBeforeUnmount(() => {
  * lose the glyph's contrast while focused), the ring's colour is pre-inverted
  * so the filter lands it back on var(--accent): 255-0x60,255-0xa5,255-0xfa.
  */
-:global([data-theme="dark"] .map-frame .maplibregl-ctrl-attrib-button:focus){outline-color:#9f5a05!important}
+:global([data-theme="dark"] .map-frame .maplibregl-ctrl-attrib-button:focus-visible){outline-color:#9f5a05!important}
 
 /* Nothing to draw the ground with: dim what did arrive rather than pretend. */
 .map-frame.unavailable :deep(.maplibregl-canvas){opacity:.12}
