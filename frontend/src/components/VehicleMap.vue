@@ -832,9 +832,17 @@ onBeforeUnmount(() => {
  * button sat on top of "OpenStreetMap". The reservation is restored here, on the
  * side the control actually sits, and the text wraps rather than being clipped.
  */
+/*
+ * MapLibre's own compact CSS sets its own black text colour on this same
+ * element (`.maplibregl-ctrl-attrib.maplibregl-compact`, two classes, the same
+ * specificity as ours below); its stylesheet loads after this component's
+ * scoped one, since MapLibre itself is imported lazily, so on a tie it was
+ * winning and painting "Data from" black on the dark panel behind it.
+ * !important is the deciding vote, not just a stronger selector.
+ */
 :deep(.maplibregl-ctrl-attrib){
   max-width:min(460px,calc(100% - 20px));margin:0 10px 10px 0!important;padding:3px 8px;
-  color:var(--muted);background:color-mix(in srgb,var(--panel) 88%,transparent)!important;
+  color:var(--muted)!important;background:color-mix(in srgb,var(--panel) 88%,transparent)!important;
   border:1px solid var(--line);border-radius:var(--radius)!important;
   font:400 11px/1.45 "IBM Plex Sans",sans-serif;white-space:normal;
 }
@@ -845,12 +853,26 @@ onBeforeUnmount(() => {
   background-color:transparent!important;border-radius:var(--radius-sm);opacity:.75;
 }
 :deep(.maplibregl-ctrl-attrib-button:hover){opacity:1}
-:deep(.maplibregl-ctrl-attrib-button:focus-visible){outline:2px solid var(--accent);outline-offset:1px;box-shadow:none}
+/*
+ * :focus, not :focus-visible: MapLibre's own rule for this button fires on
+ * :focus (any focus method, including a mouse click), so matching that is
+ * what actually cancels its blue box-shadow on click rather than leaving it
+ * to show through untouched next to a keyboard-only outline.
+ */
+:deep(.maplibregl-ctrl-attrib-button:focus){outline:2px solid var(--accent)!important;outline-offset:1px;box-shadow:none!important}
 :deep(.maplibregl-ctrl-attrib a){color:var(--accent)}
 :deep(.maplibregl-canvas){outline:none}
 /* The renderer's own glyph is dark artwork on a panel that is not, in one theme
    of two; inverting it is cheaper than replacing the control. */
 :global([data-theme="dark"] .map-frame .maplibregl-ctrl-attrib-button){filter:invert(1)}
+/*
+ * The dark-theme filter above inverts this button's own focus ring along with
+ * its glyph, which turned MapLibre's blue (#0096ff) into an orange (#ff6900)
+ * once the two combined. Rather than special-case the filter around focus (and
+ * lose the glyph's contrast while focused), the ring's colour is pre-inverted
+ * so the filter lands it back on var(--accent): 255-0x60,255-0xa5,255-0xfa.
+ */
+:global([data-theme="dark"] .map-frame .maplibregl-ctrl-attrib-button:focus){outline-color:#9f5a05!important}
 
 /* Nothing to draw the ground with: dim what did arrive rather than pretend. */
 .map-frame.unavailable :deep(.maplibregl-canvas){opacity:.12}
