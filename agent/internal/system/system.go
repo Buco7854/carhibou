@@ -18,11 +18,30 @@ import (
 )
 
 const (
-	ServiceName = "carhibou-agent.service"
-	BinaryPath  = "/usr/local/bin/carhibou-agent"
-	ConfigDir   = "/etc/carhibou-agent"
-	DataDir     = "/var/lib/carhibou-agent"
+	ServiceName        = "carhibou-agent.service"
+	BinaryPath         = "/usr/local/bin/carhibou-agent"
+	ConfigDir          = "/etc/carhibou-agent"
+	DataDir            = "/var/lib/carhibou-agent"
+	simcomUdevRulePath = "/etc/udev/rules.d/99-carhibou-agent-simcom.rules"
 )
+
+type udevOperations struct {
+	writeFile func(string, []byte, os.FileMode) error
+	chmod     func(string, os.FileMode) error
+	remove    func(string) error
+	run       func(string, ...string) ([]byte, error)
+}
+
+func hostUdevOperations() udevOperations {
+	return udevOperations{
+		writeFile: os.WriteFile,
+		chmod:     os.Chmod,
+		remove:    os.Remove,
+		run: func(name string, args ...string) ([]byte, error) {
+			return exec.Command(name, args...).CombinedOutput()
+		},
+	}
+}
 
 func RequireRoot() error {
 	if os.Geteuid() != 0 {
@@ -125,6 +144,7 @@ ReadWritePaths=/var/lib/carhibou-agent /etc/carhibou-agent
 [Install]
 WantedBy=multi-user.target
 `
+	warnIfSIMComUdevRuleUnavailable(installSIMComUdevRule(hostUdevOperations(), simcomUdevRulePath))
 	if err := os.WriteFile("/etc/systemd/system/"+ServiceName, []byte(unit), 0o644); err != nil {
 		return err
 	}
@@ -154,6 +174,7 @@ func Uninstall(yes bool) error {
 		}
 	}
 	ignoreCommand("systemctl", "disable", "--now", ServiceName)
+	warnIfSIMComUdevRuleUnavailable(uninstallSIMComUdevRule(hostUdevOperations(), simcomUdevRulePath))
 	if err := os.Remove("/etc/systemd/system/" + ServiceName); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -195,6 +216,7 @@ func Update(api *client.Client, version, target string) error {
 	if !strings.EqualFold(expected[0], hex.EncodeToString(actual[:])) {
 		return fmt.Errorf("release checksum mismatch")
 	}
+	warnIfSIMComUdevRuleUnavailable(installSIMComUdevRule(hostUdevOperations(), simcomUdevRulePath))
 	temporary, err := os.CreateTemp(filepath.Dir(BinaryPath), ".carhibou-agent-*")
 	if err != nil {
 		return err
@@ -258,6 +280,62 @@ func LoadCredentials(path string) (store.Credentials, error) {
 		return credentials, fmt.Errorf("credentials are incomplete")
 	}
 	return credentials, nil
+}
+
+// warnIfSIMComUdevRuleUnavailable reports a udev problem without failing the
+// operation that hit it.
+//
+// The rule only grants the unprivileged service permission to reset a wedged
+// SIMCom modem over usbfs, which is the last resort of position recovery and is
+// reached after every AT-level remedy has failed. A host without udev, or one
+// that refuses the trigger, still runs the agent perfectly well. Aborting an
+// install or an update over it would trade the whole agent for its fallback.
+func warnIfSIMComUdevRuleUnavailable(err error) {
+	if err == nil {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "Warning: SIMCom USB recovery permissions were not configured:", err)
+	fmt.Fprintln(os.Stderr, "The agent runs normally; recovering a wedged modem may need a manual replug.")
+}
+
+func simcomUdevRule() string {
+	return `# Managed by Carhibou. Grants USB reset access only to SIMCom devices.
+ACTION=="add|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1e0e", GROUP="carhibou-agent", MODE="0660"
+ACTION=="add|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1e0e", TEST=="power/control", ATTR{power/control}="on"
+`
+}
+
+func installSIMComUdevRule(operations udevOperations, path string) error {
+	if err := operations.writeFile(path, []byte(simcomUdevRule()), 0o644); err != nil {
+		return fmt.Errorf("install SIMCom udev rule: %w", err)
+	}
+	if err := operations.chmod(path, 0o644); err != nil {
+		return fmt.Errorf("set SIMCom udev rule permissions: %w", err)
+	}
+	return reloadSIMComUdevRules(operations)
+}
+
+func uninstallSIMComUdevRule(operations udevOperations, path string) error {
+	if err := operations.remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("remove SIMCom udev rule: %w", err)
+	}
+	return reloadSIMComUdevRules(operations)
+}
+
+func reloadSIMComUdevRules(operations udevOperations) error {
+	for _, command := range [][]string{
+		{"udevadm", "control", "--reload-rules"},
+		{"udevadm", "trigger", "--settle", "--subsystem-match=usb", "--attr-match=idVendor=1e0e", "--action=change"},
+	} {
+		output, err := operations.run(command[0], command[1:]...)
+		if err != nil {
+			return fmt.Errorf("refresh SIMCom udev devices: %s: %w", strings.TrimSpace(string(output)), err)
+		}
+	}
+	return nil
 }
 
 func ignoreCommand(name string, args ...string) { _ = exec.Command(name, args...).Run() }

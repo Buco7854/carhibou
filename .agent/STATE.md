@@ -1,6 +1,6 @@
 # Current project state
 
-Updated: 2026-09-03
+Updated: 2026-09-04
 
 ## Works
 
@@ -168,7 +168,20 @@ Updated: 2026-09-03
   `doctor --probe` reports each port's role and `monitor` prints live position and
   metrics together. The service records its resolved roles to `detection.json`, so
   `devices` and `doctor` report what it chose without competing for ports it already
-  holds; probing again requires stopping the service first.
+  holds; probing again requires stopping the service first. Serial discovery is
+  process-isolated: a timed-out open is killed and reaped before the next interface,
+  and a failed sweep preserves the last working roles rather than erasing the only
+  safe recovery route. If a proven NMEA stream genuinely stops, recovery escalates
+  from a GNSS-only AT cycle to `AT+CRESET`, then to one vendor-checked SIMCom USB reset
+  at most every 15 minutes. Installation grants only the service group access to
+  SIMCom usbfs nodes and disables autosuspend for those devices; FTDI adapters and hubs
+  cannot be reset through this path. Valid NMEA traffic without a satellite fix is
+  treated as a live receiver, not a hardware failure. The sweep persists through the
+  wake-up commands a SIM7600 control port swallows after being opened, and every phase
+  of the conversation reads against its own deadline so the watchdog derived from that
+  budget cannot abandon a port that was about to answer. Those two together are what
+  previously left a powered-down receiver with no interface able to switch it on, so
+  only unplugging the board recovered it.
 - Both position sources report how long they have been repeating a reading, published
   as `gps_fix_age_seconds` in agent health. A streamed fix ages when the receiver goes
   quiet, and a polled one ages when the module replays its last known position with a

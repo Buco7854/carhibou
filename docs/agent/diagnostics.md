@@ -31,24 +31,39 @@ sudo carhibou-agent monitor --interval 2
 sudo systemctl start carhibou-agent
 ```
 
-The probe listens before writing, classifies every capability a port answers with, and
-abandons an unresponsive interface after its budget. An `nmea+modem` port can both emit
-position sentences and accept the commands that switch GNSS on. No interface index is
-assumed.
+The probe listens before writing and classifies each port from what it actually answers.
+Each port is tested in its own short-lived process; if opening or reading it hangs, that
+process is stopped and reaped before the next port is touched. An unresponsive interface
+therefore cannot accumulate hidden owners across retries. No interface index is assumed.
 
 Automatic discovery is saved in `detection.json` to avoid a slow sweep on every restart.
-It is reused only while the same serial paths exist and the chosen devices still open;
-replugging hardware invalidates it. Explicit `/dev/serial/by-id/...` choices avoid both
-probing and unstable `ttyUSB` numbering.
+It is reused only while the same serial paths exist. A failed sweep does not erase the
+last roles that worked, because those known NMEA and control paths are the safest route
+to recovery. Replugging hardware invalidates the saved answer. Explicit
+`/dev/serial/by-id/...` choices avoid probing and unstable `ttyUSB` numbering, but they
+are not required for self-recovery.
 
 ## GPS has no usable position
 
-If `gps-info` reaches the receiver but produces no fix, move the antenna away from the
-agent board and metal enclosures and give it a clear view of the sky. A stationary fix
-can repeat valid coordinates, so freshness comes from the receiver's advancing UTC
-clock. The agent publishes `gps_fix_age_seconds` and drops a reading that repeats beyond
-a window scaled to the sample cadence; a frozen last-known fix cannot become current
-position.
+`gps-info` distinguishes two cases. Valid NMEA traffic without a position means the
+receiver is alive but cannot see enough satellites: move the antenna away from the agent
+board and metal enclosures and give it a clear view of the sky. No NMEA traffic starts
+the same automatic staged recovery as the service; it does not ask the operator to guess
+an interface or unplug the Pi.
+
+The normal service performs that recovery in the background while telemetry collection
+and its durable outbox continue. It first reuses the last working ports, cycles only the
+GNSS engine, then asks the SIMCom firmware to restart. If even its AT control port is
+unresponsive, it resets only the physical SIMCom USB device. That final action is
+rate-limited to once per 15 minutes and can briefly interrupt a cellular connection; any
+unsent samples remain in SQLite and upload afterward. The installer gives the
+unprivileged service narrowly scoped permission for this reset—no root service and no
+permission over unrelated USB devices.
+
+A stationary fix can repeat valid coordinates, so freshness comes from the receiver's
+advancing UTC clock. The agent publishes `gps_fix_age_seconds` and drops a reading that
+repeats beyond a window scaled to the sample cadence; a frozen last-known fix cannot
+become current position.
 
 ## OBD has no metrics
 
@@ -86,7 +101,7 @@ simulator and pseudo-serial tests are not hardware validation.
 | Serial role probing (NMEA/ELM/AT) | Complete | Passing scripted-port tests | **Confirmed** 2026-08-26 on Pi Zero W: six interfaces swept and roles identified by answers, not index |
 | GNSS power-on (`AT+CGPS`/`AT+CGNSPWR`) | Complete | Passing response tests | Pending cold start on SIM7600G-H; already-running behavior is handled |
 | `AT+CGPSINFO` position polling | Complete | Passing decode tests | Pending SIM7600G-H |
-| SIM7600 serial reconnection | Complete | Passing | Pending SIM7600G-H |
+| SIM7600 serial reconnection and staged recovery | Complete | Passing isolated-process, wake-up, budget, AT-cycle and vendor-scoped USB-reset tests | Failure reproduced on SIM7600/Pi Zero 2026-09-04 and again against a pseudo-serial module; automatic recovery still needs a physical recurrence test |
 | OBDLink SX discovery/identity | Complete | Passing parser tests | **Confirmed** 2026-08-26: ELM327 v1.3a / STN1130 v4.0.1; VIN still pending ignition-on test |
 | Standard OBD PID decoding | Complete | Passing | C-Zero confirmed unsupported; pending a vehicle that answers |
 | Hybrid/EV pack charge (PID `5B`) | Experimental | Passing decode test | Pending; semantics unconfirmed |
@@ -109,7 +124,20 @@ physical status. Never promote simulation to verification.
 - CAN monitoring must be continuous, try supported protocols and apply profile pass
   filters before reading. Displayed frame length is accepted only in its exact format so
   a payload byte cannot shift every decoder offset.
-- A serial sweep needs per-port watchdogs, a hardware-keyed cache and multi-capability
-  classification. Some modem interfaces block, and one port may supply both NMEA and AT.
+- A serial sweep needs process-isolated per-port watchdogs, a hardware-keyed cache and
+  multi-capability classification. Returning from a timed-out goroutine is insufficient:
+  it can still own the port and make each later sweep worse.
+- A SIM7600 control interface commonly ignores the first command sent after its port is
+  opened, and sometimes the second. Asking once files a working port as unknown, and
+  since that port is the only one able to switch GNSS on, the module then stays mute
+  until it is physically unplugged. A terminal hides this: the operator just presses
+  return again.
+- A probe watchdog must be derived from a conversation whose windows are truthful. When
+  each phase used one fixed read timeout and checked the clock only between reads, every
+  phase overran, and the port needing all three phases before it answers is exactly the
+  control interface. Sizing the watchdog generously costs nothing: a silent port ends its
+  own conversation on time, so only a genuinely wedged one ever waits.
 - A stream of valid NMEA sentences proves GNSS is already on; asking an already-running
   SIM7600 to enable it can return an expected error.
+- Satellite-fix freshness and receiver liveness are different clocks. Valid no-fix NMEA
+  proves the serial path is alive and must not trigger hardware recovery.

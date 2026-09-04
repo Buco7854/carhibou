@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/Buco7854/carhibou/agent/internal/providers"
 	agentruntime "github.com/Buco7854/carhibou/agent/internal/runtime"
 	"github.com/Buco7854/carhibou/agent/internal/store"
+	"github.com/Buco7854/carhibou/agent/internal/usbrecovery"
 )
 
 type cadencePosition struct{ fix *model.PositionFix }
@@ -209,6 +211,127 @@ func TestPositionFallsBackToTheControlPortWhenNothingStreams(t *testing.T) {
 	defer closePosition()
 	if _, ok := position.(*providers.ModemPort); !ok {
 		t.Fatalf("position source is %T, want the control port", position)
+	}
+}
+
+func testPositionRecovery(initial resolvedDevices) *positionRecovery {
+	return &positionRecovery{
+		hardware:        store.DefaultHardware(),
+		devices:         initial,
+		samplingSeconds: 1,
+		resolve:         func(store.Hardware, paths, bool) resolvedDevices { return resolvedDevices{} },
+		reprobe: func(store.Hardware, paths, resolvedDevices) resolvedDevices {
+			return resolvedDevices{}
+		},
+		start: func(resolvedDevices, int) (agentruntime.PositionProvider, func(), error) {
+			return agentruntime.EmptyPosition{}, func() {}, nil
+		},
+		restartGNSS:   func(resolvedDevices) error { return nil },
+		restartModule: func(resolvedDevices) error { return nil },
+		resetUSB: func([]string) (usbrecovery.Device, error) {
+			return usbrecovery.Device{}, errors.New("unexpected USB reset")
+		},
+		candidates: func() []string { return nil },
+		forget:     func() {},
+		now:        time.Now,
+		sleep:      func(time.Duration) {},
+	}
+}
+
+// A source that was proven to stream and then went silent is recovered through
+// its known control port before any whole-device reset is considered.
+func TestPositionRecoveryRestartsOnlyGNSSFirst(t *testing.T) {
+	devices := resolvedDevices{gps: "/dev/gps", modem: "/dev/control", gpsStreams: true}
+	recovery := testPositionRecovery(devices)
+	recovery.attempted = true
+	restarts := 0
+	recovery.restartGNSS = func(got resolvedDevices) error {
+		restarts++
+		if got.gps != devices.gps || got.modem != devices.modem || got.gpsStreams != devices.gpsStreams {
+			t.Fatalf("devices=%+v, want %+v", got, devices)
+		}
+		return nil
+	}
+	recovery.restartModule = func(resolvedDevices) error {
+		t.Fatal("whole modem restarted after receiver-only recovery succeeded")
+		return nil
+	}
+
+	if _, err := recovery.acquire(); err != nil {
+		t.Fatal(err)
+	}
+	if restarts != 1 {
+		t.Fatalf("receiver restarts=%d, want 1", restarts)
+	}
+}
+
+func TestPositionRecoveryEscalatesFromATToOneVettedUSBReset(t *testing.T) {
+	devices := resolvedDevices{gps: "/dev/gps", modem: "/dev/control", gpsStreams: true}
+	recovery := testPositionRecovery(devices)
+	recovery.attempted = true
+	recovery.restartGNSS = func(resolvedDevices) error { return errors.New("receiver command timed out") }
+	recovery.restartModule = func(resolvedDevices) error { return errors.New("modem command timed out") }
+	recovery.candidates = func() []string { return []string{"/dev/control", "/dev/other"} }
+	resetCalls := 0
+	recovery.resetUSB = func(candidates []string) (usbrecovery.Device, error) {
+		resetCalls++
+		want := []string{"/dev/gps", "/dev/control", "/dev/other"}
+		if strings.Join(candidates, ",") != strings.Join(want, ",") {
+			t.Fatalf("candidates=%v, want %v", candidates, want)
+		}
+		return usbrecovery.Device{ProductID: "9001", BusNumber: 1, DeviceNumber: 3}, nil
+	}
+	refreshed := resolvedDevices{gps: "/dev/gps-new", modem: "/dev/control-new", gpsStreams: true}
+	recovery.reprobe = func(store.Hardware, paths, resolvedDevices) resolvedDevices { return refreshed }
+	forgot := 0
+	recovery.forget = func() { forgot++ }
+
+	if _, err := recovery.acquire(); err != nil {
+		t.Fatal(err)
+	}
+	if resetCalls != 1 || forgot != 1 {
+		t.Fatalf("USB resets=%d cache forgets=%d, want one of each", resetCalls, forgot)
+	}
+	if recovery.devices.gps != refreshed.gps || recovery.devices.modem != refreshed.modem {
+		t.Fatalf("devices=%+v, want rediscovered %+v", recovery.devices, refreshed)
+	}
+
+	// Even if acquisition is asked again immediately, the physical reset has a
+	// cooldown. This prevents an unplugged or genuinely failed modem reset loop.
+	recovery.restartGNSS = func(resolvedDevices) error { return errors.New("still unavailable") }
+	recovery.restartModule = func(resolvedDevices) error { return errors.New("still unavailable") }
+	if _, err := recovery.acquire(); err != nil {
+		t.Fatal(err)
+	}
+	if resetCalls != 1 {
+		t.Fatalf("USB resets=%d, want cooldown to retain 1", resetCalls)
+	}
+}
+
+func TestMissingPositionGetsASecondSweepBeforeUSBRecovery(t *testing.T) {
+	recovery := testPositionRecovery(resolvedDevices{})
+	freshSweeps := 0
+	recovery.reprobe = func(store.Hardware, paths, resolvedDevices) resolvedDevices {
+		freshSweeps++
+		return resolvedDevices{}
+	}
+	resetCalls := 0
+	recovery.resetUSB = func([]string) (usbrecovery.Device, error) {
+		resetCalls++
+		return usbrecovery.Device{}, usbrecovery.ErrNotFound
+	}
+
+	if _, err := recovery.acquire(); err == nil {
+		t.Fatal("first missing-device attempt unexpectedly succeeded")
+	}
+	if resetCalls != 0 {
+		t.Fatal("an initially enumerating modem was reset before one normal retry")
+	}
+	if _, err := recovery.acquire(); err == nil {
+		t.Fatal("second missing-device attempt unexpectedly succeeded")
+	}
+	if freshSweeps != 2 || resetCalls != 1 {
+		t.Fatalf("fresh sweeps=%d USB resets=%d, want 2 and 1", freshSweeps, resetCalls)
 	}
 }
 

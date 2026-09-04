@@ -10,11 +10,26 @@ import (
 	"go.bug.st/serial"
 )
 
-// gnssEnableCommands are tried in order because SIMCom firmware split the GNSS
+// gnssCommandFamilies are tried in order because SIMCom firmware split the GNSS
 // control surface: newer SIM7600 builds answer AT+CGPS, older ones AT+CGNSPWR.
 // A module that rejects one usually accepts the other, and a module already
 // powered on answers ERROR to the enable command without any harm done.
-var gnssEnableCommands = []string{"AT+CGPS=1", "AT+CGNSPWR=1"}
+var gnssCommandFamilies = []struct {
+	query   string
+	enable  string
+	disable string
+	prefix  string
+}{
+	{query: "AT+CGPS?", enable: "AT+CGPS=1", disable: "AT+CGPS=0", prefix: "+CGPS:"},
+	{query: "AT+CGNSPWR?", enable: "AT+CGNSPWR=1", disable: "AT+CGNSPWR=0", prefix: "+CGNSPWR:"},
+}
+
+var (
+	openModemPort   = serial.Open
+	gnssResetSettle = time.Second
+)
+
+const modemReadyAttempts = 3
 
 // ModemPort is the control interface of a cellular module, used to switch the
 // GNSS receiver on and, when the module publishes no separate NMEA stream, to
@@ -29,6 +44,7 @@ type ModemPort struct {
 	MaxAge     time.Duration
 	lastReport *time.Time
 	lastChange time.Time
+	lastAnswer time.Time
 	failure    string
 }
 
@@ -42,7 +58,7 @@ func (modem *ModemPort) open() error {
 	if modem.port != nil {
 		return nil
 	}
-	port, err := serial.Open(modem.device, &serial.Mode{BaudRate: 115200})
+	port, err := openModemPort(modem.device, &serial.Mode{BaudRate: 115200})
 	if err != nil {
 		return err
 	}
@@ -81,6 +97,7 @@ func (modem *ModemPort) Command(command string, window time.Duration) ([]string,
 		if count > 0 {
 			response += string(modem.buffer[:count])
 			if isFinalResult(response) {
+				modem.lastAnswer = time.Now()
 				break
 			}
 		}
@@ -91,6 +108,11 @@ func (modem *ModemPort) Command(command string, window time.Duration) ([]string,
 	}
 	return responseLines(response, command), nil
 }
+
+// HasTraffic reports whether the control port completed an AT exchange. An
+// empty +CGPSINFO position still proves the serial device is alive; lack of a
+// satellite fix must not be escalated into a modem or USB reset.
+func (modem *ModemPort) HasTraffic() bool { return !modem.lastAnswer.IsZero() }
 
 func isFinalResult(response string) bool {
 	return strings.Contains(response, "OK\r") || strings.Contains(response, "ERROR")
@@ -107,21 +129,39 @@ func responseLines(response, command string) []string {
 	return lines
 }
 
+// waitReady wakes and verifies an AT control port before sending a state-changing
+// command. A SIM7600 interface can ignore the first command after it has been
+// reopened; treating that wake-up loss as rejection made recovery skip a control
+// port that answered immediately in an interactive terminal.
+func (modem *ModemPort) waitReady() error {
+	for range modemReadyAttempts {
+		lines, err := modem.Command("AT", 1500*time.Millisecond)
+		if err == nil && containsFold(lines, "OK") {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("the modem control port did not answer AT after %d attempts", modemReadyAttempts)
+}
+
 // EnableGNSS switches the receiver on. A module that boots with GNSS powered down
 // publishes no NMEA at all, so without this the agent waits forever for a fix that
 // the hardware was never asked to produce.
 func (modem *ModemPort) EnableGNSS() (string, error) {
+	if err := modem.waitReady(); err != nil {
+		return "", err
+	}
 	var lastErr error
-	for _, command := range gnssEnableCommands {
-		lines, err := modem.Command(command, 3*time.Second)
+	for _, family := range gnssCommandFamilies {
+		lines, err := modem.Command(family.enable, 3*time.Second)
 		if err != nil {
 			lastErr = err
 			continue
 		}
 		if containsFold(lines, "OK") {
-			return command, nil
+			return family.enable, nil
 		}
-		lastErr = fmt.Errorf("%s was rejected", command)
+		lastErr = fmt.Errorf("%s was rejected", family.enable)
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no GNSS enable command was accepted")
@@ -132,16 +172,80 @@ func (modem *ModemPort) EnableGNSS() (string, error) {
 // GNSSEnabled reports whether the receiver is already running, so a caller can
 // avoid re-issuing an enable command the module would answer with ERROR.
 func (modem *ModemPort) GNSSEnabled() (bool, error) {
-	lines, err := modem.Command("AT+CGPS?", time.Second)
-	if err != nil {
+	if err := modem.waitReady(); err != nil {
 		return false, err
 	}
-	for _, line := range lines {
-		if value, found := strings.CutPrefix(line, "+CGPS:"); found {
-			return strings.HasPrefix(strings.TrimSpace(value), "1"), nil
+	var lastErr error
+	for _, family := range gnssCommandFamilies {
+		lines, err := modem.Command(family.query, 2*time.Second)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		for _, line := range lines {
+			if value, found := strings.CutPrefix(line, family.prefix); found {
+				return strings.HasPrefix(strings.TrimSpace(value), "1"), nil
+			}
 		}
 	}
-	return false, nil
+	if lastErr != nil {
+		return false, lastErr
+	}
+	return false, fmt.Errorf("the modem answered but reported no GNSS state")
+}
+
+// RestartGNSS cycles only the receiver engine, leaving the cellular modem and
+// its data connection alone. It is used after a stream that previously worked
+// has been silent long enough to be declared dead: merely asking whether GNSS
+// is enabled cannot repair an enabled-but-wedged engine.
+func (modem *ModemPort) RestartGNSS() (string, error) {
+	if err := modem.waitReady(); err != nil {
+		return "", err
+	}
+	var lastErr error
+	for _, family := range gnssCommandFamilies {
+		lines, err := modem.Command(family.disable, 3*time.Second)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if !containsFold(lines, "OK") {
+			lastErr = fmt.Errorf("%s was rejected", family.disable)
+			continue
+		}
+		time.Sleep(gnssResetSettle)
+		lines, err = modem.Command(family.enable, 3*time.Second)
+		if err == nil && containsFold(lines, "OK") {
+			return family.disable + " then " + family.enable, nil
+		}
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("%s was rejected", family.enable)
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no GNSS control family was accepted")
+	}
+	return "", lastErr
+}
+
+// RestartModule asks the SIMCom firmware to reboot the composite modem. It is
+// deliberately separate from RestartGNSS: callers should try the receiver-only
+// cycle first because this command also interrupts the modem's USB interfaces
+// and any cellular connection using them.
+func (modem *ModemPort) RestartModule() error {
+	if err := modem.waitReady(); err != nil {
+		return err
+	}
+	lines, err := modem.Command("AT+CRESET", 3*time.Second)
+	if err != nil {
+		return err
+	}
+	if !containsFold(lines, "OK") {
+		return fmt.Errorf("AT+CRESET was rejected")
+	}
+	return nil
 }
 
 // Read polls a position over AT, satisfying the agent's position provider.

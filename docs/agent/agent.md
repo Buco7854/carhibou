@@ -19,6 +19,9 @@ downloads one executable and its SHA-256 file. Releases provide `linux-armv6`,
 `carhibou-agent` account with serial access, enrolls, installs
 `carhibou-agent.service`, and runs diagnostics. Its permanent agent credential is
 returned once and stored mode-restricted under `/etc/carhibou-agent`.
+Installation also grants that account reset access to SIMCom USB devices only and
+disables autosuspend for them. This lets the service recover a wedged SIM7600 without
+running as root or resetting the OBD adapter or USB hub.
 
 HTTPS is required by default. A trusted-LAN development server using HTTP adds
 `--allow-insecure-http`; that choice is stored so configuration, uploads and updates use
@@ -97,6 +100,13 @@ Prefer stable `/dev/serial/by-id/...` names. Pin `--modem` with an explicit GPS 
 because that control port switches GNSS on. Use `--gps off` or `--obd off` when hardware
 is deliberately absent. See [diagnostics](./diagnostics.md) before probing a running
 service.
+
+Manual pinning is optional. In `auto`, the service remembers the last working NMEA and
+AT roles and recovers them in stages when position traffic genuinely stops: restart the
+GNSS engine, ask the SIMCom firmware to restart, then reset only the SIMCom USB parent as
+a rate-limited last resort. Discovery probes run in disposable child processes, so an
+unresponsive serial interface cannot remain open after its timeout. A valid NMEA stream
+without a satellite position is left alone; it needs a clearer sky, not a reset.
 
 ## OBDLink and vehicle data
 

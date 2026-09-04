@@ -2,11 +2,69 @@ package providers
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Buco7854/carhibou/agent/internal/model"
+	"go.bug.st/serial"
 )
+
+func TestRestartGNSSCyclesTheWorkingControlFamily(t *testing.T) {
+	previousOpen, previousSettle := openModemPort, gnssResetSettle
+	port := &recordingProbePort{scriptedPort: scriptedPort{replies: map[string]string{
+		"AT\r":      "AT\r\r\nOK\r\n",
+		"AT+CGPS=0": "AT+CGPS=0\r\r\nOK\r\n",
+		"AT+CGPS=1": "AT+CGPS=1\r\r\nOK\r\n",
+	}}}
+	openModemPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	gnssResetSettle = 0
+	t.Cleanup(func() { openModemPort, gnssResetSettle = previousOpen, previousSettle })
+
+	command, err := NewModemPort("/dev/ttyUSB3").RestartGNSS()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command != "AT+CGPS=0 then AT+CGPS=1" {
+		t.Fatalf("command=%q", command)
+	}
+	if !strings.Contains(port.written, "AT+CGPS=0\r") || !strings.Contains(port.written, "AT+CGPS=1\r") {
+		t.Fatalf("written=%q, want the receiver switched off and back on", port.written)
+	}
+}
+
+func TestGNSSEnabledFallsBackToTheOlderControlFamily(t *testing.T) {
+	previousOpen := openModemPort
+	port := &recordingProbePort{scriptedPort: scriptedPort{replies: map[string]string{
+		"AT\r":        "AT\r\r\nOK\r\n",
+		"AT+CGPS?":    "AT+CGPS?\r\r\nERROR\r\n",
+		"AT+CGNSPWR?": "AT+CGNSPWR?\r\r\n+CGNSPWR: 1\r\nOK\r\n",
+	}}}
+	openModemPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openModemPort = previousOpen })
+
+	enabled, err := NewModemPort("/dev/ttyUSB3").GNSSEnabled()
+	if err != nil || !enabled {
+		t.Fatalf("enabled=%v err=%v", enabled, err)
+	}
+}
+
+func TestRestartModuleUsesTheDocumentedSIMComReset(t *testing.T) {
+	previousOpen := openModemPort
+	port := &recordingProbePort{scriptedPort: scriptedPort{replies: map[string]string{
+		"AT\r":      "AT\r\r\nOK\r\n",
+		"AT+CRESET": "AT+CRESET\r\r\nOK\r\n",
+	}}}
+	openModemPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openModemPort = previousOpen })
+
+	if err := NewModemPort("/dev/ttyUSB3").RestartModule(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(port.written, "AT+CRESET\r") {
+		t.Fatalf("written=%q, want the SIMCom module reset command", port.written)
+	}
+}
 
 func TestParseCGPSINFOReportsNoFixBeforeTheReceiverHasOne(t *testing.T) {
 	// The module answers with empty fields until it acquires satellites.

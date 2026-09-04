@@ -37,6 +37,7 @@
 ## Phase 3 — Pi agent
 
 - [x] Protocol-probed serial roles, GNSS power-on and drained NMEA reads
+- [x] Process-isolated serial probes and staged, rate-limited SIM7600 self-recovery
 
 - [x] Installer and systemd unit
 - [x] SQLite queue, retry/catch-up and HTTP batch transport

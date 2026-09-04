@@ -6,12 +6,27 @@ import (
 	"time"
 )
 
-func silentProvider(t *testing.T, opened time.Time, lastFix time.Time) *NMEAProvider {
+func silentProvider(t *testing.T, opened time.Time, lastSentence time.Time) *NMEAProvider {
 	t.Helper()
 	provider := NewNMEAProvider("/dev/carhibou-test")
 	provider.opened = opened
-	provider.lastFix = lastFix
+	provider.lastSentence = lastSentence
 	return provider
+}
+
+// Loss of satellite visibility is not loss of the serial device. An invalid
+// RMC sentence is still proof that the receiver and USB path are alive, so it
+// must not trigger repeated GNSS or USB resets while the vehicle is indoors.
+func TestValidNoFixSentencesKeepTheReceiverAlive(t *testing.T) {
+	provider := silentProvider(t, time.Now().Add(-time.Hour), time.Time{})
+	provider.consume(withChecksum("GPRMC,123519,V,4807.038,N,01131.000,E,0,0,230394,,,A") + "\r\n")
+
+	if provider.Fix() != nil {
+		t.Fatal("an invalid-fix sentence must not manufacture a position")
+	}
+	if status := provider.Status(); status != "" {
+		t.Fatalf("status=%q, want a live receiver without a satellite fix", status)
+	}
 }
 
 // The field case: the module goes mute. Until the receiver could say so, a port

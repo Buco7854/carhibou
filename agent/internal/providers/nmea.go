@@ -186,6 +186,11 @@ type NMEAProvider struct {
 	buffer  []byte
 	pending string
 	lastFix time.Time
+	// lastSentence tracks receiver liveness independently from fix quality. A
+	// SIM7600 under cover keeps emitting valid NMEA sentences with an invalid-fix
+	// flag; restarting or USB-resetting that healthy stream cannot create a view
+	// of the sky and only makes recovery less reliable.
+	lastSentence time.Time
 	// opened stamps when this provider first held the port, so a receiver that
 	// has never produced a fix can be told from one that just did. Age alone
 	// cannot: a zero lastFix and a fresh one both read as no elapsed time.
@@ -243,10 +248,11 @@ func (provider *NMEAProvider) State() string {
 	return fmt.Sprintf("receiver quiet for %s", quiet.Round(time.Second))
 }
 
-// quietFor is how long the receiver has published nothing decodable, measured
-// from the last fix or, when there has never been one, from opening the port.
+// quietFor is how long the receiver has published no valid NMEA sentence,
+// measured from the last sentence or, when there has never been one, from
+// opening the port. Fix freshness is deliberately a separate clock.
 func (provider *NMEAProvider) quietFor() time.Duration {
-	since := provider.lastFix
+	since := provider.lastSentence
 	if since.IsZero() {
 		since = provider.opened
 	}
@@ -300,6 +306,12 @@ func (provider *NMEAProvider) Age() time.Duration {
 	return time.Since(provider.lastFix)
 }
 
+// HasTraffic reports whether this open source has produced a checksum-valid
+// NMEA sentence. It does not imply a satellite fix: diagnostics use the
+// distinction to avoid power-cycling a healthy receiver merely because it is
+// indoors.
+func (provider *NMEAProvider) HasTraffic() bool { return !provider.lastSentence.IsZero() }
+
 func (provider *NMEAProvider) drain() error {
 	for {
 		count, err := provider.port.Read(provider.buffer)
@@ -327,6 +339,9 @@ func (provider *NMEAProvider) consume(chunk string) {
 		provider.pending = provider.pending[index+1:]
 		if line == "" {
 			continue
+		}
+		if validChecksum(line) {
+			provider.lastSentence = time.Now()
 		}
 		if fix, err := provider.parser.Consume(line); err == nil && fix != nil {
 			provider.lastFix = time.Now()

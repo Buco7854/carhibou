@@ -29,6 +29,7 @@ import (
 	agentruntime "github.com/Buco7854/carhibou/agent/internal/runtime"
 	"github.com/Buco7854/carhibou/agent/internal/store"
 	agentsystem "github.com/Buco7854/carhibou/agent/internal/system"
+	"github.com/Buco7854/carhibou/agent/internal/usbrecovery"
 )
 
 var (
@@ -59,6 +60,11 @@ func execute(arguments []string) error {
 	case "version", "--version":
 		fmt.Printf("Carhibou agent %s (%s)\n", version, buildTarget)
 		return nil
+	case providers.ProbeChildCommand:
+		if len(arguments) != 1 {
+			return fmt.Errorf("%s requires one device path", providers.ProbeChildCommand)
+		}
+		return providers.RunProbeChild(arguments[0], os.Stdout)
 	case "install":
 		return commandInstall(locations, arguments)
 	case "update":
@@ -359,38 +365,103 @@ func commandGPS(locations paths, arguments []string) error {
 	if err != nil {
 		return err
 	}
-	devices := resolveDevices(hardware, locations, true)
+	// A position diagnostic needs the device that was proven by the running
+	// service, not another broad sweep across a five-interface modem. A fresh
+	// sweep remains available through doctor --probe when the hardware actually
+	// changed; using the cache here also lets a quiet receiver be relit through
+	// its known control port.
+	devices := resolveDevices(hardware, locations, false)
 	if *device != "" {
-		devices = resolvedDevices{gps: *device}
-		if report := providers.ProbeDevice(*device); report.Role == providers.RoleModem {
+		devices.gps = *device
+		report := providers.ProbeDevice(*device)
+		devices.gpsStreams = report.NMEA
+		if report.Role == providers.RoleModem {
 			devices.modem = *device
 		}
 	}
+	var position agentruntime.PositionProvider
+	closePosition := func() {}
 	if devices.gps == "" {
-		return fmt.Errorf("no GPS serial device found; run 'carhibou-agent doctor --probe'")
+		fmt.Fprintln(os.Stderr, "No responsive GPS role was found; starting automatic recovery")
+		recovery := newPositionRecovery(hardware, locations, devices, 1)
+		// resolveDevices already performed or reused the ordinary discovery
+		// attempt above. A diagnostic is interactive, so it can move directly to
+		// the bounded recovery attempt instead of asking the user to run another
+		// command and remember a port number.
+		recovery.missingAttempts = 1
+		position, err = recovery.acquire()
+		devices = recovery.devices
+		if err != nil {
+			return fmt.Errorf("automatic GPS recovery failed: %w", err)
+		}
+		if closer, ok := position.(interface{ Close() }); ok {
+			closePosition = closer.Close
+		}
+	} else {
+		position, closePosition, err = startPosition(devices, 1)
+		if err != nil {
+			return err
+		}
 	}
 	fmt.Fprintf(os.Stderr, "Reading %s for %ds\n", devices.gps, *seconds)
-	position, closePosition, err := startPosition(devices, 1)
-	if err != nil {
-		return err
+	seen, traffic, readErr := readPositionDiagnostic(position, time.Duration(*seconds)*time.Second)
+	closePosition()
+	if !seen {
+		if traffic {
+			// Valid sentences without a valid position prove the serial path and
+			// receiver are healthy. Resetting cannot give an indoor antenna a view
+			// of the sky.
+			return fmt.Errorf("no fix from %s: the receiver is streaming but has no satellite position, which usually means the antenna needs a clear view of the sky", devices.gps)
+		}
+
+		fmt.Fprintln(os.Stderr, "The known receiver produced no NMEA traffic; starting automatic recovery")
+		recovery := newPositionRecovery(hardware, locations, devices, 1)
+		recovery.attempted = true
+		recovered, recoveryErr := recovery.acquire()
+		if recoveryErr != nil {
+			if readErr != nil {
+				return fmt.Errorf("GPS read failed (%v), then automatic recovery failed: %w", readErr, recoveryErr)
+			}
+			return fmt.Errorf("no NMEA traffic from %s, and automatic recovery failed: %w", devices.gps, recoveryErr)
+		}
+		if closer, ok := recovered.(interface{ Close() }); ok {
+			defer closer.Close()
+		}
+		fmt.Fprintf(os.Stderr, "Recovery completed; reading for another %ds\n", *seconds)
+		seen, traffic, readErr = readPositionDiagnostic(recovered, time.Duration(*seconds)*time.Second)
+		if !seen {
+			if traffic {
+				return fmt.Errorf("receiver recovered and is streaming, but has no satellite position; give the antenna a clear view of the sky")
+			}
+			if readErr != nil {
+				return fmt.Errorf("receiver still produced no NMEA traffic after automatic recovery: %w", readErr)
+			}
+			return fmt.Errorf("receiver still produced no NMEA traffic after automatic recovery")
+		}
 	}
-	defer closePosition()
-	deadline := time.Now().Add(time.Duration(*seconds) * time.Second)
+	return nil
+}
+
+func readPositionDiagnostic(position agentruntime.PositionProvider, duration time.Duration) (bool, bool, error) {
+	deadline := time.Now().Add(duration)
 	seen := false
+	var lastErr error
 	for time.Now().Before(deadline) {
 		fix, err := position.Read()
-		if err == nil && fix != nil {
+		if err != nil {
+			lastErr = err
+		}
+		if fix != nil {
 			seen = true
 			printJSON(fix)
 		}
 		time.Sleep(time.Second)
 	}
-	if !seen {
-		// An enabled receiver with no fix is normal indoors; say so rather than
-		// leaving the operator to guess whether the port was wrong.
-		return fmt.Errorf("no fix from %s: the receiver answered but reported no position, which usually means the antenna needs a clear view of the sky", devices.gps)
+	traffic := seen
+	if stream, ok := position.(*providers.NMEAProvider); ok {
+		traffic = stream.HasTraffic()
 	}
-	return nil
+	return seen, traffic, lastErr
 }
 
 func commandOBD(locations paths, arguments []string) error {
@@ -902,9 +973,10 @@ func resolveDevices(hardware store.Hardware, locations paths, refresh bool) reso
 	if hardware.GPS == store.Auto || hardware.OBD == store.Auto {
 		candidates := store.SerialCandidates()
 		cache := detectionStore(locations)
+		previous, previousFound := cache.Load()
 		if !refresh {
-			if detection, found := cache.Load(); found && detection.Usable(candidates) {
-				return fromDetection(hardware, detection)
+			if previousFound && previous.Usable(candidates) {
+				return fromDetection(hardware, previous)
 			}
 		}
 		// A sweep takes a couple of seconds per port. Reporting each one as it
@@ -914,7 +986,7 @@ func resolveDevices(hardware store.Hardware, locations paths, refresh bool) reso
 			fmt.Fprintf(os.Stderr, "probe %s -> %s\n", report.Device, describePort(report))
 		})
 		defer func() {
-			if err := cache.Save(store.Detection{
+			detection := store.Detection{
 				At:         time.Now().UTC().Format(time.RFC3339),
 				GPS:        result.gps,
 				OBD:        result.obd,
@@ -922,7 +994,24 @@ func resolveDevices(hardware store.Hardware, locations paths, refresh bool) reso
 				GPSStreams: result.gpsStreams,
 				Candidates: candidates,
 				Ports:      result.reports,
-			}); err != nil {
+			}
+			// A failed diagnostic sweep is evidence about this attempt, not
+			// evidence that the roles which worked before ceased to exist. Keep
+			// last-known roles while the same paths are still enumerated, so one
+			// transiently mute SIM7600 cannot erase the route used to recover it.
+			if previousFound && previous.Usable(candidates) {
+				if detection.GPS == "" {
+					detection.GPS = previous.GPS
+					detection.GPSStreams = previous.GPSStreams
+				}
+				if detection.OBD == "" {
+					detection.OBD = previous.OBD
+				}
+				if detection.Modem == "" {
+					detection.Modem = previous.Modem
+				}
+			}
+			if err := cache.Save(detection); err != nil {
 				fmt.Fprintln(os.Stderr, "Could not record hardware detection:", err)
 			}
 		}()
@@ -950,6 +1039,77 @@ func resolveDevices(hardware store.Hardware, locations paths, refresh bool) reso
 		result.modem = modemPath(result.reports, result.gps)
 	}
 	result.gpsStreams = providers.StreamsNMEA(result.reports, result.gps)
+	return result
+}
+
+// resolvePositionDevices refreshes only the position-side roles while the
+// service may be continuously monitoring the OBD adapter. A general discovery
+// sweep is safe at startup, before providers own ports; a recovery sweep is not:
+// opening the live ELM/STN path and sending ATI would interrupt its CAN monitor.
+func resolvePositionDevices(hardware store.Hardware, locations paths, known resolvedDevices) resolvedDevices {
+	serialSweep.Lock()
+	defer serialSweep.Unlock()
+
+	allCandidates := store.SerialCandidates()
+	previous, previousFound := detectionStore(locations).Load()
+	obdDevice := known.obd
+	if obdDevice == "" && previousFound {
+		obdDevice = previous.OBD
+	}
+	candidates := make([]string, 0, len(allCandidates))
+	for _, candidate := range allCandidates {
+		if obdDevice != "" && agentruntime.ValidateDistinctDevices(obdDevice, candidate) != nil {
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+
+	result := resolvedDevices{gps: hardware.GPS, obd: obdDevice, modem: hardware.Modem}
+	result.reports = providers.ProbeAll(candidates, func(report providers.PortReport) {
+		fmt.Fprintf(os.Stderr, "position probe %s -> %s\n", report.Device, describePort(report))
+	})
+	probedGPS, _, probedModem := providers.SelectRoles(result.reports)
+	if hardware.GPS == store.Auto {
+		result.gps = probedGPS
+	}
+	if result.modem == "" {
+		result.modem = probedModem
+	}
+	if result.gps == store.Off || result.gps == store.Auto {
+		result.gps = ""
+	}
+	if result.modem == store.Off {
+		result.modem = ""
+	}
+	if result.gps != "" && result.modem == "" {
+		result.modem = modemPath(result.reports, result.gps)
+	}
+	result.gpsStreams = providers.StreamsNMEA(result.reports, result.gps)
+
+	detection := store.Detection{
+		At:         time.Now().UTC().Format(time.RFC3339),
+		GPS:        result.gps,
+		OBD:        obdDevice,
+		Modem:      result.modem,
+		GPSStreams: result.gpsStreams,
+		Candidates: allCandidates,
+		Ports:      result.reports,
+	}
+	// A normal failed refresh keeps the proven recovery route. Deliberate modem
+	// and USB resets forget the cache before arriving here, so their failed
+	// rediscovery is stored as empty and cannot resurrect stale paths.
+	if previousFound && previous.Usable(allCandidates) {
+		if detection.GPS == "" {
+			detection.GPS = previous.GPS
+			detection.GPSStreams = previous.GPSStreams
+		}
+		if detection.Modem == "" {
+			detection.Modem = previous.Modem
+		}
+	}
+	if err := detectionStore(locations).Save(detection); err != nil {
+		fmt.Fprintln(os.Stderr, "Could not record recovered position device:", err)
+	}
 	return result
 }
 
@@ -1165,56 +1325,208 @@ func servicePositionAcquirer(
 	initial resolvedDevices,
 	samplingSeconds int,
 ) agentruntime.PositionAcquirer {
-	devices := initial
-	firstAttempt := true
-	return func() (agentruntime.PositionProvider, error) {
-		if !firstAttempt {
-			if hardware.GPS == store.Auto {
-				devices = resolveDevices(hardware, locations, true)
-			}
-			// Whatever the last probe concluded about the stream is out of date:
-			// the source it described has just stopped working.
-			ensureGNSSEnabled(devices)
-		}
-		firstAttempt = false
-		if devices.gps == "" {
-			if hardware.GPS == store.Off {
-				return nil, fmt.Errorf("position source is disabled in hardware configuration")
-			}
-			return nil, fmt.Errorf(
-				"no GPS device found while probing /dev/serial/by-id/*, /dev/ttyUSB*, /dev/ttyACM*",
-			)
-		}
-		provider, _, err := startPosition(devices, samplingSeconds)
-		return provider, err
+	recovery := newPositionRecovery(hardware, locations, initial, samplingSeconds)
+	return recovery.acquire
+}
+
+const (
+	physicalRecoveryCooldown = 15 * time.Minute
+	moduleRecoverySettle     = 8 * time.Second
+)
+
+// positionRecovery is the ordered recovery policy for a position source. The
+// policy is kept separate from the retrying owner: that owner decides *when* to
+// retry without blocking telemetry, while this type decides the least invasive
+// hardware action that can make the next provider useful.
+type positionRecovery struct {
+	hardware        store.Hardware
+	locations       paths
+	devices         resolvedDevices
+	samplingSeconds int
+	attempted       bool
+	missingAttempts int
+	lastUSBReset    time.Time
+
+	resolve       func(store.Hardware, paths, bool) resolvedDevices
+	reprobe       func(store.Hardware, paths, resolvedDevices) resolvedDevices
+	start         func(resolvedDevices, int) (agentruntime.PositionProvider, func(), error)
+	restartGNSS   func(resolvedDevices) error
+	restartModule func(resolvedDevices) error
+	resetUSB      func([]string) (usbrecovery.Device, error)
+	candidates    func() []string
+	forget        func()
+	now           func() time.Time
+	sleep         func(time.Duration)
+}
+
+func newPositionRecovery(
+	hardware store.Hardware,
+	locations paths,
+	initial resolvedDevices,
+	samplingSeconds int,
+) *positionRecovery {
+	return &positionRecovery{
+		hardware:        hardware,
+		locations:       locations,
+		devices:         initial,
+		samplingSeconds: samplingSeconds,
+		resolve:         resolveDevices,
+		reprobe:         resolvePositionDevices,
+		start:           startPosition,
+		restartGNSS:     restartStreamingGNSS,
+		restartModule:   restartSIMComModule,
+		resetUSB: func(candidates []string) (usbrecovery.Device, error) {
+			return usbrecovery.New(usbrecovery.Config{}).ResetCandidates(candidates)
+		},
+		candidates: store.SerialCandidates,
+		forget:     func() { detectionStore(locations).Forget() },
+		now:        time.Now,
+		sleep:      time.Sleep,
 	}
 }
 
-// ensureGNSSEnabled switches the receiver back on through the control port.
-//
-// A module that cold-boots comes up with GNSS powered down. Nothing else turns
-// it on again: the startup path deliberately leaves a plainly working stream
-// alone, which is right until the stream stops, and then leaves a mute receiver
-// mute for as long as the service runs.
-func ensureGNSSEnabled(devices resolvedDevices) {
-	if devices.modem == "" {
+func (recovery *positionRecovery) acquire() (agentruntime.PositionProvider, error) {
+	if recovery.hardware.GPS == store.Off {
+		return nil, fmt.Errorf("position source is disabled in hardware configuration")
+	}
+
+	if recovery.hardware.GPS == store.Auto {
+		recovery.devices = mergeResolvedDevices(
+			recovery.devices,
+			recovery.resolve(recovery.hardware, recovery.locations, false),
+		)
+		// A structurally valid cache with no GPS answer is not a recovery
+		// answer. Isolated probing makes a fresh sweep safe to repeat: a timed
+		// out child is gone before the next port is touched.
+		if recovery.devices.gps == "" || recovery.devices.gpsStreams && recovery.devices.modem == "" {
+			recovery.devices = mergeResolvedDevices(
+				recovery.devices,
+				recovery.reprobe(recovery.hardware, recovery.locations, recovery.devices),
+			)
+		}
+	}
+
+	if recovery.attempted && recovery.devices.gpsStreams {
+		if err := recovery.restartGNSS(recovery.devices); err != nil {
+			fmt.Fprintln(os.Stderr, "GNSS receiver-only restart failed:", err)
+			if moduleErr := recovery.restartModule(recovery.devices); moduleErr == nil {
+				fmt.Fprintln(os.Stderr, "SIMCom modem restart accepted; waiting for its serial interfaces")
+				if !recovery.rediscoverAfterReset() {
+					recovery.tryUSBReset()
+				}
+			} else {
+				fmt.Fprintln(os.Stderr, "SIMCom modem restart failed:", moduleErr)
+				recovery.tryUSBReset()
+			}
+		}
+	}
+	recovery.attempted = true
+
+	if recovery.devices.gps == "" {
+		recovery.missingAttempts++
+		// Give an initially enumerating modem one ordinary retry before
+		// resetting anything. On the next miss, the complete isolated sweep has
+		// proved that none of its interfaces currently answers.
+		if recovery.missingAttempts >= 2 {
+			recovery.tryUSBReset()
+		}
+	} else {
+		recovery.missingAttempts = 0
+	}
+
+	if recovery.devices.gps == "" {
+		return nil, fmt.Errorf(
+			"no GPS device found while probing /dev/serial/by-id/*, /dev/ttyUSB*, /dev/ttyACM*",
+		)
+	}
+	provider, _, err := recovery.start(recovery.devices, recovery.samplingSeconds)
+	return provider, err
+}
+
+func (recovery *positionRecovery) tryUSBReset() {
+	now := recovery.now()
+	if !recovery.lastUSBReset.IsZero() && now.Sub(recovery.lastUSBReset) < physicalRecoveryCooldown {
 		return
+	}
+	recovery.lastUSBReset = now
+	candidates := append([]string{recovery.devices.gps, recovery.devices.modem}, recovery.candidates()...)
+	device, err := recovery.resetUSB(compactStrings(candidates))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Automatic SIMCom USB recovery was not available:", err)
+		return
+	}
+	fmt.Fprintf(
+		os.Stderr,
+		"Reset wedged SIMCom USB device %s on bus %03d device %03d; waiting for serial interfaces\n",
+		device.ProductID,
+		device.BusNumber,
+		device.DeviceNumber,
+	)
+	recovery.rediscoverAfterReset()
+}
+
+func (recovery *positionRecovery) rediscoverAfterReset() bool {
+	recovery.sleep(moduleRecoverySettle)
+	recovery.forget()
+	fresh := recovery.reprobe(recovery.hardware, recovery.locations, recovery.devices)
+	recovery.devices = fresh
+	return fresh.gps != ""
+}
+
+func compactStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
+}
+
+func mergeResolvedDevices(previous, fresh resolvedDevices) resolvedDevices {
+	if fresh.gps != "" {
+		previous.gps = fresh.gps
+		previous.gpsStreams = fresh.gpsStreams
+	}
+	if fresh.obd != "" {
+		previous.obd = fresh.obd
+	}
+	if fresh.modem != "" {
+		previous.modem = fresh.modem
+	}
+	if len(fresh.reports) > 0 {
+		previous.reports = fresh.reports
+	}
+	return previous
+}
+
+func restartStreamingGNSS(devices resolvedDevices) error {
+	if devices.modem == "" {
+		return fmt.Errorf("no known SIMCom control port")
 	}
 	modem := providers.NewModemPort(devices.modem)
 	defer modem.Close()
-	enabled, err := modem.GNSSEnabled()
+	command, err := modem.RestartGNSS()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "GNSS state could not be read:", err)
-		return
+		return fmt.Errorf("through %s: %w", devices.modem, err)
 	}
-	if enabled {
-		return
+	fmt.Fprintln(os.Stderr, "GNSS receiver restarted through", devices.modem, "with", command)
+	return nil
+}
+
+func restartSIMComModule(devices resolvedDevices) error {
+	if devices.modem == "" {
+		return fmt.Errorf("no known SIMCom control port")
 	}
-	if _, enableErr := modem.EnableGNSS(); enableErr != nil {
-		fmt.Fprintln(os.Stderr, "GNSS enable failed:", enableErr)
-		return
+	modem := providers.NewModemPort(devices.modem)
+	defer modem.Close()
+	if err := modem.RestartModule(); err != nil {
+		return fmt.Errorf("through %s: %w", devices.modem, err)
 	}
-	fmt.Fprintln(os.Stderr, "GNSS was off and has been switched back on via", devices.modem)
+	return nil
 }
 
 // commandConfig prints the accepted configuration, and with --pull fetches the
