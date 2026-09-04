@@ -148,6 +148,13 @@ interface SegmentBase {
   start: string
   end: string
   duration_seconds: number
+  /**
+   * How much of the span nobody described: the gaps inside it where the source
+   * went quiet for longer than three times its declared cadence. The span and
+   * the distance are still what they were, so this qualifies them rather than
+   * correcting them.
+   */
+  unreported_seconds: number
   soc_start?: number
   soc_end?: number
   energy_kwh?: number

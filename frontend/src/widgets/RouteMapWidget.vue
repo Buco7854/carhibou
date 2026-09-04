@@ -8,8 +8,8 @@ import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { EMPTY_SEGMENTS, loadHistory, loadSegments, rangeStart } from '../api/segments'
 import { pathLengthKm } from '../geo'
 import { formatFixedNumber } from '../numberFormat'
-import { formatInstant, formatSpan } from '../vehicleDisplay'
-import { followSelection, mergeSegments, metricNumber } from './segments'
+import { formatInstant, formatSpanPrecise } from '../vehicleDisplay'
+import { followSelection, mergeSegments, metricNumber, unreportedSpan } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const { t, locale } = useI18n()
@@ -32,6 +32,10 @@ const hasMapData = computed(() => !outOfRange.value && (hasTrail.value || Boolea
 const when = computed(() => drive.value ? formatInstant(drive.value.start) : t('insights.wholeRange'))
 /* Expanded, the map is the whole viewport and the card head is behind it, so
    the map carries the same two facts the head does. */
+/* The subtitle already names the drive being followed, so the caveat about its
+   span belongs there. The map itself is unchanged: the trail is the positions
+   that did arrive, and a gap in reporting is a gap in the trail. */
+const unreported = computed(() => unreportedSpan(drive.value, locale.value))
 const heading = computed(() => `${props.widget.title || t('dashboards.routeMap')} · ${when.value}`)
 
 function pick(index: number): void {
@@ -60,7 +64,7 @@ const readout = computed(() => {
   return {
     estimated: scale === null,
     distance: formatFixedNumber(distance, locale.value, 1),
-    duration: formatSpan(Math.max(seconds, 0), locale.value),
+    duration: formatSpanPrecise(Math.max(seconds, 0), locale.value),
     soc: socDelta === null ? null : `${formatFixedNumber(socDelta, locale.value, 0)}%`,
     energy: socDelta === null || capacity === null ? null : `${formatFixedNumber((socDelta / 100) * capacity, locale.value, 1)} kWh`,
   }
@@ -95,7 +99,7 @@ watch([() => vehicle.value?.id, () => drive.value && `${drive.value.start}-${dri
     <div class="widget-head">
       <div>
         <h2>{{ widget.title || t('dashboards.routeMap') }}</h2>
-        <span>{{ when }}</span>
+        <span :title="unreported ? t('insights.unreportedHelp') : undefined">{{ when }}<template v-if="unreported"> · {{ t('insights.unreported', { span: unreported }) }}</template></span>
       </div>
     </div>
     <div v-if="hasMapData" class="map-stage">

@@ -142,7 +142,7 @@ export const mappingProfile = {
 
 export function drive(overrides: Record<string, unknown> = {}) {
   return {
-    start: '2026-08-27T08:00:00Z', end: '2026-08-27T08:40:00Z', duration_seconds: 2400,
+    start: '2026-08-27T08:00:00Z', end: '2026-08-27T08:40:00Z', duration_seconds: 2400, unreported_seconds: 0,
     start_position: { latitude: 48.85, longitude: 2.35 }, end_position: { latitude: 48.87, longitude: 2.37 },
     distance_km: 24.4, avg_speed: 37, max_speed: 96, soc_start: 82, soc_end: 71, energy_kwh: 4.6, ...overrides,
   }
@@ -150,7 +150,7 @@ export function drive(overrides: Record<string, unknown> = {}) {
 
 export function charge(overrides: Record<string, unknown> = {}) {
   return {
-    start: '2026-08-27T19:00:00Z', end: '2026-08-27T21:00:00Z', duration_seconds: 7200,
+    start: '2026-08-27T19:00:00Z', end: '2026-08-27T21:00:00Z', duration_seconds: 7200, unreported_seconds: 0,
     position: { latitude: 48.85, longitude: 2.35 },
     soc_start: 40, soc_end: 80, energy_kwh: 12.5, peak_power: 11.2, avg_power: 6.3, ...overrides,
   }

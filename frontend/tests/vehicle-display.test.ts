@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Vehicle } from '../src/api/types'
-import { chargingState, defaultDashboardMetrics, energySummary, formatAge, formatSpan, headlineReading, isFresh, isStale, metricReading, observedAt, preferredHistoryMetric, reportedKeys, secondaryReadings, vehicleActivity } from '../src/vehicleDisplay'
+import { chargingState, defaultDashboardMetrics, energySummary, formatAge, formatSpan, formatSpanPrecise, headlineReading, isFresh, isStale, metricReading, observedAt, preferredHistoryMetric, reportedKeys, secondaryReadings, vehicleActivity } from '../src/vehicleDisplay'
 import { readings, vehicle } from './helpers'
 
 function withMetrics(values: Record<string, unknown>): Vehicle {
@@ -160,6 +160,33 @@ describe('telemetry-driven vehicle display', () => {
     expect(formatSpan(gap, 'en')).toBe('4 minutes')
     // A future instant does not become "in 3 minutes"; clocks disagree.
     expect(formatAge('2026-08-29T18:23:00Z', 'en', now)).toBe('now')
+  })
+
+  it('tells a span to the minute when the rounded one would mislead', () => {
+    // This morning's drive: 1 h 41 min of wall clock. formatSpan calls that
+    // "2 hours", which is what sent somebody looking for a missing twenty
+    // minutes, so anything a reader compares on the line goes to the minute.
+    expect(formatSpan(6_060, 'en')).toBe('2 hours')
+    expect(formatSpanPrecise(6_060, 'en')).toBe('1 hr 41 min')
+    expect(formatSpanPrecise(6_060, 'fr')).toBe('1\u202fh 41\u00a0min')
+    // The unreported share of that same drive, which used to round to the very
+    // same words as the span it was qualifying.
+    expect(formatSpanPrecise(5_916, 'en')).toBe('1 hr 39 min')
+    expect(formatSpanPrecise(5_916, 'fr')).toBe('1\u202fh 39\u00a0min')
+  })
+
+  it('drops the smaller unit rather than printing it as zero', () => {
+    expect(formatSpanPrecise(7_200, 'en')).toBe('2 hr')
+    expect(formatSpanPrecise(2_280, 'en')).toBe('38 min')
+    // Minutes are rounded before the hours are taken, so 119.98 minutes carries
+    // into the second hour instead of reading "1 hr 60 min".
+    expect(formatSpanPrecise(7_199, 'en')).toBe('2 hr')
+    // Under the hour the seconds still matter, and under the minute they are all
+    // there is. The unit names and the gaps are the locale's, not a template.
+    expect(formatSpanPrecise(330, 'en')).toBe('5 min 30 sec')
+    expect(formatSpanPrecise(330, 'fr')).toBe('5\u00a0min 30\u202fs')
+    expect(formatSpanPrecise(45, 'en')).toBe('45 sec')
+    expect(formatSpanPrecise(0, 'en')).toBe('0 sec')
   })
 
   it('keeps a retained reading in its place while a car sleeps', () => {

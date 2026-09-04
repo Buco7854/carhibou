@@ -398,6 +398,40 @@ export function formatSpan(seconds: number, locale: string): string {
 }
 
 /**
+ * The same span at the precision somebody reads a trip at: "1 hr 41 min".
+ *
+ * formatSpan rounds to a single unit, which is what a cadence or a table step
+ * wants and exactly wrong for a drive: a 1 h 41 min trip rounded to "2 hours" is
+ * the reading that made a mostly-silent drive look like a full two-hour one, and
+ * that put it beside an unreported figure rounding to the very same words. So a
+ * span a reader weighs against another figure on the same line comes through
+ * here instead.
+ *
+ * The smaller unit is dropped when it is zero, because nobody says "38 min 0 s",
+ * and hours keep counting past a day rather than collapsing: "26 hr" tells you
+ * more about a drive than "1 day" does. The unit names and the gap between them
+ * are the locale's own, never a template.
+ */
+export function formatSpanPrecise(seconds: number, locale: string): string {
+  const total = Math.max(0, Math.round(seconds))
+  const unit = (value: number, name: 'hour' | 'minute' | 'second') =>
+    new Intl.NumberFormat(locale, { style: 'unit', unit: name, unitDisplay: 'short', maximumFractionDigits: 0 }).format(value)
+  const join = (parts: string[]) => new Intl.ListFormat(locale, { style: 'narrow', type: 'unit' }).format(parts)
+  if (total < 60) return unit(total, 'second')
+  if (total < 3_600) {
+    const minutes = Math.floor(total / 60)
+    const rest = total % 60
+    return rest === 0 ? unit(minutes, 'minute') : join([unit(minutes, 'minute'), unit(rest, 'second')])
+  }
+  // Rounded to whole minutes first, so 59.6 minutes carries into the next hour
+  // instead of printing "1 hr 60 min".
+  const minutes = Math.round(total / 60)
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return rest === 0 ? unit(hours, 'hour') : join([unit(hours, 'hour'), unit(rest, 'minute')])
+}
+
+/**
  * How long ago an instant was: "20 minutes ago", "il y a 20 minutes".
  *
  * Takes the instant rather than a duration, because "ago" is a claim about the

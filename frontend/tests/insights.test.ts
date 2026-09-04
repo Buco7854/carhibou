@@ -6,6 +6,7 @@ import { auth } from '../src/api/auth'
 import type { DashboardWidget, SelectedSegment, Vehicle } from '../src/api/types'
 import { dashboardRuntimeKey } from '../src/widgets/dashboardContext'
 import { widgetRegistry } from '../src/widgets/registry'
+import { unreportedSpan } from '../src/widgets/segments'
 import { adminUser, charge, drive, jsonResponse, mockApi, readings, vehicle } from './helpers'
 
 /*
@@ -424,6 +425,79 @@ describe('driving insight widgets', () => {
     const { wrapper } = mountWidget('period-stats')
     await flushPromises()
     expect(wrapper.get('.dashboard-widget-empty').text()).toContain('Nothing recorded')
+  })
+})
+
+describe('time a segment could not account for', () => {
+  beforeEach(() => {
+    i18n.global.locale.value = 'en'
+    auth.user = { ...adminUser }
+  })
+
+  /*
+   * The case from the field: a 1 h 41 min drive of 30 real km, of which 5916 s
+   * were the agent saying nothing. Told to the minute, because rounded to one
+   * unit both figures came out "2 hours" and the caption qualified nothing.
+   */
+  it('formats the unreported share in both locales', () => {
+    expect(unreportedSpan({ unreported_seconds: 5916 }, 'en')).toBe('1 hr 39 min')
+    // Intl joins French units with non-breaking spaces, which is the point of
+    // going through the formatter rather than assembling the string here.
+    expect(unreportedSpan({ unreported_seconds: 5916 }, 'fr')).toBe('1\u202fh 39\u00a0min')
+    expect(unreportedSpan({ unreported_seconds: 2340 }, 'en')).toBe('39 min')
+  })
+
+  it('says nothing when the source covered the whole segment', () => {
+    // Zero is the ordinary case, and a caption on every row would be noise.
+    expect(unreportedSpan({ unreported_seconds: 0 }, 'en')).toBeNull()
+    expect(unreportedSpan({}, 'en')).toBeNull()
+    expect(unreportedSpan(null, 'en')).toBeNull()
+    // A server that sends nonsense is a server with nothing to say.
+    expect(unreportedSpan({ unreported_seconds: Number.NaN }, 'en')).toBeNull()
+  })
+
+  it('qualifies the feed caption without touching the duration or the distance', async () => {
+    api({ segments: { drives: [drive({ duration_seconds: 6060, unreported_seconds: 5916, distance_km: 30 })], charges: [] } })
+    const { wrapper } = mountWidget('activity-feed')
+    await flushPromises()
+    const row = wrapper.get('.feed-row')
+    // The odometer still owns the distance and the edges still own the span.
+    expect(row.text()).toContain('30.0 km driven')
+    // The two figures now differ, which is the whole point of the caption: most
+    // of the drive went unheard, and the span is not two hours of driving.
+    expect(row.get('small').text()).toContain('1 hr 41 min · 1 hr 39 min unreported')
+  })
+
+  it('leaves the caption off a segment its source described throughout', async () => {
+    api({ segments: { drives: [drive()], charges: [] } })
+    const { wrapper } = mountWidget('activity-feed')
+    await flushPromises()
+    expect(wrapper.get('.feed-row').text()).not.toContain('unreported')
+  })
+
+  it('carries the same wording into the followed segment card and the route subtitle', async () => {
+    api({ segments: { drives: [drive({ duration_seconds: 6060, unreported_seconds: 5916 })], charges: [] } })
+    const stats = mountWidget('segment-stats')
+    await flushPromises()
+    // The card's own duration fact is told at the same precision as the caption.
+    expect(stats.wrapper.find('.segment-facts').text()).toContain('1 hr 41 min')
+    expect(stats.wrapper.get('.segment-unreported').text()).toBe('1 hr 39 min unreported')
+
+    api({ segments: { drives: [drive({ duration_seconds: 6060, unreported_seconds: 5916 })], charges: [] } })
+    const map = mountWidget('route-map')
+    await flushPromises()
+    expect(map.wrapper.get('.widget-head span').text()).toContain('1 hr 39 min unreported')
+    // Nothing on the map changes: the trail is still the positions that arrived.
+    expect(map.wrapper.findAll('.trail-point')).toHaveLength(3)
+  })
+
+  it('explains the caption once, in the feed head, rather than on every row', async () => {
+    api({ segments: { drives: [drive({ unreported_seconds: 5916 })], charges: [] } })
+    const { wrapper } = mountWidget('activity-feed')
+    await flushPromises()
+    await wrapper.get('.widget-head .app-help-button').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('the distance still comes from the odometer')
   })
 })
 

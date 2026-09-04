@@ -101,7 +101,13 @@ Updated: 2026-09-04
   one drive and closes it on the parked reading; explicit charging or charging-power
   signals keep a session continuous across the parked ten-minute cadence and close it on
   the first inactive reading. Vehicles without lifecycle signals retain the bounded
-  speed/position fallback.
+  speed/position fallback. A drive also needs motion evidence to exist (odometer
+  advance, speed above the 1 km/h floor, or a position that moved): the C-Zero wakes
+  its bus for a minute when the charger is unplugged and asserts in-use while doing
+  so, which used to become a 0 km, 38-minute drive. Both segment kinds carry
+  `unreported_seconds`, the sum of gaps wider than three times the row's declared
+  cadence, so a 30 km drive whose agent was silent for most of its span says so
+  instead of claiming the whole span as driving time.
 - Profile computed metrics accept a `scale`, so the bundled C-Zero definition publishes
   `battery.power` in kilowatts. Agent, simulator and SPA now agree on that unit; they
   previously disagreed by a factor of a thousand.
@@ -118,7 +124,10 @@ Updated: 2026-09-04
   avoid mounting empty maps/charts, and omit unavailable telemetry rows. XY charts split
   their line when the dominant x direction reverses, so separate charging sessions are
   never joined across an SOC reset, and x-monotone smoothing cannot bend the line back
-  over itself. User-facing measurements share locale-aware formatting capped at two
+  over itself. Time-series lines break wherever two samples are further apart than
+  max(60 s, three times the series' median gap), so hours the source reported nothing
+  are a hole in the line rather than a slow ramp between two readings; both charts take
+  that median from one helper in chartData.ts. User-facing measurements share locale-aware formatting capped at two
   decimals by default; canonical precision and five-decimal coordinates remain explicit.
   History pairs the chart and route with a raw entries table: newest first, paginated
   rather than downsampled, sortable and numerically filterable on any column including
@@ -238,6 +247,17 @@ Updated: 2026-09-04
   discarding one older than a freshness window. It previously consumed one line per
   sample against a receiver emitting about ten per second, so the reported position fell
   progressively further behind the vehicle.
+- Nothing on the agent's sampling thread opens hardware. A read of either source is a
+  snapshot; acquisition, CAN monitor preparation (now under a 90 s deadline) and the
+  standard adapter's open all run on the retrying owners' goroutines, and a provider whose
+  session dies reports that as its status so the owner tears it down and backs off. The
+  previous design let a dead CAN session re-prepare inline on the next sample with no
+  deadline, which on 2026-09-04 froze the single-threaded loop for up to two hours at a
+  time (each freeze ending when the car's bus woke) and made SIGTERM wait for SIGKILL.
+  A non-JSON server reply is now reported with status, content type, remote address,
+  final URL and a 200-byte body preview, once per distinct signature: the same day's
+  uploads all failed over cellular with a 2xx HTML page from the host holding the
+  cars.grimbert.net certificate, and the old log line said only "invalid character '<'".
 - The Go agent passes format, vet, unit tests and CGO-free cross-builds for all four
   release targets. Every packaged artifact has a matching verified SHA-256 checksum and
   the Linux AMD64 executable runs from the production image.

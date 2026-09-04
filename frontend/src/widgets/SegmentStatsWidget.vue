@@ -6,8 +6,8 @@ import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import { formatFixedNumber } from '../numberFormat'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { EMPTY_SEGMENTS, loadSegments } from '../api/segments'
-import { formatInstant, formatSpan } from '../vehicleDisplay'
-import { followSelection, mergeSegments } from './segments'
+import { formatInstant, formatSpanPrecise } from '../vehicleDisplay'
+import { followSelection, mergeSegments, unreportedSpan } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const { t, locale } = useI18n()
@@ -60,17 +60,22 @@ const facts = computed<Stat[]>(() => {
   const rows: Array<[string, string, string | null]> = []
   if (current.kind === 'drive' && current.drive) {
     const drive = current.drive
-    rows.push(['duration', t('insights.duration'), formatSpan(drive.duration_seconds, locale.value)])
+    rows.push(['duration', t('insights.duration'), formatSpanPrecise(drive.duration_seconds, locale.value)])
     rows.push(['avgSpeed', t('insights.avgSpeed'), number(drive.avg_speed, 0, 'km/h')])
     rows.push(['maxSpeed', t('insights.maxSpeed'), number(drive.max_speed, 0, 'km/h')])
     rows.push(['energy', t('insights.energyUsed'), number(drive.energy_kwh, 1, 'kWh')])
   } else if (current.charge) {
     const charge = current.charge
-    rows.push(['duration', t('insights.duration'), formatSpan(charge.duration_seconds, locale.value)])
+    rows.push(['duration', t('insights.duration'), formatSpanPrecise(charge.duration_seconds, locale.value)])
     rows.push(['peak', t('insights.peakPower'), number(charge.peak_power, 1, 'kW')])
   }
   return rows.flatMap(([key, label, value]) => value === null ? [] : [{ key, label, value }])
 })
+
+/* The duration above is wall clock, not driving; when part of it was never
+   described, the card says so under the facts rather than silently overstating
+   the trip. */
+const unreported = computed(() => unreportedSpan(segment.value, locale.value))
 
 const hasSegment = computed(() => Boolean(lead.value || span.value || facts.value.length))
 
@@ -97,6 +102,7 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days, runtime.data
       <dl v-if="facts.length" class="segment-facts">
         <div v-for="fact in facts" :key="fact.key"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div>
       </dl>
+      <p v-if="unreported" class="segment-unreported" :title="t('insights.unreportedHelp')">{{ t('insights.unreported', { span: unreported }) }}</p>
     </div>
     <DashboardWidgetEmpty v-else icon="history" :loading="Boolean(vehicle)&&segments===null" :message="follow.state==='out-of-range' ? t('insights.notInRange') : t('insights.noSegment')" />
   </article>
@@ -115,4 +121,5 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days, runtime.data
 .segment-facts>div{min-width:0;display:flex;align-items:baseline;gap:6px}
 .segment-facts dt{color:var(--muted);font-size:var(--font-caption)}
 .segment-facts dd{margin:0;font-size:var(--font-body);font-weight:500;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.segment-unreported{margin:0;color:var(--muted-2);font-size:var(--font-caption)}
 </style>

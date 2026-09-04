@@ -2,12 +2,13 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DashboardWidget, SegmentKind, Segments } from '../api/types'
+import AppHelp from '../components/AppHelp.vue'
 import DashboardWidgetEmpty from '../components/DashboardWidgetEmpty.vue'
 import { formatFixedNumber } from '../numberFormat'
 import { useDashboardRuntime, useDashboardVehicle } from './dashboardContext'
 import { EMPTY_SEGMENTS, loadSegments } from '../api/segments'
-import { formatInstant, formatSpan } from '../vehicleDisplay'
-import { isSelected, mergeSegments, segmentKey, type FeedSegment } from './segments'
+import { formatInstant, formatSpanPrecise } from '../vehicleDisplay'
+import { isSelected, mergeSegments, segmentKey, unreportedSpan, type FeedSegment } from './segments'
 
 const props = defineProps<{ widget: DashboardWidget }>()
 const { t, locale } = useI18n()
@@ -30,7 +31,11 @@ function headline(segment: FeedSegment): string {
 }
 
 function detail(segment: FeedSegment): string {
-  const parts = [formatInstant(segment.start), formatSpan(segment.duration_seconds, locale.value)]
+  const parts = [formatInstant(segment.start), formatSpanPrecise(segment.duration_seconds, locale.value)]
+  // Directly after the span it qualifies, because it is the reason that span is
+  // longer than the driving was.
+  const unreported = unreportedSpan(segment, locale.value)
+  if (unreported) parts.push(t('insights.unreported', { span: unreported }))
   const soc = segment.kind === 'drive' ? segment.drive : segment.charge
   if (soc?.soc_start !== undefined && soc?.soc_end !== undefined) {
     parts.push(`${formatFixedNumber(soc.soc_start, locale.value, 0)}% → ${formatFixedNumber(soc.soc_end, locale.value, 0)}%`)
@@ -57,7 +62,7 @@ watch([() => vehicle.value?.id, () => props.widget.time_range_days, runtime.data
 <template>
   <article class="widget-card activity-feed-widget">
     <div class="widget-head">
-      <h2>{{ widget.title || t('dashboards.activityFeed') }}</h2>
+      <h2>{{ widget.title || t('dashboards.activityFeed') }}<AppHelp :label="t('insights.unreportedHelpLabel')"><span>{{ t('insights.unreportedHelp') }}</span></AppHelp></h2>
       <div class="feed-filter" role="group" :aria-label="t('insights.filter')">
         <button v-for="option in (['all','drive','charge'] as const)" :key="option" type="button" :class="{ active: filter===option }" :aria-pressed="filter===option" @click="filter=option">{{ t(`insights.filterOption.${option}`) }}</button>
       </div>
