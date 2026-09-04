@@ -3,13 +3,16 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Buco7854/carhibou/agent/internal/model"
@@ -17,11 +20,20 @@ import (
 )
 
 type Client struct {
-	serverURL  string
-	credential string
-	version    string
-	http       *http.Client
+	serverURL         string
+	credential        string
+	version           string
+	http              *http.Client
+	reportMutex       sync.Mutex
+	reportedResponses map[string]struct{}
 }
+
+type responseFormatError struct {
+	message   string
+	signature string
+}
+
+func (err *responseFormatError) Error() string { return err.message }
 
 type EnrollmentResponse struct {
 	AgentID    string              `json:"agent_id"`
@@ -160,6 +172,11 @@ func (client *Client) request(method, path string, body, destination any, authen
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	remoteAddress := "unknown remote address"
+	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
+		remoteAddress = info.Conn.RemoteAddr().String()
+	}}
+	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
 	response, err := client.http.Do(request)
 	if err != nil {
 		return err
@@ -171,10 +188,43 @@ func (client *Client) request(method, path string, body, destination any, authen
 	if destination == nil {
 		return nil
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 4*1024*1024)).Decode(destination); err != nil {
-		return fmt.Errorf("invalid server response: %w", err)
+	content, err := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024))
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(content, destination); err != nil {
+		preview := content
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		collapsed := strings.Join(strings.Fields(string(preview)), " ")
+		message := fmt.Sprintf(
+			"server answered %s %s from %s for %s: %q",
+			response.Status, response.Header.Get("Content-Type"), remoteAddress, response.Request.URL.String(), collapsed,
+		)
+		return &responseFormatError{message: message, signature: message}
 	}
 	return nil
+}
+
+// ShouldReport suppresses a repeated malformed-response diagnosis while still
+// returning the error to callers, so retries and durable outbox semantics stay
+// unchanged. Any changed route, peer, headers, status, or preview is new evidence.
+func (client *Client) ShouldReport(err error) bool {
+	var formatErr *responseFormatError
+	if !errors.As(err, &formatErr) {
+		return true
+	}
+	client.reportMutex.Lock()
+	defer client.reportMutex.Unlock()
+	if _, reported := client.reportedResponses[formatErr.signature]; reported {
+		return false
+	}
+	if client.reportedResponses == nil {
+		client.reportedResponses = make(map[string]struct{})
+	}
+	client.reportedResponses[formatErr.signature] = struct{}{}
+	return true
 }
 
 func (client *Client) headers(request *http.Request, authenticated bool) {

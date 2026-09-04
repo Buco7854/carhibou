@@ -976,7 +976,6 @@ type StandardOBDProvider struct {
 	adapter   *OBDAdapter
 	connected bool
 	failure   string
-	nextTry   time.Time
 }
 
 func NewStandardOBDProvider(adapter *OBDAdapter) *StandardOBDProvider {
@@ -990,15 +989,12 @@ func (provider *StandardOBDProvider) Live() bool {
 	return provider.connected && provider.failure == ""
 }
 
-// Start opens the adapter before the first sample. Active PID queries still run
-// when observations are collected, but hardware ownership and failures become
-// visible as soon as the service starts.
+// Start opens the adapter. The retrying runtime owner calls it on its
+// acquisition goroutine and, when it fails, tears the provider down and backs
+// off before building another: a read never opens hardware, so a sample is
+// never behind a serial handshake.
 func (provider *StandardOBDProvider) Start() {
 	if !provider.connected {
-		if time.Now().Before(provider.nextTry) {
-			return
-		}
-		provider.nextTry = time.Now().Add(connectRetryInterval)
 		if err := provider.adapter.Connect(); err != nil {
 			provider.failure = fmt.Sprintf("device %s failed to open: %v", provider.adapter.device, err)
 			return
@@ -1014,7 +1010,6 @@ func (provider *StandardOBDProvider) Start() {
 }
 
 func (provider *StandardOBDProvider) ReadObservations() (model.MetricObservations, error) {
-	provider.Start()
 	if !provider.connected {
 		return model.MetricObservations{}, nil
 	}

@@ -30,6 +30,7 @@ type RetryingVehicleProvider struct {
 	retryMaximum time.Duration
 	healthPoll   time.Duration
 	started      bool
+	acquiring    bool
 	closed       bool
 	wake         chan struct{}
 	stop         chan struct{}
@@ -48,9 +49,8 @@ func NewRetryingVehicleProvider(acquire VehicleAcquirer) *RetryingVehicleProvide
 	}
 }
 
-// Start makes the first acquisition synchronously so a successfully returned
-// provider is already monitoring before the run loop takes its first sample.
-// Later retries happen in the background and never delay GPS collection.
+// Start puts every acquisition on the lifecycle goroutine. Serial discovery and
+// profile preparation can be slow, but neither belongs on the sampling thread.
 func (provider *RetryingVehicleProvider) Start() {
 	provider.mutex.Lock()
 	if provider.started || provider.closed {
@@ -60,7 +60,6 @@ func (provider *RetryingVehicleProvider) Start() {
 	provider.started = true
 	provider.mutex.Unlock()
 
-	provider.attemptAcquire()
 	provider.stopped.Add(1)
 	go provider.retryLoop()
 }
@@ -166,10 +165,13 @@ func (provider *RetryingVehicleProvider) Close() {
 	}
 	provider.closed = true
 	started := provider.started
+	acquiring := provider.acquiring
 	close(provider.stop)
 	provider.mutex.Unlock()
 	provider.signalRetry()
-	if started {
+	// An acquisition owns no published provider yet. It checks closed before
+	// installing its result, so shutdown need not inherit a wedged serial setup.
+	if started && !acquiring {
 		provider.stopped.Wait()
 	}
 	provider.mutex.Lock()
@@ -245,6 +247,14 @@ func (provider *RetryingVehicleProvider) retryLoop() {
 }
 
 func (provider *RetryingVehicleProvider) attemptAcquire() {
+	provider.mutex.Lock()
+	provider.acquiring = true
+	provider.mutex.Unlock()
+	defer func() {
+		provider.mutex.Lock()
+		provider.acquiring = false
+		provider.mutex.Unlock()
+	}()
 	current, err := provider.acquire()
 	if err != nil {
 		provider.recordFailure(err.Error())

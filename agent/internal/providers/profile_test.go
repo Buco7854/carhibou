@@ -334,7 +334,9 @@ func TestStateChangesRaiseOneDebouncedEvent(t *testing.T) {
 // duration — making a one-second cadence impossible — and saw only the fraction
 // of the bus that fell inside it.
 func TestReadMetricsDoesNotWaitForTheBus(t *testing.T) {
-	provider := NewProfileProvider(NewOBDAdapter("/dev/carhibou-absent"), testDecoder(t))
+	adapter := NewOBDAdapter("never-answering")
+	adapter.port = &silentPort{}
+	provider := NewProfileProvider(adapter, testDecoder(t))
 	defer provider.Close()
 
 	started := time.Now()
@@ -343,34 +345,11 @@ func TestReadMetricsDoesNotWaitForTheBus(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
-	// The adapter cannot open, so the first call fails fast and the rest are held
-	// off by the retry interval. None of them may block on a monitor window.
-	if elapsed := time.Since(started); elapsed > time.Second {
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
 		t.Fatalf("three samples took %s; sampling is waiting on the bus", elapsed)
-	}
-	if status := provider.Status(); !strings.Contains(status, "failed to open") {
-		t.Fatalf("status=%q, want the connection failure named", status)
 	}
 	if provider.Live() {
 		t.Fatal("a provider that never saw a frame is not live")
-	}
-}
-
-// A failing adapter must be retried on a timer rather than on every sample: on a
-// single core, connecting is several serial exchanges and would crowd out the
-// position samples the agent can still take.
-func TestAFailedAdapterIsNotRetriedEverySample(t *testing.T) {
-	provider := NewProfileProvider(NewOBDAdapter("/dev/carhibou-absent"), testDecoder(t))
-	defer provider.Close()
-
-	provider.ReadObservations()
-	first := provider.nextTry
-	provider.ReadObservations()
-	if !provider.nextTry.Equal(first) {
-		t.Fatal("the retry window was reset by a sample that should have been held off")
-	}
-	if time.Until(first) > connectRetryInterval {
-		t.Fatalf("next attempt is %s away, beyond the %s interval", time.Until(first), connectRetryInterval)
 	}
 }
 

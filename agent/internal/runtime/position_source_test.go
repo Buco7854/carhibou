@@ -52,6 +52,32 @@ func fastPositionRetries(source *RetryingPositionProvider) {
 	source.healthPoll = 5 * time.Millisecond
 }
 
+func TestPositionReadAndShutdownDoNotWaitForAcquisition(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	source := NewRetryingPositionProvider(func() (PositionProvider, error) {
+		close(entered)
+		<-release
+		return nil, errors.New("receiver never answered")
+	})
+	source.Start()
+	<-entered
+
+	started := time.Now()
+	if fix, err := source.Read(); err != nil || fix != nil {
+		t.Fatalf("fix=%v err=%v", fix, err)
+	}
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("read waited %s for acquisition", elapsed)
+	}
+	started = time.Now()
+	source.Close()
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("shutdown waited %s for acquisition", elapsed)
+	}
+	close(release)
+}
+
 // A vehicle that stops reporting its position must not look like a vehicle
 // parked in a tunnel. Without this the only evidence of a missing receiver was
 // the absence of fixes, which is also what a working receiver underground looks
@@ -61,6 +87,8 @@ func TestNoPositionDeviceIsReportedInEveryHeartbeat(t *testing.T) {
 		return nil, errors.New("no GPS device found while probing /dev/serial/by-id/*")
 	})
 	defer source.Close()
+	source.Start()
+	waitFor(t, func() bool { return source.Status() != "" })
 
 	agent := newAgent(t, source)
 	sample, err := agent.Collect()
@@ -121,10 +149,7 @@ func TestPositionSourceIsReacquiredWhenTheDeviceAppears(t *testing.T) {
 	defer source.Close()
 	fastPositionRetries(source)
 	source.Start()
-
-	if source.Status() == "" {
-		t.Fatal("a missing device should be reported while it is missing")
-	}
+	waitFor(t, func() bool { return source.Status() != "" })
 
 	mutex.Lock()
 	available = true
@@ -163,6 +188,11 @@ func TestFailingPositionSourceIsClosedAndReplaced(t *testing.T) {
 	defer source.Close()
 	fastPositionRetries(source)
 	source.Start()
+	waitFor(t, func() bool {
+		mutex.Lock()
+		defer mutex.Unlock()
+		return handed == 1
+	})
 
 	failing.mutex.Lock()
 	failing.status = "device /dev/ttyUSB0 stopped answering"

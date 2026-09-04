@@ -11,11 +11,15 @@ import (
 	"github.com/Buco7854/carhibou/agent/internal/profile"
 )
 
-// connectRetryInterval throttles reconnection to an adapter that is not
-// answering. Connecting is several serial exchanges; attempting it on every
-// sample means an agent with an unplugged adapter spends most of its single
-// core timing out, which delays the position samples it could still be taking.
-const connectRetryInterval = 60 * time.Second
+// servicePreparationTimeout bounds one preparation attempt against an adapter
+// that stops answering partway through. It runs on the acquisition goroutine,
+// so nothing samples or shuts down behind it; the only thing it must not do is
+// cut a legitimate sequence short. The longest honest one is two protocol
+// sweeps (four protocols at protocolTrial each, before and after a baud
+// fallback) plus the two verification windows: about 20 s, and the deadline is
+// only consulted between stages. 90 s leaves that with room for the adapter's
+// own per-command timeouts.
+const servicePreparationTimeout = 90 * time.Second
 
 // canProtocols are tried in order until one carries frames.
 //
@@ -134,7 +138,6 @@ type ProfileProvider struct {
 
 	stop    chan struct{}
 	stopped sync.WaitGroup
-	nextTry time.Time
 }
 
 func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *ProfileProvider {
@@ -241,23 +244,20 @@ func (provider *ProfileProvider) Live() bool {
 // one-second cadence is a one-second cadence, rather than a second of listening
 // plus everything else the sample needs.
 func (provider *ProfileProvider) ReadObservations() (model.MetricObservations, error) {
-	provider.Start()
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
 	return copyObservations(provider.observations), nil
 }
 
-// Start connects and begins monitoring eagerly. ReadObservations also calls it
-// so direct users that do not own the provider lifecycle remain safe.
+// Start connects and begins monitoring. The retrying runtime owner calls it on
+// its acquisition goroutine; reads only take snapshots and never touch hardware.
 func (provider *ProfileProvider) Start() {
 	provider.mutex.Lock()
 	running := provider.stop != nil
-	waiting := time.Now().Before(provider.nextTry)
-	if running || waiting {
+	if running {
 		provider.mutex.Unlock()
 		return
 	}
-	provider.nextTry = time.Now().Add(connectRetryInterval)
 	provider.mutex.Unlock()
 
 	if err := provider.adapter.Connect(); err != nil {
@@ -270,7 +270,7 @@ func (provider *ProfileProvider) Start() {
 	provider.readVoltage()
 	preparation, err := PrepareProfileMonitor(
 		provider.adapter, provider.decoder.CANIDs(), provider.trial, 0, false, provider.record,
-		nil, time.Time{},
+		nil, time.Now().Add(servicePreparationTimeout),
 	)
 	if err != nil {
 		provider.adapter.Close()

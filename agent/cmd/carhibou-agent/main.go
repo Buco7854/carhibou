@@ -1678,7 +1678,7 @@ func commandRun(locations paths, arguments []string) error {
 				} else {
 					fmt.Fprintln(os.Stderr, "Configuration sync retained last-known-good:", installErr)
 				}
-			} else {
+			} else if api.ShouldReport(fetchErr) {
 				fmt.Fprintln(os.Stderr, fetchErr)
 			}
 			nextSync = now.Add(time.Duration(*syncSeconds) * time.Second)
@@ -1703,7 +1703,7 @@ func commandRun(locations paths, arguments []string) error {
 			}
 		}
 		if !now.Before(nextUpload) {
-			if _, err := agent.Upload(); err != nil {
+			if _, err := agent.Upload(); err != nil && api.ShouldReport(err) {
 				fmt.Fprintln(os.Stderr, err)
 			}
 			nextUpload = now.Add(time.Duration(configuration.Upload.Seconds(agent.InUse)) * time.Second)

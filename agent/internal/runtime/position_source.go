@@ -29,6 +29,7 @@ type RetryingPositionProvider struct {
 	retryMaximum time.Duration
 	healthPoll   time.Duration
 	started      bool
+	acquiring    bool
 	closed       bool
 	wake         chan struct{}
 	stop         chan struct{}
@@ -47,9 +48,8 @@ func NewRetryingPositionProvider(acquire PositionAcquirer) *RetryingPositionProv
 	}
 }
 
-// Start acquires once synchronously so a source that is present is already
-// reading before the first sample, then retries in the background. Retrying
-// inline would put a serial sweep in the way of every sample the agent takes.
+// Start puts every acquisition on the lifecycle goroutine. A serial sweep can
+// take seconds and must not stand between the run loop and its next sample.
 func (provider *RetryingPositionProvider) Start() {
 	provider.mutex.Lock()
 	if provider.started || provider.closed {
@@ -59,7 +59,6 @@ func (provider *RetryingPositionProvider) Start() {
 	provider.started = true
 	provider.mutex.Unlock()
 
-	provider.attemptAcquire()
 	provider.stopped.Add(1)
 	go provider.retryLoop()
 }
@@ -139,10 +138,13 @@ func (provider *RetryingPositionProvider) Close() {
 	}
 	provider.closed = true
 	started := provider.started
+	acquiring := provider.acquiring
 	close(provider.stop)
 	provider.mutex.Unlock()
 	provider.signalRetry()
-	if started {
+	// A late acquisition cannot be installed after closed is set, so shutdown
+	// does not have to wait for a serial open that stopped answering.
+	if started && !acquiring {
 		provider.stopped.Wait()
 	}
 	provider.mutex.Lock()
@@ -197,6 +199,14 @@ func (provider *RetryingPositionProvider) waitFor(delay time.Duration) bool {
 }
 
 func (provider *RetryingPositionProvider) attemptAcquire() {
+	provider.mutex.Lock()
+	provider.acquiring = true
+	provider.mutex.Unlock()
+	defer func() {
+		provider.mutex.Lock()
+		provider.acquiring = false
+		provider.mutex.Unlock()
+	}()
 	current, err := provider.acquire()
 	if err != nil {
 		provider.recordFailure(err.Error())

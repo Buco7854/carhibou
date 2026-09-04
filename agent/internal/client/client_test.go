@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Buco7854/carhibou/agent/internal/model"
@@ -72,5 +73,38 @@ func TestUploadRejectsAnOversizedBatch(t *testing.T) {
 	samples := make([]model.Sample, MaxTelemetryBatchSize+1)
 	if _, err := api.Upload(model.NewUUID(), samples); err == nil {
 		t.Fatal("oversized telemetry batch was accepted")
+	}
+}
+
+func TestMalformedResponseNamesTheRoutePeerAndBoundedPreviewOnce(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "text/html; charset=utf-8")
+		response.Write([]byte("  <!doctype html>\n<html lang=en>   <head>" + strings.Repeat("x", 300)))
+	}))
+	defer server.Close()
+
+	api, err := New(server.URL, "secret", "test", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, first := api.FetchConfiguration()
+	if first == nil {
+		t.Fatal("HTML response was accepted as configuration")
+	}
+	message := first.Error()
+	for _, want := range []string{"200 OK", "text/html; charset=utf-8", server.URL + "/api/v1/agent/config", "<!doctype html> <html lang=en> <head>"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("error=%q, want %q", message, want)
+		}
+	}
+	if strings.Count(message, "x") > 200 {
+		t.Fatalf("response preview was not bounded: %q", message)
+	}
+	if !api.ShouldReport(first) {
+		t.Fatal("first response signature was suppressed")
+	}
+	_, repeated := api.FetchConfiguration()
+	if api.ShouldReport(repeated) {
+		t.Fatal("repeated response signature was reported twice")
 	}
 }

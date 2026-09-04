@@ -53,11 +53,39 @@ func waitFor(t *testing.T, condition func() bool) {
 	}
 }
 
+func TestVehicleReadAndShutdownDoNotWaitForAcquisition(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	source := NewRetryingVehicleProvider(func() (VehicleProvider, error) {
+		close(entered)
+		<-release
+		return nil, errors.New("adapter never answered")
+	})
+	source.Start()
+	<-entered
+
+	started := time.Now()
+	if observations, err := source.ReadObservations(); err != nil || len(observations) != 0 {
+		t.Fatalf("observations=%v err=%v", observations, err)
+	}
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("read waited %s for acquisition", elapsed)
+	}
+	started = time.Now()
+	source.Close()
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("shutdown waited %s for acquisition", elapsed)
+	}
+	close(release)
+}
+
 func TestRetryingVehicleProviderReportsMissingSourceInEverySample(t *testing.T) {
 	source := NewRetryingVehicleProvider(func() (VehicleProvider, error) {
 		return nil, errors.New("no OBD device found while probing serial candidates")
 	})
 	defer source.Close()
+	source.Start()
+	waitFor(t, func() bool { return source.Status() != "" })
 	agent := newAgent(t, EmptyPosition{})
 	agent.Vehicle = source
 
@@ -207,9 +235,7 @@ func TestVehicleProviderStartsBeforeTheFirstRead(t *testing.T) {
 	source := NewRetryingVehicleProvider(func() (VehicleProvider, error) { return vehicle, nil })
 	defer source.Close()
 	source.Start()
-	if !vehicle.started {
-		t.Fatal("vehicle provider was not started eagerly")
-	}
+	waitFor(t, func() bool { return source.Live() })
 
 	agent := newAgent(t, EmptyPosition{})
 	agent.Vehicle = source
