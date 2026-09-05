@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Vehicle } from '../src/api/types'
-import { chargingState, defaultDashboardMetrics, energySummary, formatAge, formatSpan, formatSpanPrecise, headlineReading, isFresh, isStale, metricReading, observedAt, preferredHistoryMetric, reportedKeys, secondaryReadings, vehicleActivity } from '../src/vehicleDisplay'
+import { chargingState, defaultDashboardMetrics, energySummary, formatAge, formatInstantBrief, formatSpan, formatSpanPrecise, headlineReading, isFresh, isStale, metricReading, observedAt, preferredHistoryMetric, reportedKeys, secondaryReadings, vehicleActivity } from '../src/vehicleDisplay'
 import { readings, vehicle } from './helpers'
 
 function withMetrics(values: Record<string, unknown>): Vehicle {
@@ -160,6 +160,27 @@ describe('telemetry-driven vehicle display', () => {
     expect(formatSpan(gap, 'en')).toBe('4 minutes')
     // A future instant does not become "in 3 minutes"; clocks disagree.
     expect(formatAge('2026-08-29T18:23:00Z', 'en', now)).toBe('now')
+  })
+
+  it('drops the date from today and keeps it from any other day', () => {
+    /*
+     * What names a charge session in a chart legend and a scoped card's
+     * caption. Today's session is a clock time, because the date would be the
+     * same word on every line; another day's keeps it, because "09:54" alone
+     * would be a claim about today.
+     */
+    const readAt = new Date('2026-09-04T23:30:00Z')
+    const today = formatInstantBrief('2026-09-04T09:54:00Z', 'en', readAt)
+    expect(today).toMatch(/^\d{1,2}:\d{2}/)
+    expect(today).not.toMatch(/\d{4}|Sep/)
+
+    const yesterday = formatInstantBrief('2026-09-03T21:10:00Z', 'en', readAt)
+    expect(yesterday).toContain('Sep')
+    expect(yesterday).toMatch(/\d{1,2}:\d{2}/)
+    // Midnight is the boundary, not "24 hours ago": one minute past it is today.
+    expect(formatInstantBrief('2026-09-04T00:01:00Z', 'en', readAt)).not.toMatch(/Sep/)
+    expect(formatInstantBrief('2026-09-03T23:59:00Z', 'en', readAt)).toContain('Sep')
+    expect(formatInstantBrief(null, 'en', readAt)).toBe('')
   })
 
   it('tells a span to the minute when the rounded one would mislead', () => {

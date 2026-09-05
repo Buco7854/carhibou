@@ -14,5 +14,14 @@ export default defineConfig({
     environment: 'happy-dom',
     setupFiles: ['./tests/setup.ts'],
     include: ['./tests/**/*.test.ts'],
+    /*
+     * One clock for everybody.
+     *
+     * Anything that renders an instant renders it in the machine's zone, so a
+     * suite that does not pin one is asserting against wherever it happens to
+     * run. CI is UTC and a laptop is not, which is a difference nobody wants to
+     * debug from a failing assertion about a time.
+     */
+    env: { TZ: 'UTC' },
   },
 })

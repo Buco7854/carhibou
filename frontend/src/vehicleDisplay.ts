@@ -465,11 +465,14 @@ export function formatInstantOrNever(value: string | null | undefined, never: st
  * today keeps its date because "09:54" would then be a different day's claim.
  * The provenance panel and the history table keep `formatInstant`, which never
  * drops the date: there, the date is the point.
+ *
+ * "Today" is a claim about when this is read, so the moment it is read against
+ * is a parameter, as it is for `formatAge`: a caller can say which day it means
+ * and a test never has to move the clock to ask.
  */
-export function formatInstantBrief(value: string | null | undefined, locale: string): string {
+export function formatInstantBrief(value: string | null | undefined, locale: string, now: Date = new Date()): string {
   if (!value) return ''
   const at = new Date(value)
-  const now = new Date()
   const sameDay = at.getFullYear() === now.getFullYear()
     && at.getMonth() === now.getMonth()
     && at.getDate() === now.getDate()

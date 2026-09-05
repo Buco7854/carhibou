@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, provide, ref } from 'vue'
 import i18n from '../src/i18n'
 import { auth } from '../src/api/auth'
@@ -68,24 +68,32 @@ function api(options: { segments?: unknown; history?: unknown; previous?: unknow
 }
 
 /**
- * Two charge sessions on the same day: the shape the reported screenshot had.
+ * The day the two sessions happened on, and the moment the card is read.
+ *
+ * The card asks for "the last N days up to now" and the stub below answers for
+ * exactly that window, so a fixture built from the wall clock is a fixture that
+ * depends on the hour the suite runs at: these times were this-morning and
+ * this-evening, which put them in the future on any run before 21:10 and drew
+ * an empty card. It passed on the 4th at night and failed in CI at 09:38 on the
+ * 5th. The clock is frozen instead, late on a day both sessions are behind.
+ */
+const CHARGE_DAY = '2026-09-04'
+const READ_AT = new Date(`${CHARGE_DAY}T23:30:00Z`)
+
+/**
+ * Two charge sessions on that day: the shape the reported screenshot had.
  *
  * The morning charge climbs 1.8 to 3.2 kW from 81 %, the evening one holds
  * 3.2 kW from 75 %. Same day, because a name for today's session is a time and
  * a reader compares two times more easily than two stamps.
  */
 function chargeSessions() {
-  const today = (hour: number, minute: number) => {
-    const at = new Date()
-    at.setHours(hour, minute, 0, 0)
-    return at.toISOString()
-  }
   const point = (id: string, at: string, soc: number, power: number) => ({
-    id, recorded_at: at, latitude: null, longitude: null, speed: null, heading: null,
+    id, recorded_at: `${CHARGE_DAY}T${at}:00Z`, latitude: null, longitude: null, speed: null, heading: null,
     metrics: { 'battery.soc': soc, 'charging.power': power },
   })
-  const morning = [point('m1', today(9, 54), 81, 1.8), point('m2', today(10, 20), 88, 2.6), point('m3', today(10, 50), 100, 3.2)]
-  const evening = [point('e1', today(20, 10), 75, 3.2), point('e2', today(20, 40), 82, 3.2), point('e3', today(21, 10), 90, 3.2)]
+  const morning = [point('m1', '09:54', 81, 1.8), point('m2', '10:20', 88, 2.6), point('m3', '10:50', 100, 3.2)]
+  const evening = [point('e1', '20:10', 75, 3.2), point('e2', '20:40', 82, 3.2), point('e3', '21:10', 90, 3.2)]
   return { morning, evening, points: [...morning, ...evening] }
 }
 
@@ -223,52 +231,72 @@ describe('driving insight widgets', () => {
     expect(wrapper.get('.widget-head small').text()).toContain('Peak 11.0 kW')
   })
 
-  it('names every charge session it plots, and leaves one session anonymous', async () => {
-    const sessions = chargeSessions()
-    sessionApi(sessions, [
-      charge({ start: sessions.morning[0]!.recorded_at, end: sessions.morning.at(-1)!.recorded_at }),
-      charge({ start: sessions.evening[0]!.recorded_at, end: sessions.evening.at(-1)!.recorded_at }),
-    ])
-    const { wrapper } = mountWidget('xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' })
-    await flushPromises()
+  describe('over more than one charge session', () => {
     /*
-     * Two sessions, two named lines. They used to share one colour and one
-     * name, so the reader saw two anonymous lines and could not tell which was
-     * which; each run now carries the moment it started, which is also what the
-     * legend and the palette order follow.
+     * A frozen clock, because the window the card asks for ends at "now".
+     *
+     * The stub answers for the window it is given, so with a real clock the
+     * fixture's own times decide whether the card has anything to draw. The
+     * neighbouring suites freeze time the same way when what they assert
+     * depends on it.
      */
-    const names = wrapper.get('.chart-stub').attributes('data-series')!.split('|')
-    expect(names).toEqual([
-      formatInstantBrief(sessions.morning[0]!.recorded_at, 'en'),
-      formatInstantBrief(sessions.evening[0]!.recorded_at, 'en'),
-    ])
-    expect(names[0]).not.toBe(names[1])
-    // The figures still describe the whole range rather than one of the runs.
-    expect(wrapper.get('.widget-head small').text()).toContain('Peak 3.2 kW')
-    // Nothing narrowed the card, so there is no session to name.
-    expect(wrapper.find('.chart-scope').exists()).toBe(false)
-  })
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(READ_AT)
+    })
+    afterEach(() => vi.useRealTimers())
 
-  it('draws one named series and says which session, when a selection scopes it', async () => {
-    const sessions = chargeSessions()
-    const evening = charge({ start: sessions.evening[0]!.recorded_at, end: sessions.evening.at(-1)!.recorded_at })
-    sessionApi(sessions, [
-      charge({ start: sessions.morning[0]!.recorded_at, end: sessions.morning.at(-1)!.recorded_at }),
-      evening,
-    ])
-    const { wrapper } = mountWidget(
-      'xy-chart',
-      { x_metric: 'battery.soc', y_metric: 'charging.power' },
-      { kind: 'charge', start: evening.start, end: evening.end },
-    )
-    await flushPromises()
-    // Exactly the selected session: one run, and with one run the series keeps
-    // the metric's own name and the chart draws no legend.
-    const names = wrapper.get('.chart-stub').attributes('data-series')!.split('|')
-    expect(names).toEqual(['Charge rate'])
-    expect(wrapper.get('.chart-stub').attributes('data-points')).toBe('3')
-    // And the card says the other lines were dropped on purpose.
-    expect(wrapper.get('.chart-scope').text()).toBe(`Charge · ${formatInstantBrief(evening.start, 'en')}`)
+    it('names every charge session it plots, and leaves one session anonymous', async () => {
+      const sessions = chargeSessions()
+      sessionApi(sessions, [
+        charge({ start: sessions.morning[0]!.recorded_at, end: sessions.morning.at(-1)!.recorded_at }),
+        charge({ start: sessions.evening[0]!.recorded_at, end: sessions.evening.at(-1)!.recorded_at }),
+      ])
+      const { wrapper } = mountWidget('xy-chart', { x_metric: 'battery.soc', y_metric: 'charging.power' })
+      await flushPromises()
+      /*
+       * Two sessions, two named lines. They used to share one colour and one
+       * name, so the reader saw two anonymous lines and could not tell which was
+       * which; each run now carries the moment it started, which is also what the
+       * legend and the palette order follow.
+       */
+      const names = wrapper.get('.chart-stub').attributes('data-series')!.split('|')
+      expect(names).toEqual([
+        formatInstantBrief(sessions.morning[0]!.recorded_at, 'en'),
+        formatInstantBrief(sessions.evening[0]!.recorded_at, 'en'),
+      ])
+      expect(names[0]).not.toBe(names[1])
+      // Both sessions happened on the day the card is being read, so each name
+      // is a clock time and carries no date: that is what formatInstantBrief is
+      // for, and a fixture on another day would have hidden it behind a stamp.
+      for (const name of names) expect(name).toMatch(/^\d{1,2}:\d{2}/)
+      // The figures still describe the whole range rather than one of the runs.
+      expect(wrapper.get('.widget-head small').text()).toContain('Peak 3.2 kW')
+      // Nothing narrowed the card, so there is no session to name.
+      expect(wrapper.find('.chart-scope').exists()).toBe(false)
+    })
+
+    it('draws one named series and says which session, when a selection scopes it', async () => {
+      const sessions = chargeSessions()
+      const evening = charge({ start: sessions.evening[0]!.recorded_at, end: sessions.evening.at(-1)!.recorded_at })
+      sessionApi(sessions, [
+        charge({ start: sessions.morning[0]!.recorded_at, end: sessions.morning.at(-1)!.recorded_at }),
+        evening,
+      ])
+      const { wrapper } = mountWidget(
+        'xy-chart',
+        { x_metric: 'battery.soc', y_metric: 'charging.power' },
+        { kind: 'charge', start: evening.start, end: evening.end },
+      )
+      await flushPromises()
+      // Exactly the selected session: one run, and with one run the series keeps
+      // the metric's own name and the chart draws no legend.
+      const names = wrapper.get('.chart-stub').attributes('data-series')!.split('|')
+      expect(names).toEqual(['Charge rate'])
+      expect(wrapper.get('.chart-stub').attributes('data-points')).toBe('3')
+      // And the card says the other lines were dropped on purpose.
+      expect(wrapper.get('.chart-scope').text()).toBe(`Charge · ${formatInstantBrief(evening.start, 'en')}`)
+    })
   })
 
   it('leaves the chart empty when one of the two metrics never reports', async () => {
