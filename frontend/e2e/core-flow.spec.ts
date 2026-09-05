@@ -12,6 +12,25 @@ interface HookRecord { id: string }
 interface HookExecution { status: string; logs: Array<Record<string, unknown>> }
 interface DashboardWidgetRow { type: string; x: number; y: number; w: number; h: number }
 
+/**
+ * The renderer handle VehicleMap parks on its container.
+ *
+ * A map draws to a canvas, so what it put on screen cannot be read from the
+ * DOM. This is the only way a browser test can ask where a segment ended up, or
+ * whether the thing is finished drawing at all.
+ */
+interface RenderedMap {
+  loaded: () => boolean
+  isMoving: () => boolean
+  once: (event: string, handler: () => void) => void
+  project: (at: [number, number]) => { x: number; y: number }
+  getSource: (id: string) => { serialize?: () => { data?: unknown } } | undefined
+  queryRenderedFeatures: (
+    at?: [number, number],
+    options?: { layers?: string[] },
+  ) => Array<{ geometry: { coordinates: unknown }; properties: Record<string, unknown> }>
+}
+
 const ONE_PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2ZQAAAABJRU5ErkJggg==',
   'base64',
@@ -1237,74 +1256,121 @@ test('a tap on the speed trail pins its reading, and a tap away puts it back', a
     await page.getByPlaceholder('Search vehicles…').fill('Trail tapper')
     await page.getByRole('option', { name: 'Trail tapper' }).click()
 
-    const map = page.locator('[data-widget-type="route-map"] .vehicle-map')
+    const card = page.locator('[data-widget-type="route-map"]')
+    const map = card.locator('.vehicle-map')
     await expect(map).toBeVisible()
-    const trail = () => page.evaluate(() => {
-      const container = document.querySelector('[data-widget-type="route-map"] .vehicle-map') as unknown as {
-        carhibouMap?: { queryRenderedFeatures: (box?: unknown, options?: { layers?: string[] }) => unknown[] }
-      }
-      return container?.carhibouMap?.queryRenderedFeatures(undefined, { layers: ['carhibou-trail-hit'] }).length ?? 0
-    })
-    await expect.poll(trail, { timeout: 20_000 }).toBeGreaterThan(0)
+    await card.scrollIntoViewIfNeeded()
 
     /*
-     * Where a thumb would land on the line: the middle of a drawn segment, in
-     * viewport coordinates, taken from the renderer rather than guessed — and
-     * only a segment that is actually reachable. The mobile nav bar is fixed and
-     * paints above the map by design, so the bottom of a scrolled map is under
-     * it: a tap there would land on the navigation, as the first attempt at this
-     * test discovered by ending up on the Vehicles page.
+     * Everything that has to be true before a tap means anything.
+     *
+     * A renderer answers `queryRenderedFeatures` as soon as it has drawn
+     * something, which is not the same as having finished: the map may still be
+     * loading tiles, and the card may still be sliding into place behind it. The
+     * first version of this test only waited for a feature to exist, and one CI
+     * run out of two took its coordinates while that was still moving and found
+     * nothing under them. So: the map says it is loaded and not moving, the
+     * trail is actually on screen, the renderer has gone idle, and the card has
+     * held the same box across two frames.
      */
-    await page.locator('[data-widget-type="route-map"]').scrollIntoViewIfNeeded()
-    const onTrail = await page.evaluate(() => {
-      const container = document.querySelector('[data-widget-type="route-map"] .vehicle-map')!
-      const map = (container as unknown as {
-        carhibouMap: {
-          queryRenderedFeatures: (box?: unknown, options?: { layers?: string[] }) => Array<{
-            geometry: { coordinates: Array<[number, number]> }
-            properties: Record<string, unknown>
-          }>
-          project: (at: [number, number]) => { x: number; y: number }
-        }
-      }).carhibouMap
-      const box = container.getBoundingClientRect()
-      for (const leg of map.queryRenderedFeatures(undefined, { layers: ['carhibou-trail-hit'] })) {
-        const [from, to] = leg.geometry.coordinates
-        const middle = map.project([(from![0] + to![0]) / 2, (from![1] + to![1]) / 2])
+    const MAP = '[data-widget-type="route-map"] .vehicle-map'
+    await page.waitForFunction((selector) => {
+      const holder = document.querySelector(selector) as unknown as { carhibouMap?: RenderedMap }
+      const drawn = holder?.carhibouMap
+      if (!drawn || !drawn.loaded() || drawn.isMoving()) return false
+      const source = drawn.getSource('carhibou-trail')
+      const features = (source?.serialize?.().data as { features?: unknown[] } | undefined)?.features
+      if (features && features.length < 1) return false
+      return drawn.queryRenderedFeatures(undefined, { layers: ['carhibou-trail-hit'] }).length > 0
+    }, MAP, { timeout: 30_000 })
+    // An idle after that, so nothing queued is still to be painted. The event
+    // only fires if there is work left, hence the cap.
+    await page.evaluate(async (selector) => {
+      const drawn = (document.querySelector(selector) as unknown as { carhibouMap: RenderedMap }).carhibouMap
+      await Promise.race([
+        new Promise<void>((resolve) => { drawn.once('idle', () => resolve()) }),
+        new Promise<void>((resolve) => { setTimeout(resolve, 1500) }),
+      ])
+    }, MAP)
+    // Two identical boxes in a row: the dashboard's own layout has settled too.
+    await page.waitForFunction((selector) => {
+      const node = document.querySelector(selector)
+      if (!node) return false
+      const box = node.getBoundingClientRect()
+      const key = [box.x, box.y, box.width, box.height].map(Math.round).join(':')
+      const store = window as unknown as { carhibouBox?: string }
+      const settled = store.carhibouBox === key && box.width > 0 && box.height > 0
+      store.carhibouBox = key
+      return settled
+    }, MAP, { timeout: 15_000, polling: 150 })
+
+    /*
+     * Where a thumb would land on the line.
+     *
+     * A drawn segment's own coordinates, put through the renderer's projection
+     * rather than guessed at along the line, and the most central of them: the
+     * mobile nav bar is fixed and paints above the map by design, so a point
+     * near the bottom of the card is under the navigation rather than on the
+     * map. `elementFromPoint` is what proves a tap would actually arrive.
+     */
+    const aim = await page.evaluate((selector) => {
+      const holder = document.querySelector(selector)!
+      const drawn = (holder as unknown as { carhibouMap: RenderedMap }).carhibouMap
+      const box = holder.getBoundingClientRect()
+      const legs = drawn.queryRenderedFeatures(undefined, { layers: ['carhibou-trail-hit'] })
+      const reachable: Array<{ x: number; y: number; speed: unknown; room: number }> = []
+      for (const leg of legs) {
+        const [from, to] = leg.geometry.coordinates as Array<[number, number]>
+        if (!from || !to) continue
+        const middle = drawn.project([(from[0] + to[0]) / 2, (from[1] + to[1]) / 2])
         const x = box.left + middle.x
         const y = box.top + middle.y
         const under = document.elementFromPoint(x, y)
-        if (under && container.contains(under)) return { x, y, speed: leg.properties['speed'] }
+        if (!under || !holder.contains(under)) continue
+        // How much clear map surrounds the point, so the most central segment
+        // wins rather than whichever the renderer happened to list first.
+        const room = Math.min(x - box.left, box.right - x, y - box.top, box.bottom - y)
+        reachable.push({ x, y, speed: leg.properties['speed'], room })
       }
-      return null
-    })
-    expect(onTrail, 'no segment of the trail is reachable by a tap').not.toBeNull()
-    const readout = page.locator('[data-widget-type="route-map"] .map-reading')
-    await expect(readout).toHaveCount(0)
-    await page.touchscreen.tap(onTrail!.x, onTrail!.y)
-    await expect(readout).toContainText('km/h')
-    await expect(readout).toContainText(String(onTrail!.speed))
+      reachable.sort((one, two) => two.room - one.room)
+      return { point: reachable[0] ?? null, legs: legs.length, reachable: reachable.length, box: box.toJSON() }
+    }, MAP)
+    expect(aim.point, `no segment of the trail is reachable by a tap: ${JSON.stringify(aim)}`).not.toBeNull()
 
-    // Somewhere the line is not: the reading is pinned, so only another tap
-    // clears it, and this proves the tap did the clearing.
-    const offTrail = await page.evaluate(() => {
-      const container = document.querySelector('[data-widget-type="route-map"] .vehicle-map')!
-      const map = (container as unknown as {
-        carhibouMap: { queryRenderedFeatures: (box?: unknown, options?: { layers?: string[] }) => unknown[] }
-      }).carhibouMap
-      const box = container.getBoundingClientRect()
-      for (const [across, down] of [[0.08, 0.12], [0.08, 0.5], [0.4, 0.12], [0.5, 0.5], [0.08, 0.75]]) {
-        const point: [number, number] = [box.width * across!, box.height * down!]
-        if (map.queryRenderedFeatures(point, { layers: ['carhibou-trail-hit'] }).length) continue
-        const x = box.left + point[0]
-        const y = box.top + point[1]
-        const under = document.elementFromPoint(x, y)
-        if (under && container.contains(under)) return { x, y }
+    const readout = card.locator('.map-reading')
+    await expect(readout).toHaveCount(0)
+    await page.touchscreen.tap(aim.point!.x, aim.point!.y)
+    // The reading behind that segment: what it was doing, and when.
+    await expect(readout).toContainText(`${aim.point!.speed} km/h`)
+    await expect(readout.locator('span')).toContainText(':')
+
+    /*
+     * Somewhere the line is not. The reading is pinned, so only another tap
+     * clears it, and this proves the tap did the clearing. The ground is chosen
+     * the same way the segment was — reachable, and as far from the tapped
+     * segment as the card allows.
+     */
+    const away = await page.evaluate(({ selector, from }) => {
+      const holder = document.querySelector(selector)!
+      const drawn = (holder as unknown as { carhibouMap: RenderedMap }).carhibouMap
+      const box = holder.getBoundingClientRect()
+      const empty: Array<{ x: number; y: number; distance: number }> = []
+      for (let across = 1; across <= 5; across += 1) {
+        for (let down = 1; down <= 5; down += 1) {
+          const local: [number, number] = [(box.width * across) / 6, (box.height * down) / 6]
+          if (drawn.queryRenderedFeatures(local, { layers: ['carhibou-trail-hit'] }).length) continue
+          const x = box.left + local[0]
+          const y = box.top + local[1]
+          const under = document.elementFromPoint(x, y)
+          if (!under || !holder.contains(under)) continue
+          empty.push({ x, y, distance: Math.hypot(x - from.x, y - from.y) })
+        }
       }
-      return null
-    })
-    expect(offTrail, 'no empty ground to tap: the trail fills the map').not.toBeNull()
-    await page.touchscreen.tap(offTrail!.x, offTrail!.y)
+      empty.sort((one, two) => two.distance - one.distance)
+      return { point: empty[0] ?? null, candidates: empty.length, box: box.toJSON() }
+    }, { selector: MAP, from: { x: aim.point!.x, y: aim.point!.y } })
+    expect(away.point, `no empty ground to tap: ${JSON.stringify(away)}`).not.toBeNull()
+    await page.touchscreen.tap(away.point!.x, away.point!.y)
     await expect(readout).toHaveCount(0)
   } finally {
     await context.close()
