@@ -923,6 +923,11 @@ func NewStandardOBDProvider(adapter *OBDAdapter) *StandardOBDProvider {
 // Status explains why the provider is publishing nothing. See ProfileProvider.
 func (provider *StandardOBDProvider) Status() string { return provider.failure }
 
+// Describe names this source for the journal line written when it goes live.
+func (provider *StandardOBDProvider) Describe() string {
+	return "standard OBD-II PIDs on " + provider.adapter.device
+}
+
 func (provider *StandardOBDProvider) Live() bool {
 	return provider.connected && provider.failure == ""
 }

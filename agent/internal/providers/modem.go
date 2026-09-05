@@ -48,6 +48,13 @@ type ModemPort struct {
 	failure    string
 }
 
+// Describe names this source for the journal line written when it goes live.
+// A control port answering +CGPSINFO is the fallback, not the streamed path, so
+// the journal has to say which of the two the agent settled on.
+func (port *ModemPort) Describe() string {
+	return "polled AT position on " + port.device
+}
+
 func NewModemPort(device string) *ModemPort {
 	return &ModemPort{device: device, buffer: make([]byte, 512), MaxAge: DefaultFixMaxAge}
 }

@@ -47,6 +47,14 @@ type PositionState interface {
 	State() string
 }
 
+// PositionDescription is implemented by a source that can name itself in one
+// line. A source that failed said why only in sample health, which is not where
+// anybody looks first; the one that succeeded said nothing at all, so a journal
+// could not even confirm which device won.
+type PositionDescription interface {
+	Describe() string
+}
+
 type VehicleProvider interface {
 	ReadObservations() (model.MetricObservations, error)
 	Close()
@@ -95,6 +103,12 @@ type VehicleAttachment interface {
 // it decodes it, so it says so and the caller takes a sample early.
 type VehicleEvents interface {
 	TakeEvent() string
+}
+
+// VehicleDescription is implemented by a source that can name itself in one
+// line: which device it opened, and the settings it resolved.
+type VehicleDescription interface {
+	Describe() string
 }
 
 type TelemetryClient interface {

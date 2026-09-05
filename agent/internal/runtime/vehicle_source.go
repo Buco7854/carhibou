@@ -32,6 +32,8 @@ type RetryingVehicleProvider struct {
 	started      bool
 	acquiring    bool
 	closed       bool
+	report       func(string)
+	announced    string
 	wake         chan struct{}
 	stop         chan struct{}
 	stopped      sync.WaitGroup
@@ -46,6 +48,30 @@ func NewRetryingVehicleProvider(acquire VehicleAcquirer) *RetryingVehicleProvide
 		healthPoll:   vehicleHealthPoll,
 		wake:         make(chan struct{}, 1),
 		stop:         make(chan struct{}),
+	}
+}
+
+// SetReporter names where lifecycle transitions are written.
+//
+// A source that fails to publish said so nowhere but in sample health, which the
+// owner could not find: four restarts against a working adapter produced an
+// empty CAN channel and a silent journal. Transitions are now announced once per
+// distinct text, so a steady state stays quiet and every change is on the record.
+func (provider *RetryingVehicleProvider) SetReporter(report func(string)) {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	provider.report = report
+}
+
+// announceLocked writes a transition the first time it says something new. The
+// caller holds the mutex.
+func (provider *RetryingVehicleProvider) announceLocked(line string) {
+	if line == provider.announced {
+		return
+	}
+	provider.announced = line
+	if provider.report != nil {
+		provider.report(line)
 	}
 }
 
@@ -287,22 +313,33 @@ func (provider *RetryingVehicleProvider) attemptAcquire() {
 	provider.failure = ""
 	provider.retryDelay = 0
 	provider.backoff = provider.retryInitial
+	provider.announceLocked("vehicle source ready: " + describeVehicle(current))
 	provider.mutex.Unlock()
+}
+
+func describeVehicle(provider VehicleProvider) string {
+	if description, ok := provider.(VehicleDescription); ok {
+		return description.Describe()
+	}
+	return "no description"
 }
 
 func (provider *RetryingVehicleProvider) recordFailure(reason string) {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
-	provider.failure = reason
-	provider.retryDelay = provider.backoff
-	provider.backoff = min(provider.backoff*2, provider.retryMaximum)
+	provider.failLockedWithoutClosing(reason)
 }
 
 func (provider *RetryingVehicleProvider) failLocked(reason string) {
 	provider.closeCurrentLocked()
+	provider.failLockedWithoutClosing(reason)
+}
+
+func (provider *RetryingVehicleProvider) failLockedWithoutClosing(reason string) {
 	provider.failure = reason
 	provider.retryDelay = provider.backoff
 	provider.backoff = min(provider.backoff*2, provider.retryMaximum)
+	provider.announceLocked("vehicle source: " + reason)
 }
 
 func (provider *RetryingVehicleProvider) closeCurrentLocked() {

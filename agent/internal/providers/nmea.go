@@ -198,6 +198,11 @@ type NMEAProvider struct {
 	failure string
 }
 
+// Describe names this source for the journal line written when it goes live.
+func (provider *NMEAProvider) Describe() string {
+	return "streamed NMEA on " + provider.device
+}
+
 func NewNMEAProvider(device string) *NMEAProvider {
 	return &NMEAProvider{device: device, MaxAge: DefaultFixMaxAge, buffer: make([]byte, 512)}
 }

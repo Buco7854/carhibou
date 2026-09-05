@@ -174,6 +174,15 @@ Updated: 2026-09-04
   carries it whether or not the car's bus is awake, and it doubles as the probe that
   separates a sleeping bus from a missing adapter; three unanswered in a row is the
   adapter gone.
+  Both retrying owners announce every status transition to the journal once per
+  distinct text ("vehicle source: <step>: <reason>", "vehicle source ready: …",
+  "position source …"), because on 2026-09-05 a vehicle source that published nothing
+  for a whole day left no trace anywhere but sample health. The two acquirers share a
+  serial-ownership registry: a sweep never opens a port the other source holds
+  (re-checked per port at open time, since a probe holds a port for seconds), the
+  vehicle acquirer claims its configured adapter before the position sweep can start,
+  and a retry asks the known adapter alone before sweeping; sweeps themselves were
+  already serialised, but the exclusions were name snapshots taken at service start.
   Host-local hardware selection persists GPS, OBD and the cellular control port as
   `auto`, `off`, or a stable `/dev/serial/by-id` path. `auto` now probes: each candidate
   is opened and classified by what it answers (NMEA stream, ELM identity, AT modem),

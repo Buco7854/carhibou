@@ -31,6 +31,8 @@ type RetryingPositionProvider struct {
 	started      bool
 	acquiring    bool
 	closed       bool
+	report       func(string)
+	announced    string
 	wake         chan struct{}
 	stop         chan struct{}
 	stopped      sync.WaitGroup
@@ -236,22 +238,53 @@ func (provider *RetryingPositionProvider) attemptAcquire() {
 	provider.failure = ""
 	provider.retryDelay = 0
 	provider.backoff = provider.retryInitial
+	provider.announceLocked("position source ready: " + describePosition(current))
 	provider.mutex.Unlock()
 }
 
 func (provider *RetryingPositionProvider) recordFailure(reason string) {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
-	provider.failure = reason
-	provider.retryDelay = provider.backoff
-	provider.backoff = min(provider.backoff*2, provider.retryMaximum)
+	provider.failLockedWithoutClosing(reason)
 }
 
 func (provider *RetryingPositionProvider) failLocked(reason string) {
 	provider.closeCurrentLocked()
+	provider.failLockedWithoutClosing(reason)
+}
+
+func (provider *RetryingPositionProvider) failLockedWithoutClosing(reason string) {
 	provider.failure = reason
 	provider.retryDelay = provider.backoff
 	provider.backoff = min(provider.backoff*2, provider.retryMaximum)
+	provider.announceLocked("position source: " + reason)
+}
+
+// SetReporter names where lifecycle transitions are written. See the vehicle
+// side for why they are written at all.
+func (provider *RetryingPositionProvider) SetReporter(report func(string)) {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	provider.report = report
+}
+
+// announceLocked writes a transition the first time it says something new. The
+// caller holds the mutex.
+func (provider *RetryingPositionProvider) announceLocked(line string) {
+	if line == provider.announced {
+		return
+	}
+	provider.announced = line
+	if provider.report != nil {
+		provider.report(line)
+	}
+}
+
+func describePosition(provider PositionProvider) string {
+	if description, ok := provider.(PositionDescription); ok {
+		return description.Describe()
+	}
+	return "no description"
 }
 
 func (provider *RetryingPositionProvider) closeCurrentLocked() {

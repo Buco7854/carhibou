@@ -2,11 +2,15 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -400,7 +404,7 @@ func testPositionRecovery(initial resolvedDevices) *positionRecovery {
 		devices:         initial,
 		samplingSeconds: 1,
 		resolve:         func(store.Hardware, paths, bool) resolvedDevices { return resolvedDevices{} },
-		reprobe: func(store.Hardware, paths, resolvedDevices) resolvedDevices {
+		reprobe: func(store.Hardware, paths, resolvedDevices, *serialOwnership) resolvedDevices {
 			return resolvedDevices{}
 		},
 		start: func(resolvedDevices, int) (agentruntime.PositionProvider, func(), error) {
@@ -462,7 +466,7 @@ func TestPositionRecoveryEscalatesFromATToOneVettedUSBReset(t *testing.T) {
 		return usbrecovery.Device{ProductID: "9001", BusNumber: 1, DeviceNumber: 3}, nil
 	}
 	refreshed := resolvedDevices{gps: "/dev/gps-new", modem: "/dev/control-new", gpsStreams: true}
-	recovery.reprobe = func(store.Hardware, paths, resolvedDevices) resolvedDevices { return refreshed }
+	recovery.reprobe = func(store.Hardware, paths, resolvedDevices, *serialOwnership) resolvedDevices { return refreshed }
 	forgot := 0
 	recovery.forget = func() { forgot++ }
 
@@ -491,7 +495,7 @@ func TestPositionRecoveryEscalatesFromATToOneVettedUSBReset(t *testing.T) {
 func TestMissingPositionGetsASecondSweepBeforeUSBRecovery(t *testing.T) {
 	recovery := testPositionRecovery(resolvedDevices{})
 	freshSweeps := 0
-	recovery.reprobe = func(store.Hardware, paths, resolvedDevices) resolvedDevices {
+	recovery.reprobe = func(store.Hardware, paths, resolvedDevices, *serialOwnership) resolvedDevices {
 		freshSweeps++
 		return resolvedDevices{}
 	}
@@ -685,5 +689,333 @@ func TestUSBRecoveryRightsReportWhatWasFoundWhenNothingMatches(t *testing.T) {
 		if !strings.Contains(descriptions[0], descriptor) {
 			t.Fatalf("description %q is missing %s", descriptions[0], descriptor)
 		}
+	}
+}
+
+// fakeSerialSet is a set of serial ports that can be held exclusively, the way
+// a real one is: opening a port another owner has is an error, not a wait.
+type fakeSerialSet struct {
+	mutex sync.Mutex
+	roles map[string]providers.SerialRole
+	held  map[string]string
+	opens map[string]int
+	// busy records every attempt to open a port another owner had. It is the
+	// evidence the whole exercise is about: on the car it appeared as probe lines
+	// reporting "Serial port busy" and as acquisitions that failed for no reason
+	// of their own.
+	busy []string
+}
+
+func newFakeSerialSet(roles map[string]providers.SerialRole) *fakeSerialSet {
+	return &fakeSerialSet{roles: roles, held: map[string]string{}, opens: map[string]int{}}
+}
+
+func (set *fakeSerialSet) paths() []string {
+	set.mutex.Lock()
+	defer set.mutex.Unlock()
+	return slices.Sorted(maps.Keys(set.roles))
+}
+
+// open takes the port for owner, or reports it busy the way the driver does.
+func (set *fakeSerialSet) open(owner, device string) error {
+	set.mutex.Lock()
+	defer set.mutex.Unlock()
+	set.opens[device]++
+	if holder, held := set.held[device]; held && holder != owner {
+		collision := fmt.Sprintf("%s opened %s while %s held it: Serial port busy", owner, device, holder)
+		set.busy = append(set.busy, collision)
+		return errors.New(collision)
+	}
+	set.held[device] = owner
+	return nil
+}
+
+// quiesce waits until nothing is opening ports any more. Closing a retrying
+// owner deliberately does not wait for an acquisition already in flight, so
+// without this a leftover sweep from one case walks into the next one's fake set.
+func (set *fakeSerialSet) quiesce(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	settled := 0
+	for time.Now().Before(deadline) {
+		set.mutex.Lock()
+		total := 0
+		for _, count := range set.opens {
+			total += count
+		}
+		set.mutex.Unlock()
+		time.Sleep(4 * probeHold)
+		set.mutex.Lock()
+		after := 0
+		for _, count := range set.opens {
+			after += count
+		}
+		set.mutex.Unlock()
+		if total == after {
+			settled++
+			if settled == 2 {
+				return
+			}
+			continue
+		}
+		settled = 0
+	}
+	t.Fatal("serial probing never stopped after both owners were closed")
+}
+
+func (set *fakeSerialSet) collisions() []string {
+	set.mutex.Lock()
+	defer set.mutex.Unlock()
+	return append([]string(nil), set.busy...)
+}
+
+func (set *fakeSerialSet) release(owner string) {
+	set.mutex.Lock()
+	defer set.mutex.Unlock()
+	for device, holder := range set.held {
+		if holder == owner {
+			delete(set.held, device)
+		}
+	}
+}
+
+// probe opens the port and holds it while it classifies, which is what a real
+// probe does for several seconds and what makes a sweep collide with the other
+// source rather than merely race it.
+func (set *fakeSerialSet) probe(device string) providers.PortReport {
+	if err := set.open("probe", device); err != nil {
+		return providers.PortReport{Device: device, Role: providers.RoleUnknown, Error: err.Error()}
+	}
+	time.Sleep(probeHold)
+	defer set.release("probe")
+	set.mutex.Lock()
+	defer set.mutex.Unlock()
+	report := providers.PortReport{Device: device, Role: set.roles[device]}
+	switch report.Role {
+	case providers.RoleNMEA:
+		report.NMEA = true
+	case providers.RoleELM:
+		report.ELM = true
+	case providers.RoleModem:
+		report.Modem = true
+	}
+	return report
+}
+
+// install replaces the three host discovery operations plus the vehicle
+// provider constructor, which is everything an acquirer touches.
+func (set *fakeSerialSet) install(t *testing.T) {
+	t.Helper()
+	previousCandidates, previousSweep := serialCandidates, sweepPorts
+	previousKnown, previousBuild := probeKnownPort, buildVehicleProvider
+	serialCandidates = set.paths
+	sweepPorts = func(devices []string, onReport func(providers.PortReport)) []providers.PortReport {
+		reports := make([]providers.PortReport, 0, len(devices))
+		for _, device := range devices {
+			report := set.probe(device)
+			if onReport != nil {
+				onReport(report)
+			}
+			reports = append(reports, report)
+		}
+		return reports
+	}
+	probeKnownPort = set.probe
+	buildVehicleProvider = func(
+		device string, _ store.Configuration, _ func(string) error,
+	) (agentruntime.VehicleProvider, error) {
+		return &fakeOwnedVehicle{set: set, device: device}, nil
+	}
+	t.Cleanup(func() {
+		serialCandidates, sweepPorts = previousCandidates, previousSweep
+		probeKnownPort, buildVehicleProvider = previousKnown, previousBuild
+	})
+}
+
+type fakeOwnedVehicle struct {
+	set     *fakeSerialSet
+	device  string
+	failure string
+}
+
+func (vehicle *fakeOwnedVehicle) Start() {
+	if err := vehicle.set.open(vehicleRole, vehicle.device); err != nil {
+		vehicle.failure = "open " + vehicle.device + ": " + err.Error()
+	}
+}
+func (vehicle *fakeOwnedVehicle) Status() string   { return vehicle.failure }
+func (vehicle *fakeOwnedVehicle) Describe() string { return "fake vehicle on " + vehicle.device }
+func (vehicle *fakeOwnedVehicle) Close()           { vehicle.set.release(vehicleRole) }
+func (vehicle *fakeOwnedVehicle) ReadObservations() (model.MetricObservations, error) {
+	return model.MetricObservations{}, nil
+}
+
+type fakeOwnedPosition struct{ device string }
+
+func (position *fakeOwnedPosition) Read() (*model.PositionFix, error) { return nil, nil }
+func (position *fakeOwnedPosition) Describe() string                  { return "fake position on " + position.device }
+
+// Both sources reacquire on their own goroutines, and every retry used to sweep
+// every port: the vehicle sweep skipped only the GPS path resolved at startup
+// and the position sweep skipped the OBD path only once one had been detected,
+// so each could open the port the other was using and fail it as busy. Neither
+// may now touch a port the other has declared.
+func TestBothAcquirersAvoidThePortsTheOtherHolds(t *testing.T) {
+	// Both directions of the collision, repeated, because either goroutine may
+	// reach its port first: the position sweep landing on the adapter the vehicle
+	// source is opening, and the vehicle sweep landing on the receiver the
+	// position source is holding.
+	for attempt := 0; attempt < 5; attempt++ {
+		set := newFakeSerialSet(map[string]providers.SerialRole{
+			"/dev/ttyUSB0": providers.RoleELM,
+			"/dev/ttyUSB1": providers.RoleNMEA,
+			"/dev/ttyUSB2": providers.RoleModem,
+		})
+		set.install(t)
+		locations := paths{config: t.TempDir(), data: t.TempDir()}
+		hardware := store.Hardware{GPS: store.Auto, OBD: store.Auto}
+		ownership := newSerialOwnership()
+
+		// Nothing is detected yet, which is the state in which the name-based
+		// exclusions were empty and the two sweeps walked over each other.
+		position := agentruntime.NewRetryingPositionProvider(func() (agentruntime.PositionProvider, error) {
+			devices := resolvePositionDevices(hardware, locations, resolvedDevices{}, ownership)
+			if devices.gps == "" {
+				return nil, fmt.Errorf("no GPS device found")
+			}
+			ownership.claim(positionRole, devices.gps, devices.modem)
+			return &fakeOwnedPosition{device: devices.gps}, nil
+		})
+		vehicle := agentruntime.NewRetryingVehicleProvider(serviceVehicleAcquirer(
+			hardware, locations, "", "/dev/ttyUSB0", "",
+			func() store.Configuration { return store.Configuration{} },
+			ownership,
+		))
+		announced := recordedTransitions(t, position, vehicle)
+		position.Start()
+		vehicle.Start()
+
+		// Both readiness lines, because an empty status means "healthy" and "never
+		// acquired anything" alike.
+		ready := func() bool {
+			lines := announced()
+			for _, prefix := range []string{"vehicle source ready", "position source ready"} {
+				if !slices.ContainsFunc(lines, func(line string) bool { return strings.HasPrefix(line, prefix) }) {
+					return false
+				}
+			}
+			return true
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) && !ready() {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if status := vehicle.Status(); status != "" {
+			t.Fatalf("attempt %d: vehicle source never acquired: %s", attempt, status)
+		}
+		if status := position.Status(); status != "" {
+			t.Fatalf("attempt %d: position source never acquired: %s", attempt, status)
+		}
+		if !ready() {
+			t.Fatalf("attempt %d: both sources never became ready: %v", attempt, announced())
+		}
+		for _, line := range append(announced(), set.collisions()...) {
+			if strings.Contains(line, "busy") {
+				t.Fatalf("attempt %d: an acquirer touched a port the other held: %s", attempt, line)
+			}
+		}
+		vehicle.Close()
+		position.Close()
+		set.quiesce(t)
+	}
+}
+
+// probeHold is how long the fake probe keeps a port, standing in for the seconds
+// a real one spends listening and writing.
+const probeHold = 25 * time.Millisecond
+
+// The vehicle sweep excluded the GPS path the service resolved when it started,
+// which is not the path the position source is on after it has recovered onto
+// another interface. It now asks what that source actually holds.
+func TestVehicleSweepSkipsThePortThePositionSourceMovedTo(t *testing.T) {
+	set := newFakeSerialSet(map[string]providers.SerialRole{
+		"/dev/ttyUSB0": providers.RoleELM,
+		"/dev/ttyUSB1": providers.RoleNMEA,
+		"/dev/ttyUSB2": providers.RoleModem,
+	})
+	set.install(t)
+	locations := paths{config: t.TempDir(), data: t.TempDir()}
+	ownership := newSerialOwnership()
+	// The receiver moved to USB2 after a module reset; USB1 is the stale name the
+	// vehicle acquirer captured at startup.
+	ownership.claim(positionRole, "/dev/ttyUSB2")
+	if err := set.open(positionRole, "/dev/ttyUSB2"); err != nil {
+		t.Fatal(err)
+	}
+
+	device, err := reprobeVehicleDevice(locations, "/dev/ttyUSB1", ownership)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device != "/dev/ttyUSB0" {
+		t.Fatalf("resolved OBD device %q, want the adapter", device)
+	}
+	if collisions := set.collisions(); len(collisions) != 0 {
+		t.Fatalf("the vehicle sweep opened a port the position source held: %v", collisions)
+	}
+}
+
+// A retry that already knows its adapter asks that port alone. Sweeping every
+// port to rediscover hardware that never moved is seconds of opening and writing
+// to devices the other source may be using, on every backoff.
+func TestVehicleRetryAsksTheKnownAdapterBeforeSweeping(t *testing.T) {
+	set := newFakeSerialSet(map[string]providers.SerialRole{
+		"/dev/ttyUSB0": providers.RoleELM,
+		"/dev/ttyUSB1": providers.RoleNMEA,
+		"/dev/ttyUSB2": providers.RoleModem,
+	})
+	set.install(t)
+	locations := paths{config: t.TempDir(), data: t.TempDir()}
+	if err := detectionStore(locations).Save(store.Detection{OBD: "/dev/ttyUSB0"}); err != nil {
+		t.Fatal(err)
+	}
+	previousExists := fileExistsFunc
+	fileExistsFunc = func(string) bool { return true }
+	t.Cleanup(func() { fileExistsFunc = previousExists })
+
+	device, err := reprobeVehicleDevice(locations, "", newSerialOwnership())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device != "/dev/ttyUSB0" {
+		t.Fatalf("resolved OBD device %q", device)
+	}
+	set.mutex.Lock()
+	defer set.mutex.Unlock()
+	for _, port := range []string{"/dev/ttyUSB1", "/dev/ttyUSB2"} {
+		if set.opens[port] != 0 {
+			t.Fatalf("the known adapter answered, yet %s was opened %d times", port, set.opens[port])
+		}
+	}
+}
+
+// recordedTransitions collects every transition both owners announce, which is
+// also the coverage that the journal now gets one line per distinct status.
+func recordedTransitions(t *testing.T, position *agentruntime.RetryingPositionProvider, vehicle *agentruntime.RetryingVehicleProvider) func() []string {
+	t.Helper()
+	var mutex sync.Mutex
+	lines := []string{}
+	record := func(line string) {
+		mutex.Lock()
+		defer mutex.Unlock()
+		lines = append(lines, line)
+		t.Log(line)
+	}
+	position.SetReporter(record)
+	vehicle.SetReporter(record)
+	return func() []string {
+		mutex.Lock()
+		defer mutex.Unlock()
+		return append([]string(nil), lines...)
 	}
 }

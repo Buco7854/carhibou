@@ -402,7 +402,7 @@ func commandGPS(locations paths, arguments []string) error {
 	closePosition := func() {}
 	if devices.gps == "" {
 		fmt.Fprintln(os.Stderr, "No responsive GPS role was found; starting automatic recovery")
-		recovery := newPositionRecovery(hardware, locations, devices, 1)
+		recovery := newPositionRecovery(hardware, locations, devices, 1, newSerialOwnership())
 		// resolveDevices already performed or reused the ordinary discovery
 		// attempt above. A diagnostic is interactive, so it can move directly to
 		// the bounded recovery attempt instead of asking the user to run another
@@ -434,7 +434,7 @@ func commandGPS(locations paths, arguments []string) error {
 		}
 
 		fmt.Fprintln(os.Stderr, "The known receiver produced no NMEA traffic; starting automatic recovery")
-		recovery := newPositionRecovery(hardware, locations, devices, 1)
+		recovery := newPositionRecovery(hardware, locations, devices, 1, newSerialOwnership())
 		recovery.attempted = true
 		recovered, recoveryErr := recovery.acquire()
 		if recoveryErr != nil {
@@ -981,6 +981,16 @@ type resolvedDevices struct {
 // because the USB product name cannot distinguish the five identical interfaces a
 // cellular module publishes, and picking the wrong one leaves the agent silently
 // without a position.
+// serialCandidates, sweepPorts and probeKnownPort are the three host operations
+// discovery performs. Tests replace them with a fake port set, which is how the
+// two acquirers can be run against each other without serial hardware.
+var (
+	serialCandidates     = store.SerialCandidates
+	sweepPorts           = providers.ProbeAll
+	probeKnownPort       = providers.ProbeKnownDevice
+	buildVehicleProvider = vehicleProvider
+)
+
 func detectionStore(locations paths) store.DetectionStore {
 	return store.DetectionStore{Path: filepath.Join(locations.data, "detection.json")}
 }
@@ -998,12 +1008,109 @@ func detectionStore(locations paths) store.DetectionStore {
 // ports from two goroutines and split every reply between them.
 var serialSweep sync.Mutex
 
+// Roles naming the two acquirers in the ownership registry below.
+const (
+	vehicleRole  = "vehicle"
+	positionRole = "position"
+)
+
+// serialOwnership records the ports each acquirer is using, so neither probes
+// hardware the other holds.
+//
+// The mutex above stops two sweeps overlapping, but a sweep still opened and
+// wrote to every candidate, and the exclusions were name-based snapshots taken
+// once at startup: the vehicle sweep skipped the GPS path the service resolved
+// when it began, not the one the position source had since moved to, and the
+// position sweep skipped the OBD path only when one had already been detected.
+// Either way the port that was actually in use could be opened by the other
+// side, which reports it busy and fails an acquisition that had nothing wrong
+// with it. A role declares its ports before it opens them and re-declares on
+// every attempt, so a source that moves stops protecting the port it left.
+type serialOwnership struct {
+	mutex sync.Mutex
+	held  map[string][]string
+}
+
+func newSerialOwnership() *serialOwnership {
+	return &serialOwnership{held: map[string][]string{}}
+}
+
+// claim and heldByOthers tolerate a nil registry, which is what a diagnostic
+// command running with the service stopped has: nobody else holds anything.
+func (ownership *serialOwnership) claim(role string, paths ...string) {
+	if ownership == nil {
+		return
+	}
+	ownership.mutex.Lock()
+	defer ownership.mutex.Unlock()
+	ownership.held[role] = compactStrings(paths)
+}
+
+// heldByOthers lists the ports every role but this one is using.
+func (ownership *serialOwnership) heldByOthers(role string) []string {
+	if ownership == nil {
+		return nil
+	}
+
+	ownership.mutex.Lock()
+	defer ownership.mutex.Unlock()
+	paths := []string{}
+	for owner, owned := range ownership.held {
+		if owner != role {
+			paths = append(paths, owned...)
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+// withoutOwnedPorts drops the candidates another role is holding. Comparison
+// goes through the same symlink resolution the distinct-device check uses,
+// because a /dev/serial/by-id name and a /dev/ttyUSB number are one device.
+// sweepUnownedPorts probes candidates, re-asking before each one whether the
+// other source has claimed it in the meantime.
+//
+// A list filtered once at the start goes stale while the sweep runs: a probe
+// holds each port for seconds, so a source that resolves its device a moment
+// after the sweep began would still have that port opened underneath it. The
+// skip is announced, because a port that was never examined is not the same as
+// one that answered nothing.
+func sweepUnownedPorts(
+	role string, candidates []string, ownership *serialOwnership, announce func(providers.PortReport),
+) []providers.PortReport {
+	reports := make([]providers.PortReport, 0, len(candidates))
+	for _, candidate := range candidates {
+		if len(withoutOwnedPorts([]string{candidate}, ownership.heldByOthers(role))) == 0 {
+			fmt.Fprintf(os.Stderr, "%s probe %s skipped: the other source is using it\n", role, candidate)
+			continue
+		}
+		reports = append(reports, sweepPorts([]string{candidate}, announce)...)
+	}
+	return reports
+}
+
+func withoutOwnedPorts(candidates, owned []string) []string {
+	if len(owned) == 0 {
+		return candidates
+	}
+	kept := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if slices.ContainsFunc(owned, func(path string) bool {
+			return agentruntime.ValidateDistinctDevices(path, candidate) != nil
+		}) {
+			continue
+		}
+		kept = append(kept, candidate)
+	}
+	return kept
+}
+
 func resolveDevices(hardware store.Hardware, locations paths, refresh bool) resolvedDevices {
 	serialSweep.Lock()
 	defer serialSweep.Unlock()
 	result := resolvedDevices{gps: hardware.GPS, obd: hardware.OBD, modem: hardware.Modem}
 	if hardware.GPS == store.Auto || hardware.OBD == store.Auto {
-		candidates := store.SerialCandidates()
+		candidates := serialCandidates()
 		cache := detectionStore(locations)
 		previous, previousFound := cache.Load()
 		if !refresh {
@@ -1014,7 +1121,7 @@ func resolveDevices(hardware store.Hardware, locations paths, refresh bool) reso
 		// A sweep takes a couple of seconds per port. Reporting each one as it
 		// finishes is what separates "still working" from "hung", both for an
 		// operator running a diagnostic and in the service journal.
-		result.reports = providers.ProbeAll(candidates, func(report providers.PortReport) {
+		result.reports = sweepPorts(candidates, func(report providers.PortReport) {
 			fmt.Fprintf(os.Stderr, "probe %s -> %s\n", report.Device, describePort(report))
 		})
 		defer func() {
@@ -1078,11 +1185,13 @@ func resolveDevices(hardware store.Hardware, locations paths, refresh bool) reso
 // service may be continuously monitoring the OBD adapter. A general discovery
 // sweep is safe at startup, before providers own ports; a recovery sweep is not:
 // opening the live ELM/STN path and sending ATI would interrupt its CAN monitor.
-func resolvePositionDevices(hardware store.Hardware, locations paths, known resolvedDevices) resolvedDevices {
+func resolvePositionDevices(
+	hardware store.Hardware, locations paths, known resolvedDevices, ownership *serialOwnership,
+) resolvedDevices {
 	serialSweep.Lock()
 	defer serialSweep.Unlock()
 
-	allCandidates := store.SerialCandidates()
+	allCandidates := serialCandidates()
 	previous, previousFound := detectionStore(locations).Load()
 	obdDevice := known.obd
 	if obdDevice == "" && previousFound {
@@ -1095,9 +1204,12 @@ func resolvePositionDevices(hardware store.Hardware, locations paths, known reso
 		}
 		candidates = append(candidates, candidate)
 	}
+	// The OBD path is excluded by name above only once one has been detected. A
+	// vehicle source that is opening or holding a port says so regardless, which
+	// is what covers the case where nothing has been detected yet.
 
 	result := resolvedDevices{gps: hardware.GPS, obd: obdDevice, modem: hardware.Modem}
-	result.reports = providers.ProbeAll(candidates, func(report providers.PortReport) {
+	result.reports = sweepUnownedPorts(positionRole, candidates, ownership, func(report providers.PortReport) {
 		fmt.Fprintf(os.Stderr, "position probe %s -> %s\n", report.Device, describePort(report))
 	})
 	probedGPS, _, probedModem := providers.SelectRoles(result.reports)
@@ -1145,21 +1257,34 @@ func resolvePositionDevices(hardware store.Hardware, locations paths, known reso
 	return result
 }
 
-func reprobeVehicleDevice(locations paths, gpsDevice string) (string, error) {
+func reprobeVehicleDevice(locations paths, gpsDevice string, ownership *serialOwnership) (string, error) {
 	serialSweep.Lock()
 	defer serialSweep.Unlock()
-	allCandidates := store.SerialCandidates()
+	previous, _ := detectionStore(locations).Load()
+	owned := ownership.heldByOthers(vehicleRole)
+	// The adapter that worked last time is asked first, alone. Sweeping every
+	// port on every retry is seconds of opening and writing to hardware another
+	// source may be using, to rediscover a device that never moved; it is worth
+	// doing only once that device is gone or has stopped answering as an adapter.
+	if known := knownVehicleDevice(previous, gpsDevice, owned); known != "" {
+		report := probeKnownPort(known)
+		fmt.Fprintf(os.Stderr, "vehicle probe %s -> %s\n", report.Device, describePort(report))
+		if report.Role == providers.RoleELM {
+			return known, nil
+		}
+		fmt.Fprintf(os.Stderr, "vehicle probe %s no longer answers as an adapter; sweeping\n", known)
+	}
+	allCandidates := serialCandidates()
 	candidates := make([]string, 0, len(allCandidates))
 	for _, candidate := range allCandidates {
 		if agentruntime.ValidateDistinctDevices(gpsDevice, candidate) == nil {
 			candidates = append(candidates, candidate)
 		}
 	}
-	reports := providers.ProbeAll(candidates, func(report providers.PortReport) {
+	reports := sweepUnownedPorts(vehicleRole, candidates, ownership, func(report providers.PortReport) {
 		fmt.Fprintf(os.Stderr, "vehicle probe %s -> %s\n", report.Device, describePort(report))
 	})
 	_, obdDevice, _ := providers.SelectRoles(reports)
-	previous, _ := detectionStore(locations).Load()
 	if obdDevice == "" && previous.OBD != "" {
 		obdDevice = retryKnownVehicleDevice(previous.OBD, candidates, reports)
 	}
@@ -1186,6 +1311,23 @@ func reprobeVehicleDevice(locations paths, gpsDevice string) (string, error) {
 // chance before the sweep is declared a failure. An adapter reset by the service
 // that just stopped needs a moment before it answers again, and calling that a
 // missing device sends the agent looking for hardware that never moved.
+// knownVehicleDevice names the adapter a retry should try before sweeping: the
+// one the last detection recorded, when it still exists and is neither the GPS
+// path nor a port the position source is holding.
+func knownVehicleDevice(previous store.Detection, gpsDevice string, owned []string) string {
+	known := previous.OBD
+	if known == "" || !fileExists(known) {
+		return ""
+	}
+	if agentruntime.ValidateDistinctDevices(gpsDevice, known) != nil {
+		return ""
+	}
+	if len(withoutOwnedPorts([]string{known}, owned)) == 0 {
+		return ""
+	}
+	return known
+}
+
 func retryKnownVehicleDevice(known string, candidates []string, reports []providers.PortReport) string {
 	if !slices.Contains(candidates, known) {
 		return ""
@@ -1196,7 +1338,7 @@ func retryKnownVehicleDevice(known string, candidates []string, reports []provid
 		}
 	}
 	fmt.Fprintf(os.Stderr, "vehicle probe %s read as unknown; retrying the port it used last\n", known)
-	report := providers.ProbeKnownDevice(known)
+	report := probeKnownPort(known)
 	fmt.Fprintf(os.Stderr, "vehicle probe %s -> %s\n", report.Device, describePort(report))
 	if report.Role == providers.RoleELM {
 		return known
@@ -1356,8 +1498,9 @@ func servicePositionAcquirer(
 	locations paths,
 	initial resolvedDevices,
 	samplingSeconds int,
+	ownership *serialOwnership,
 ) agentruntime.PositionAcquirer {
-	recovery := newPositionRecovery(hardware, locations, initial, samplingSeconds)
+	recovery := newPositionRecovery(hardware, locations, initial, samplingSeconds, ownership)
 	return recovery.acquire
 }
 
@@ -1379,8 +1522,9 @@ type positionRecovery struct {
 	missingAttempts int
 	lastUSBReset    time.Time
 
+	ownership     *serialOwnership
 	resolve       func(store.Hardware, paths, bool) resolvedDevices
-	reprobe       func(store.Hardware, paths, resolvedDevices) resolvedDevices
+	reprobe       func(store.Hardware, paths, resolvedDevices, *serialOwnership) resolvedDevices
 	start         func(resolvedDevices, int) (agentruntime.PositionProvider, func(), error)
 	restartGNSS   func(resolvedDevices) error
 	restartModule func(resolvedDevices) error
@@ -1399,12 +1543,14 @@ func newPositionRecovery(
 	locations paths,
 	initial resolvedDevices,
 	samplingSeconds int,
+	ownership *serialOwnership,
 ) *positionRecovery {
 	return &positionRecovery{
 		hardware:        hardware,
 		locations:       locations,
 		devices:         initial,
 		samplingSeconds: samplingSeconds,
+		ownership:       ownership,
 		resolve:         resolveDevices,
 		reprobe:         resolvePositionDevices,
 		start:           startPosition,
@@ -1442,7 +1588,7 @@ func (recovery *positionRecovery) acquire() (agentruntime.PositionProvider, erro
 		if recovery.devices.gps == "" || recovery.devices.gpsStreams && recovery.devices.modem == "" {
 			recovery.devices = mergeResolvedDevices(
 				recovery.devices,
-				recovery.reprobe(recovery.hardware, recovery.locations, recovery.devices),
+				recovery.reprobe(recovery.hardware, recovery.locations, recovery.devices, recovery.ownership),
 			)
 		}
 	}
@@ -1480,6 +1626,10 @@ func (recovery *positionRecovery) acquire() (agentruntime.PositionProvider, erro
 			"no GPS device found while probing /dev/serial/by-id/*, /dev/ttyUSB*, /dev/ttyACM*",
 		)
 	}
+	// Declared before the port is opened, so a vehicle sweep starting in the same
+	// instant skips it rather than reporting it busy and failing an acquisition
+	// that had nothing wrong with it.
+	recovery.ownership.claim(positionRole, recovery.devices.gps, recovery.devices.modem)
 	provider, _, err := recovery.start(recovery.devices, recovery.samplingSeconds)
 	return provider, err
 }
@@ -1510,7 +1660,7 @@ func (recovery *positionRecovery) tryUSBReset() {
 func (recovery *positionRecovery) rediscoverAfterReset() bool {
 	recovery.sleep(moduleRecoverySettle)
 	recovery.forget()
-	fresh := recovery.reprobe(recovery.hardware, recovery.locations, recovery.devices)
+	fresh := recovery.reprobe(recovery.hardware, recovery.locations, recovery.devices, recovery.ownership)
 	recovery.devices = fresh
 	return fresh.gps != ""
 }
@@ -1677,9 +1827,12 @@ func commandRun(locations paths, arguments []string) error {
 	// to find it is a state the agent reports and keeps retrying, not a reason to
 	// exit. A module that wedges overnight and re-enumerates in the morning is
 	// picked up without anybody restarting the service.
+	ownership := newSerialOwnership()
+	journal := func(line string) { fmt.Fprintln(os.Stderr, line) }
 	position := agentruntime.NewRetryingPositionProvider(
-		servicePositionAcquirer(hardware, locations, devices, configuration.Sampling.Longest()),
+		servicePositionAcquirer(hardware, locations, devices, configuration.Sampling.Longest(), ownership),
 	)
+	position.SetReporter(journal)
 	position.Start()
 	defer position.Close()
 	if err := validateVehicleConfiguration(configuration); err != nil {
@@ -1698,8 +1851,10 @@ func commandRun(locations paths, arguments []string) error {
 		devices.obd,
 		*obdOverride,
 		currentConfiguration,
+		ownership,
 	)
 	vehicle := agentruntime.NewRetryingVehicleProvider(acquireVehicle)
+	vehicle.SetReporter(journal)
 	vehicle.Start()
 	defer vehicle.Close()
 	sequence, _ := agentruntime.LastSequence(queue)
@@ -1982,15 +2137,24 @@ func serviceVehicleAcquirer(
 	initialDevice string,
 	override string,
 	configuration func() store.Configuration,
+	ownership *serialOwnership,
 ) agentruntime.VehicleAcquirer {
 	device := initialDevice
 	firstAttempt := true
 	resetUSB := cooledDownOBDResetter(resetOBDDevice, time.Now)
+	// Claimed here rather than on the first attempt: the acquisition goroutine
+	// may not be scheduled before the position source starts sweeping, and the
+	// adapter this service was told to use is known already.
+	if override != "" {
+		device = override
+	}
+	ownership.claim(vehicleRole, device)
 	return func() (agentruntime.VehicleProvider, error) {
 		if override != "" {
 			device = override
 		} else if !firstAttempt && hardware.OBD == store.Auto {
-			resolved, err := reprobeVehicleDevice(locations, gpsDevice)
+			ownership.claim(vehicleRole)
+			resolved, err := reprobeVehicleDevice(locations, gpsDevice, ownership)
 			if err != nil {
 				return nil, err
 			}
@@ -2008,7 +2172,10 @@ func serviceVehicleAcquirer(
 		if err := agentruntime.ValidateDistinctDevices(gpsDevice, device); err != nil {
 			return nil, err
 		}
-		return vehicleProvider(device, configuration(), resetUSB)
+		// Declared before Start opens it, for the same reason the position side
+		// declares its own: a sweep on the other goroutine must not walk over it.
+		ownership.claim(vehicleRole, device)
+		return buildVehicleProvider(device, configuration(), resetUSB)
 	}
 }
 
@@ -2100,7 +2267,12 @@ func loadHardware(locations paths) (store.Hardware, error) {
 	return (store.HardwareStore{Path: filepath.Join(locations.config, "hardware.json")}).Load()
 }
 func readOptional(path string) []byte { content, _ := os.ReadFile(path); return content }
-func fileExists(path string) bool     { _, err := os.Stat(path); return err == nil }
+func fileExists(path string) bool     { return fileExistsFunc(path) }
+
+// fileExistsFunc is the one filesystem question discovery asks. Tests replace it
+// alongside the fake port set, which has no /dev entries of its own.
+var fileExistsFunc = func(path string) bool { _, err := os.Stat(path); return err == nil }
+
 func directoryWritable(path string) bool {
 	if err := os.MkdirAll(path, 0o750); err != nil {
 		return false

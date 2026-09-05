@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"errors"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -372,5 +373,37 @@ func TestFailedSourceForwardsNoEvents(t *testing.T) {
 
 	if reason := source.TakeEvent(); reason != "" {
 		t.Fatalf("a failed source raised an event: %q", reason)
+	}
+}
+
+type describingVehicle struct{ managedFakeVehicle }
+
+func (vehicle *describingVehicle) Describe() string { return "CAN profile on /dev/ttyUSB0" }
+
+// A source that fails to publish said so nowhere but in sample health, which an
+// owner could not find: four restarts against a working adapter produced an
+// empty CAN channel and a silent journal. Every transition is now on the record,
+// and a repeated one is not.
+func TestVehicleSourceAnnouncesEachTransitionOnce(t *testing.T) {
+	attempts := 0
+	source := NewRetryingVehicleProvider(func() (VehicleProvider, error) {
+		attempts++
+		if attempts <= 3 {
+			return nil, errors.New("open /dev/ttyUSB0: Serial port busy")
+		}
+		return &describingVehicle{}, nil
+	})
+	announced := []string{}
+	source.SetReporter(func(line string) { announced = append(announced, line) })
+
+	for attempt := 0; attempt < 5; attempt++ {
+		source.attemptAcquire()
+	}
+	want := []string{
+		"vehicle source: open /dev/ttyUSB0: Serial port busy",
+		"vehicle source ready: CAN profile on /dev/ttyUSB0",
+	}
+	if !slices.Equal(announced, want) {
+		t.Fatalf("announced=%q, want %q", announced, want)
 	}
 }

@@ -160,6 +160,7 @@ type ProfileProvider struct {
 	lastEventAt time.Time
 	eventGap    time.Duration
 
+	protocol         string
 	auditInterval    time.Duration
 	auditBurst       time.Duration
 	fellBack         bool
@@ -370,7 +371,7 @@ func (provider *ProfileProvider) Start() {
 	provider.mutex.Unlock()
 
 	if err := provider.adapter.Connect(); err != nil {
-		provider.fail(fmt.Sprintf("device %s failed to open: %v", provider.adapter.device, err))
+		provider.fail(fmt.Sprintf("open %s: %v", provider.adapter.device, err))
 		return
 	}
 	// Read the supply before the stream starts. It is the one value available with
@@ -379,7 +380,7 @@ func (provider *ProfileProvider) Start() {
 	provider.readVoltage()
 	if err := provider.prepare(); err != nil {
 		provider.adapter.Close()
-		provider.fail(err.Error())
+		provider.fail("prepare: " + err.Error())
 		return
 	}
 
@@ -474,7 +475,7 @@ func (provider *ProfileProvider) runSession(stop <-chan struct{}) {
 				if errors.Is(err, errProfileSessionClosed) {
 					return
 				}
-				provider.fail("CAN listen burst failed: " + err.Error())
+				provider.fail("burst: " + err.Error())
 				return
 			}
 		case <-wake.C:
@@ -487,7 +488,7 @@ func (provider *ProfileProvider) runSession(stop <-chan struct{}) {
 					if errors.Is(err, errProfileSessionClosed) {
 						return
 					}
-					provider.fail("CAN wake poll failed: " + err.Error())
+					provider.fail("wake poll: " + err.Error())
 					return
 				}
 			}
@@ -616,19 +617,43 @@ func profileSessionStopped(stop <-chan struct{}) bool {
 }
 
 func (provider *ProfileProvider) prepare() error {
+	// The stage names each step of the sweep as it starts, and preparation is a
+	// minute of work whose error alone does not say how far it got. Carrying the
+	// last one into the failure is the difference between "preparation failed"
+	// and "it failed while verifying protocol 8".
+	stage := "connecting"
 	preparation, err := PrepareProfileMonitor(
 		provider.adapter, provider.decoder.CANIDs(), provider.trial, 0, false, provider.record,
-		nil, time.Now().Add(servicePreparationTimeout),
+		func(announced string) { stage = announced }, time.Now().Add(servicePreparationTimeout),
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", stage, err)
 	}
 	provider.mutex.Lock()
 	provider.unfiltered = preparation.UseUnfiltered
+	provider.protocol = preparation.ProtocolCode
+	if preparation.Protocol != "" {
+		provider.protocol += " (" + preparation.Protocol + ")"
+	}
 	provider.baseReport = preparationMonitorReport(preparation)
 	provider.monitorReport = provider.baseReport
 	provider.mutex.Unlock()
 	return nil
+}
+
+// Describe names what this source resolved, for the one journal line written
+// when it becomes the live one. A source that worked used to say nothing, so a
+// journal could not distinguish it from one that never started.
+func (provider *ProfileProvider) Describe() string {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	protocol := provider.protocol
+	if protocol == "" {
+		protocol = "unresolved"
+	}
+	return fmt.Sprintf("CAN profile on %s, protocol %s, %s, sample window %s, wake poll window %s",
+		provider.adapter.device, protocol, provider.modeDescription(),
+		provider.burstWindow, profileBurstWindow)
 }
 
 func (provider *ProfileProvider) runBurstFor(window time.Duration) error {
@@ -695,7 +720,7 @@ func (provider *ProfileProvider) recordVoltageFailure() {
 	provider.attached = false
 	if provider.failure == "" {
 		provider.failure = fmt.Sprintf(
-			"adapter stopped answering its supply reading %d times running",
+			"ATRV: adapter stopped answering its supply reading %d times running",
 			provider.voltageFailures,
 		)
 	}
