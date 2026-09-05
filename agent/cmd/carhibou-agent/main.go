@@ -209,6 +209,9 @@ func commandInstall(locations paths, arguments []string) error {
 		}
 		fmt.Printf("Enrolled agent %s\n", response.AgentID)
 	}
+	// Before the service starts, so the ports are still free to resolve and the
+	// rights are in place the first time a recovery ladder needs them.
+	grantUSBRecoveryRights(configuredSerialPaths(locations))
 	if err := agentsystem.InstallService(); err != nil {
 		return err
 	}
@@ -237,6 +240,9 @@ func commandUpdate(locations paths, arguments []string) error {
 	if err != nil {
 		return err
 	}
+	// An upgrade is where a rule written for hardware that has since been
+	// replaced gets corrected, so the rights are refreshed before the restart.
+	grantUSBRecoveryRights(configuredSerialPaths(locations))
 	if err := agentsystem.Update(api, *requested, target); err != nil {
 		return err
 	}
@@ -341,6 +347,9 @@ func commandDevices(locations paths, arguments []string) error {
 		if err := hardwareStore.Save(hardware); err != nil {
 			return err
 		}
+		// The saved choice is what the rights follow, so a new adapter or modem
+		// is granted its own reset access here rather than at the next upgrade.
+		grantUSBRecoveryRights(configuredSerialPaths(locations))
 		printJSON(hardware)
 		fmt.Println("Saved. Restart with: sudo systemctl restart carhibou-agent")
 		return nil
@@ -597,7 +606,7 @@ func commandOBDSelfTest(locations paths, arguments []string) error {
 	}
 	flags := flag.NewFlagSet("obd-selftest", flag.ContinueOnError)
 	device := flags.String("device", "", "serial device")
-	seconds := flags.Int("seconds", defaultCANSurveySeconds, "duration of each CAN verification in seconds")
+	seconds := flags.Int("seconds", defaultCANSurveySeconds, "diagnostic survey window in seconds; differs from the deployed service burst")
 	deadlineSeconds := flags.Int("deadline-seconds", 0, "overall limit in seconds; 0 derives one from --seconds")
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -649,7 +658,7 @@ func commandOBDSelfTest(locations paths, arguments []string) error {
 		overall = window*time.Duration(2*providers.CANProtocolCount()+2) + 30*time.Second
 	}
 	started := time.Now()
-	fmt.Fprintf(os.Stderr, "Self-test on %s, up to %s. Each stage listens for %s; service sample bursts listen for %s.\n",
+	fmt.Fprintf(os.Stderr, "Self-test on %s, up to %s. Diagnostic survey stages listen for %s; this differs from the deployed service sample window of %s.\n",
 		*device, overall.Round(time.Second), window, serviceBurstWindow)
 	progress := func(stage string) {
 		fmt.Fprintf(os.Stderr, "[%4.0fs] %s\n", time.Since(started).Seconds(), stage)
@@ -659,11 +668,11 @@ func commandOBDSelfTest(locations paths, arguments []string) error {
 		progress, started.Add(overall),
 	)
 	result := map[string]any{
-		"device":                  *device,
-		"uart_baud_rate":          adapter.BaudRate(),
-		"window_seconds":          *seconds,
-		"service_burst_window_ms": serviceBurstWindow.Milliseconds(),
-		"pipeline":                preparation,
+		"device":                    *device,
+		"uart_baud_rate":            adapter.BaudRate(),
+		"diagnostic_window_seconds": *seconds,
+		"service_burst_window_ms":   serviceBurstWindow.Milliseconds(),
+		"pipeline":                  preparation,
 	}
 	if identity, identityErr := adapter.Identity(); identityErr == nil {
 		result["adapter"] = identity["adapter"]
@@ -688,15 +697,23 @@ func commandOBDSelfTest(locations paths, arguments []string) error {
 }
 
 func profileSelfTestConclusion(preparation providers.ProfileMonitorPreparation) string {
+	// CAN auto formatting is disabled after the protocol is selected and the
+	// filters are installed, because selecting a protocol can clear it. Nothing
+	// but frames parsed after that order proves it on the car, so the count is
+	// said out loud rather than left to be reconstructed from the stage traces.
+	ordering := fmt.Sprintf(
+		" %d frames parsed after CAN auto formatting was disabled, which follows protocol selection and filter installation.",
+		preparation.FramesAfterRawCAN,
+	)
 	switch {
 	case preparation.UseUnfiltered:
-		return "Filtered STM parsed no frames while STMA did; the service will use unfiltered monitoring with software profile filtering."
+		return "Filtered STM parsed no frames while STMA did; the service will use unfiltered monitoring with software profile filtering." + ordering
 	case preparation.HardwareFilterGood:
-		return "Filtered STM parsed frames; the service will keep hardware-filtered monitoring."
+		return "Filtered STM parsed frames; the service will keep hardware-filtered monitoring." + ordering
 	case preparation.Unfiltered != nil:
-		return "Neither filtered STM nor STMA parsed a frame; verify the ignition state and inspect the raw and malformed-line counts above."
+		return "Neither filtered STM nor STMA parsed a frame; verify the ignition state and inspect the raw and malformed-line counts above." + ordering
 	default:
-		return "The profile monitoring pipeline did not complete."
+		return "The profile monitoring pipeline did not complete." + ordering
 	}
 }
 
@@ -812,7 +829,7 @@ func commandMonitor(locations paths, arguments []string) error {
 		return err
 	}
 	defer closePosition()
-	vehicle, err := vehicleProvider(devices.obd, configuration)
+	vehicle, err := vehicleProvider(devices.obd, configuration, cooledDownOBDResetter(resetOBDDevice, time.Now))
 	if err != nil {
 		return err
 	}
@@ -1367,11 +1384,14 @@ type positionRecovery struct {
 	start         func(resolvedDevices, int) (agentruntime.PositionProvider, func(), error)
 	restartGNSS   func(resolvedDevices) error
 	restartModule func(resolvedDevices) error
-	resetUSB      func([]string) (usbrecovery.Device, error)
-	candidates    func() []string
-	forget        func()
-	now           func() time.Time
-	sleep         func(time.Duration)
+	// resetUSB is given the position devices the agent is configured with and the
+	// wider list of ttys the module may have re-enumerated onto. Only the first
+	// decides what may be reset.
+	resetUSB   func(configured, candidates []string) (usbrecovery.Device, error)
+	candidates func() []string
+	forget     func()
+	now        func() time.Time
+	sleep      func(time.Duration)
 }
 
 func newPositionRecovery(
@@ -1390,8 +1410,14 @@ func newPositionRecovery(
 		start:           startPosition,
 		restartGNSS:     restartStreamingGNSS,
 		restartModule:   restartSIMComModule,
-		resetUSB: func(candidates []string) (usbrecovery.Device, error) {
-			return usbrecovery.New(usbrecovery.Config{}).ResetCandidates(candidates)
+		resetUSB: func(configured, candidates []string) (usbrecovery.Device, error) {
+			// The candidate list is deliberately wide, because a module can come
+			// back on different ttyUSB numbers. The allowed set keeps that width
+			// honest: it is resolved from the configured receiver and control
+			// port, so a sweep across every tty on the host cannot reach the OBD
+			// adapter or anything else that happens to be plugged in.
+			allowed, _ := usbRecoveryTargets(configured)
+			return usbrecovery.New(usbrecovery.Config{AllowedDevices: allowed}).ResetCandidates(candidates)
 		},
 		candidates: store.SerialCandidates,
 		forget:     func() { detectionStore(locations).Forget() },
@@ -1464,8 +1490,9 @@ func (recovery *positionRecovery) tryUSBReset() {
 		return
 	}
 	recovery.lastUSBReset = now
-	candidates := append([]string{recovery.devices.gps, recovery.devices.modem}, recovery.candidates()...)
-	device, err := recovery.resetUSB(compactStrings(candidates))
+	configured := compactStrings([]string{recovery.devices.gps, recovery.devices.modem})
+	candidates := append(append([]string{}, configured...), recovery.candidates()...)
+	device, err := recovery.resetUSB(configured, compactStrings(candidates))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Automatic SIMCom USB recovery was not available:", err)
 		return
@@ -1599,11 +1626,18 @@ func commandRun(locations paths, arguments []string) error {
 	if *syncSeconds <= 0 {
 		return fmt.Errorf("--config-sync-seconds must be greater than zero")
 	}
+	watchdogStop := make(chan struct{})
+	defer close(watchdogStop)
+	notifier, notifyErr := newSystemdNotifier(os.Getenv("NOTIFY_SOCKET"))
+	defer notifier.Close()
+	if warning := systemdWatchdogWarning(os.Getenv("WATCHDOG_USEC"), os.Getenv("NOTIFY_SOCKET"), notifyErr); warning != "" {
+		fmt.Fprintln(os.Stderr, warning)
+	}
 	startupNotifyStop := make(chan struct{})
 	var stopStartupNotifier sync.Once
 	stopStartup := func() { stopStartupNotifier.Do(func() { close(startupNotifyStop) }) }
 	defer stopStartup()
-	go runSystemdNotifier(startupNotifyStop, systemdNotifyInterval, notifySystemdWatchdog)
+	go runSystemdNotifier(startupNotifyStop, systemdNotifyInterval, notifier.Notify)
 	credentials, err := loadCredentials(locations)
 	if err != nil {
 		return err
@@ -1673,9 +1707,11 @@ func commandRun(locations paths, arguments []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	var loopHeartbeat atomic.Int64
-	loopHeartbeat.Store(time.Now().UnixNano())
-	watchdogStop := make(chan struct{})
-	defer close(watchdogStop)
+	heartbeat := func() {
+		loopHeartbeat.Store(time.Now().UnixNano())
+		notifier.Notify()
+	}
+	heartbeat()
 	go runLoopWatchdog(
 		&loopHeartbeat, time.Second, dumpAllStacks,
 		func(stack []byte) { _, _ = os.Stderr.Write(stack) }, os.Exit, watchdogStop,
@@ -1683,8 +1719,7 @@ func commandRun(locations paths, arguments []string) error {
 	stopStartup()
 	nextSample, nextUpload, nextSync := time.Now(), time.Now(), time.Now()
 	for {
-		loopHeartbeat.Store(time.Now().UnixNano())
-		notifySystemdWatchdog()
+		heartbeat()
 		select {
 		case <-ctx.Done():
 			return nil
@@ -1693,6 +1728,12 @@ func commandRun(locations paths, arguments []string) error {
 		now := time.Now()
 		if !now.Before(nextSync) {
 			remote, fetchErr := api.FetchConfiguration()
+			// The fetch can spend its whole request timeout, and applying a changed
+			// configuration below tears the vehicle session down inline, which can
+			// itself take the better part of a minute on a silent bus. Each of
+			// those gets its own heartbeat so neither has to fit inside the
+			// other's share of the watchdog limit.
+			heartbeat()
 			if fetchErr == nil {
 				candidate, installErr := configurationStore.InstallIfNewer(remote)
 				if installErr == nil {
@@ -1713,6 +1754,10 @@ func commandRun(locations paths, arguments []string) error {
 				fmt.Fprintln(os.Stderr, fetchErr)
 			}
 			nextSync = now.Add(time.Duration(*syncSeconds) * time.Second)
+			// And the upload below can take another request timeout before its
+			// first chunk finishes, so the teardown above does not share a budget
+			// with it either.
+			heartbeat()
 		}
 		// A meaningful transition is reported when it happens rather than at the
 		// next cadence deadline, and the upload that carries it is flushed with
@@ -1729,12 +1774,9 @@ func commandRun(locations paths, arguments []string) error {
 			if collectErr != nil {
 				fmt.Fprintln(os.Stderr, "Collection failed:", collectErr)
 			}
-			if event != "" {
-				nextUpload = now
-			}
 		}
 		if !now.Before(nextUpload) {
-			if _, err := agent.Upload(); err != nil && api.ShouldReport(err) {
+			if _, err := agent.Upload(heartbeat); err != nil && api.ShouldReport(err) {
 				fmt.Fprintln(os.Stderr, err)
 			}
 			nextUpload = now.Add(time.Duration(configuration.Upload.Seconds(agent.InUse)) * time.Second)
@@ -1788,20 +1830,46 @@ func dumpAllStacks() []byte {
 	return append([]byte("agent loop watchdog expired; goroutine stacks follow\n"), buffer[:count]...)
 }
 
-func notifySystemdWatchdog() {
-	socket := os.Getenv("NOTIFY_SOCKET")
+type systemdNotifier struct {
+	connection *net.UnixConn
+}
+
+func newSystemdNotifier(socket string) (*systemdNotifier, error) {
+	notifier := &systemdNotifier{}
 	if socket == "" {
-		return
+		return notifier, nil
 	}
 	if strings.HasPrefix(socket, "@") {
 		socket = "\x00" + socket[1:]
 	}
 	connection, err := net.DialUnix("unixgram", nil, &net.UnixAddr{Name: socket, Net: "unixgram"})
 	if err != nil {
-		return
+		return notifier, err
 	}
-	_, _ = connection.Write([]byte("WATCHDOG=1"))
-	_ = connection.Close()
+	notifier.connection = connection
+	return notifier, nil
+}
+
+func (notifier *systemdNotifier) Notify() {
+	if notifier.connection != nil {
+		_, _ = notifier.connection.Write([]byte("WATCHDOG=1"))
+	}
+}
+
+func (notifier *systemdNotifier) Close() {
+	if notifier.connection != nil {
+		_ = notifier.connection.Close()
+	}
+}
+
+func systemdWatchdogWarning(watchdogUsec, socket string, notifyErr error) string {
+	if notifyErr != nil {
+		return "Warning: systemd watchdog notifications are unavailable: " + notifyErr.Error()
+	}
+	if watchdogUsec != "" && socket == "" {
+		return "Warning: systemd expects watchdog notifications but NOTIFY_SOCKET is absent"
+	}
+	return ""
 }
 
 func reportingInterval(configuration store.Configuration, inUse bool) int {
@@ -1817,8 +1885,11 @@ func collectAtCadence(
 	agent.DrivingReportingInterval = reportingInterval(configuration, true)
 	agent.ParkedReportingInterval = reportingInterval(configuration, false)
 	wasInUse := agent.InUse
-	_, err := agent.Collect()
+	sample, err := agent.Collect()
 	nextSample := now.Add(time.Duration(configuration.Sampling.Seconds(agent.InUse)) * time.Second)
+	if _, triggered := sample.Agent["sample_trigger"]; triggered {
+		nextUpload = now
+	}
 	if wasInUse != agent.InUse {
 		newDeadline := now.Add(time.Duration(configuration.Upload.Seconds(agent.InUse)) * time.Second)
 		if newDeadline.Before(nextUpload) {
@@ -1828,7 +1899,11 @@ func collectAtCadence(
 	return nextSample, nextUpload, err
 }
 
-func vehicleProvider(device string, configuration store.Configuration) (agentruntime.VehicleProvider, error) {
+func vehicleProvider(
+	device string,
+	configuration store.Configuration,
+	resetUSB func(string) error,
+) (agentruntime.VehicleProvider, error) {
 	decoder, err := vehicleProfileDecoder(configuration)
 	if err != nil {
 		return nil, err
@@ -1842,13 +1917,43 @@ func vehicleProvider(device string, configuration store.Configuration) (agentrun
 	}
 	provider := providers.NewProfileProvider(adapter, decoder)
 	provider.SetSamplingInterval(time.Duration(configuration.Sampling.DefaultSeconds) * time.Second)
-	provider.SetUSBRecovery(func(device string) error {
-		_, err := usbrecovery.New(usbrecovery.Config{
-			AllowedVendorIDs: []string{usbrecovery.FTDIVendorID},
-		}).ResetTTY(device)
-		return err
-	})
+	provider.SetUSBRecovery(resetUSB)
 	return provider, nil
+}
+
+// resetOBDDevice resets the adapter the agent was configured with, and only it.
+// The allowed set is resolved from that very tty, so the guard that remains is
+// the resolver's own: the nearest USB ancestor, never a hub.
+func resetOBDDevice(device string) error {
+	resolver := usbrecovery.New(usbrecovery.Config{})
+	identified, err := resolver.Identify(device)
+	if err != nil {
+		return err
+	}
+	_, err = usbrecovery.New(usbrecovery.Config{
+		AllowedDevices: []usbrecovery.DeviceID{identified.ID()},
+	}).ResetTTY(device)
+	return err
+}
+
+func cooledDownOBDResetter(reset func(string) error, now func() time.Time) func(string) error {
+	var mutex sync.Mutex
+	var lastReset time.Time
+	return func(device string) error {
+		mutex.Lock()
+		defer mutex.Unlock()
+		at := now()
+		if elapsed := at.Sub(lastReset); !lastReset.IsZero() && elapsed < physicalRecoveryCooldown {
+			// Reporting the skip rather than success is what lets the caller's
+			// diagnosis name the rung it stopped on. Returning nil said the reset
+			// had been performed, so a device that was never touched read as one
+			// that a physical reset had failed to revive.
+			return fmt.Errorf("%w: the last one was %s ago and they are at least %s apart",
+				usbrecovery.ErrCoolingDown, elapsed.Round(time.Second), physicalRecoveryCooldown)
+		}
+		lastReset = at
+		return reset(device)
+	}
 }
 
 func vehicleProfileDecoder(configuration store.Configuration) (*profile.DecoderEngine, error) {
@@ -1880,6 +1985,7 @@ func serviceVehicleAcquirer(
 ) agentruntime.VehicleAcquirer {
 	device := initialDevice
 	firstAttempt := true
+	resetUSB := cooledDownOBDResetter(resetOBDDevice, time.Now)
 	return func() (agentruntime.VehicleProvider, error) {
 		if override != "" {
 			device = override
@@ -1902,13 +2008,94 @@ func serviceVehicleAcquirer(
 		if err := agentruntime.ValidateDistinctDevices(gpsDevice, device); err != nil {
 			return nil, err
 		}
-		return vehicleProvider(device, configuration())
+		return vehicleProvider(device, configuration(), resetUSB)
 	}
 }
 
 func loadCredentials(locations paths) (store.Credentials, error) {
 	return agentsystem.LoadCredentials(filepath.Join(locations.config, "credentials.json"))
 }
+
+// configuredSerialPaths names the ttys the agent will use: the explicit
+// selections, and for "auto" whatever the last resolution settled on.
+//
+// It probes only when the service is not running. A probe opens every serial
+// port and writes to it, which is exactly what must not happen underneath a
+// service that is holding two of them.
+func configuredSerialPaths(locations paths) []string {
+	hardware, err := loadHardware(locations)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Could not read the hardware selection:", err)
+		return nil
+	}
+	var devices resolvedDevices
+	if agentsystem.ServiceRunning() {
+		detection, found := detectionStore(locations).Load()
+		if !found {
+			return nil
+		}
+		devices = fromDetection(hardware, detection)
+	} else {
+		devices = resolveDevices(hardware, locations, false)
+	}
+	return compactStrings([]string{devices.gps, devices.obd, devices.modem})
+}
+
+// usbRecoveryTargets resolves serial paths to the physical USB devices that own
+// them, and describes what each one turned out to be. The descriptions are the
+// diagnostic: when nothing resolves, the operator needs to see the devices that
+// are actually attached rather than a list of the ones this agent expected.
+func usbRecoveryTargets(ttys []string) ([]usbrecovery.DeviceID, []string) {
+	resolver := newUSBResolver()
+	devices := []usbrecovery.DeviceID{}
+	descriptions := []string{}
+	seen := map[usbrecovery.DeviceID]bool{}
+	for _, tty := range ttys {
+		device, err := resolver.Identify(tty)
+		if err != nil {
+			descriptions = append(descriptions, fmt.Sprintf("%s: %v", tty, err))
+			continue
+		}
+		descriptions = append(descriptions, fmt.Sprintf("%s: %s", tty, device))
+		if identity := device.ID(); !seen[identity] {
+			seen[identity] = true
+			devices = append(devices, identity)
+		}
+	}
+	return devices, descriptions
+}
+
+// grantUSBRecoveryRights gives the service group reset access to the devices the
+// agent is configured with, whatever they are.
+//
+// The rule used to name vendors, which meant every different modem or adapter
+// needed the agent changed before its last-resort reset would work. It now
+// follows the configuration: each selected tty is resolved to the USB device
+// that owns it and only those devices are granted.
+func grantUSBRecoveryRights(ttys []string) {
+	devices, descriptions := usbRecoveryTargets(ttys)
+	if len(devices) == 0 {
+		if len(ttys) == 0 {
+			_, descriptions = usbRecoveryTargets(store.SerialCandidates())
+		}
+		fmt.Fprintln(os.Stderr, "Warning: no configured serial device resolved to a USB device, so no reset rights were granted.")
+		for _, description := range descriptions {
+			fmt.Fprintln(os.Stderr, "  "+description)
+		}
+		fmt.Fprintln(os.Stderr, "The agent runs normally; recovering wedged hardware may need a manual replug.")
+		return
+	}
+	agentsystem.WarnIfUSBRecoveryRuleUnavailable(installUSBRecoveryRule(devices))
+}
+
+// newUSBResolver and installUSBRecoveryRule are the two host operations this
+// grant performs. Tests replace them with a fake sysfs tree and a recorder,
+// which is how the udev side is covered everywhere else.
+var (
+	newUSBResolver         = func() *usbrecovery.Recovery { return usbrecovery.New(usbrecovery.Config{}) }
+	installUSBRecoveryRule = agentsystem.InstallUSBRecoveryRule
+)
+
 func loadHardware(locations paths) (store.Hardware, error) {
 	return (store.HardwareStore{Path: filepath.Join(locations.config, "hardware.json")}).Load()
 }

@@ -29,6 +29,13 @@ type ProfileMonitorPreparation struct {
 	Unfiltered         *MonitorTrace         `json:"unfiltered_stma,omitempty"`
 	UseUnfiltered      bool                  `json:"use_unfiltered_monitor"`
 	HardwareFilterGood bool                  `json:"hardware_filters_effective"`
+	// FramesAfterRawCAN counts what this preparation parsed after CAN auto
+	// formatting was disabled. The STN1130 can clear that setting when a protocol
+	// is selected, so ATCAF0 sent before ATSP is silently undone and the monitor
+	// listens for ISO 15765 messages on a bus that broadcasts raw CAN. Only frames
+	// parsed after the working order — select, filter, disable formatting, listen
+	// — prove that order on real hardware.
+	FramesAfterRawCAN int `json:"frames_parsed_after_raw_can_ordering"`
 }
 
 // CANProtocolCount is how many protocols a full verification tries, so a caller
@@ -56,14 +63,17 @@ func PrepareProfileMonitor(
 	onFrame func(model.CANFrame),
 	progress func(string),
 	deadline time.Time,
-) (ProfileMonitorPreparation, error) {
+) (result ProfileMonitorPreparation, err error) {
 	announce := func(stage string) {
 		if progress != nil {
 			progress(stage)
 		}
 	}
 	expired := func() bool { return !deadline.IsZero() && time.Now().After(deadline) }
-	result := ProfileMonitorPreparation{InitialBaud: adapter.BaudRate()}
+	result = ProfileMonitorPreparation{InitialBaud: adapter.BaudRate()}
+	// Every window this function listens for runs after CAN auto formatting was
+	// disabled, so the total is what a run on the car can point at.
+	defer func() { result.FramesAfterRawCAN = preparationMonitorReport(result).ParsedFrames }()
 	allowed := make(map[int]struct{}, len(canIDs))
 	for _, canID := range canIDs {
 		allowed[canID] = struct{}{}
@@ -107,7 +117,7 @@ func PrepareProfileMonitor(
 	}
 	announce(fmt.Sprintf("verifying hardware-filtered monitoring for %s", verificationWindow))
 	result.Filtered, err = adapter.InspectMonitor(verificationWindow, false, rawLineLimit, profileFrame)
-	if err != nil {
+	if err != nil && !stageKeepsItsEvidence(result.Filtered.Report, err) {
 		return result, fmt.Errorf("filtered CAN verification stopped: %w", err)
 	}
 	if result.Filtered.Report.ParsedFrames > 0 && !inspectUnfiltered {
@@ -121,7 +131,7 @@ func PrepareProfileMonitor(
 	announce(fmt.Sprintf("verifying unfiltered monitoring for %s", verificationWindow))
 	unfiltered, err := adapter.InspectMonitor(verificationWindow, true, rawLineLimit, profileFrame)
 	result.Unfiltered = &unfiltered
-	if err != nil {
+	if err != nil && !stageKeepsItsEvidence(unfiltered.Report, err) {
 		return result, fmt.Errorf("unfiltered CAN verification stopped: %w", err)
 	}
 	if result.Filtered.Report.ParsedFrames > 0 {
@@ -151,7 +161,11 @@ func PrepareProfileMonitor(
 // rather than everything. Trials that listened first therefore heard silence on
 // a wide-awake bus and proved only that the question had been asked backwards.
 // Selecting a protocol needs no listening evidence, so the order that works on
-// real hardware is select, filter, then listen.
+// real hardware is select, filter, disable CAN auto formatting, then listen.
+// Disabling formatting belongs inside that order rather than before it, because
+// selecting a protocol can clear it. In the ordinary case the first protocol
+// carries frames and this runs once for the whole preparation; a bus that
+// answers on none of them pays it per trial, which is the cheapest command here.
 func inspectProtocols(
 	adapter *OBDAdapter,
 	canIDs []int,
@@ -183,10 +197,19 @@ func inspectProtocols(
 			return trials, "", "", installed, fmt.Errorf("adapter rejected the CAN filters: %w", err)
 		}
 		filters = installed
+		if err := adapter.prepareRawCAN(); err != nil {
+			trial.Error = err.Error()
+			trials = append(trials, trial)
+			return trials, "", "", filters, fmt.Errorf("adapter did not disable CAN auto formatting: %w", err)
+		}
 		trace, err := adapter.InspectMonitor(window, false, rawLineLimit, onFrame)
 		trial.Trace = trace
 		if err != nil {
+			// Recorded even when the trial still counts, because a prompt that
+			// came back late is what an operator reading the sweep wants to see.
 			trial.Error = err.Error()
+		}
+		if err != nil && !stageKeepsItsEvidence(trace.Report, err) {
 			trials = append(trials, trial)
 			return trials, "", "", filters, fmt.Errorf("adapter stopped while testing protocol %s: %w", protocol.code, err)
 		}
@@ -205,7 +228,31 @@ func inspectProtocols(
 	if err != nil {
 		return trials, "", "", installed, fmt.Errorf("adapter rejected the CAN filters: %w", err)
 	}
+	if err := adapter.prepareRawCAN(); err != nil {
+		return trials, "", "", installed, fmt.Errorf("adapter did not disable CAN auto formatting: %w", err)
+	}
 	return trials, fallback.code, fallback.description, installed, nil
+}
+
+// stageKeepsItsEvidence decides whether a listening stage that ended in an error
+// still counts.
+//
+// A stage that collected frames and then could not get the command prompt back
+// has already proved what it was asked to prove: the frames are the evidence,
+// and a late prompt is not counter-evidence. leaveStream has asked for that
+// prompt twice by the time this is reached, and the service bursts tolerate a
+// run of three unanswered exits before treating the adapter as wedged; a
+// preparation that failed outright on the first one was the strictest stage in
+// the system, and it fails the whole acquisition — backoff, then the CAN channel
+// retracted — over one slow reply. The unfiltered STMA verification is where
+// this bites, because it is the exit with the most buffered traffic behind it on
+// a live bus.
+//
+// A stage that heard nothing keeps failing. There is no evidence to keep then,
+// and an adapter that neither speaks nor answers is exactly the fault this sweep
+// exists to find.
+func stageKeepsItsEvidence(report MonitorReport, err error) bool {
+	return errors.Is(err, errMonitorExitTimeout) && report.ParsedFrames > 0
 }
 
 func sustainedCleanTraffic(trials []ProtocolTrialResult) bool {

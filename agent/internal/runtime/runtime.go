@@ -212,6 +212,10 @@ func (agent *Agent) MotionEvent(now time.Time) string {
 func (agent *Agent) Collect() (model.Sample, error) {
 	position, _ := agent.Position.Read()
 	observations, _ := agent.Vehicle.ReadObservations()
+	// A bounded CAN burst can discover a transition while this collection is
+	// waiting for it. Consume that event now so the sample carrying the new value
+	// also carries the reason, instead of scheduling a duplicate next iteration.
+	agent.PendingEvent()
 	if agent.vehicleKeys == nil {
 		agent.vehicleKeys = map[string]map[string]rememberedVehicleKey{}
 	}
@@ -335,7 +339,7 @@ func (agent *Agent) Collect() (model.Sample, error) {
 	return sample, agent.Queue.Enqueue(sample)
 }
 
-func (agent *Agent) Upload() (int64, error) {
+func (agent *Agent) Upload(heartbeat func()) (int64, error) {
 	var uploaded int64
 	for {
 		samples, err := agent.Queue.Pending(client.MaxTelemetryBatchSize)
@@ -356,6 +360,9 @@ func (agent *Agent) Upload() (int64, error) {
 		}
 		if len(samples) < client.MaxTelemetryBatchSize {
 			return uploaded, nil
+		}
+		if heartbeat != nil {
+			heartbeat()
 		}
 	}
 }

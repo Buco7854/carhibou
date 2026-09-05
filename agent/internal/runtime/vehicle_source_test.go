@@ -248,6 +248,47 @@ func TestVehicleProviderStartsBeforeTheFirstRead(t *testing.T) {
 	}
 }
 
+func TestClosedVehicleOwnerCannotBeginALateAcquisition(t *testing.T) {
+	acquired := false
+	source := NewRetryingVehicleProvider(func() (VehicleProvider, error) {
+		acquired = true
+		time.Sleep(400 * time.Millisecond)
+		return &managedFakeVehicle{}, nil
+	})
+	source.Close()
+	started := time.Now()
+	source.attemptAcquire()
+	if elapsed := time.Since(started); elapsed > 20*time.Millisecond {
+		t.Fatalf("closed acquisition took %s", elapsed)
+	}
+	if acquired {
+		t.Fatal("acquirer ran after Close won the lifecycle lock")
+	}
+}
+
+// The gap this closes is between a backoff timer firing and the acquisition it
+// releases: the acquirer opens serial hardware and takes as long as that takes,
+// and shutdown used to wait behind it. Close is therefore aimed at the instant
+// the timer expires and scattered around it, because the gap is only as wide as
+// the scheduling of the goroutine the timer wakes; a Close issued right after
+// Start never gets near it, since the loop sees the closure before it waits.
+func TestVehicleCloseLandingOnTheRetryExpiryStaysBounded(t *testing.T) {
+	for attempt := 0; attempt < closeRaceAttempts; attempt++ {
+		source := NewRetryingVehicleProvider(func() (VehicleProvider, error) {
+			time.Sleep(closeRaceAcquisition)
+			return &managedFakeVehicle{}, nil
+		})
+		source.retryDelay = closeRaceRetryDelay
+		source.Start()
+		time.Sleep(jitteredRetryExpiry())
+		started := time.Now()
+		source.Close()
+		if elapsed := time.Since(started); elapsed > closeRaceBound {
+			t.Fatalf("Close attempt %d took %s, want under %s", attempt, elapsed, closeRaceBound)
+		}
+	}
+}
+
 func TestVehicleSourceStateIsPublishedWithoutBecomingAnError(t *testing.T) {
 	vehicle := &managedFakeVehicle{
 		live:  true,

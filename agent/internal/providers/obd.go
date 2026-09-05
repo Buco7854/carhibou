@@ -2,6 +2,7 @@ package providers
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -511,6 +512,9 @@ func (adapter *OBDAdapter) Monitor(duration time.Duration, onFrame func(model.CA
 }
 
 func (adapter *OBDAdapter) MonitorReport(duration time.Duration, onFrame func(model.CANFrame)) (MonitorReport, error) {
+	if err := adapter.prepareRawCAN(); err != nil {
+		return MonitorReport{}, err
+	}
 	stop := make(chan struct{})
 	timer := time.AfterFunc(duration, func() { close(stop) })
 	defer timer.Stop()
@@ -519,6 +523,9 @@ func (adapter *OBDAdapter) MonitorReport(duration time.Duration, onFrame func(mo
 }
 
 func (adapter *OBDAdapter) MonitorAllReport(duration time.Duration, onFrame func(model.CANFrame)) (MonitorReport, error) {
+	if err := adapter.prepareRawCAN(); err != nil {
+		return MonitorReport{}, err
+	}
 	stop := make(chan struct{})
 	timer := time.AfterFunc(duration, func() { close(stop) })
 	defer timer.Stop()
@@ -551,10 +558,6 @@ func (adapter *OBDAdapter) monitorUntil(
 	if adapter.port == nil {
 		return trace, fmt.Errorf("adapter is not connected")
 	}
-	// Broadcast payloads are raw CAN, not ISO 15765 messages for CAF to validate.
-	if _, err := adapter.Command("ATCAF0", 0); err != nil {
-		return trace, err
-	}
 	if err := adapter.enterStream(command); err != nil {
 		return trace, err
 	}
@@ -582,24 +585,44 @@ func (adapter *OBDAdapter) monitorUntil(
 	}
 }
 
-// leaveStream returns the adapter from monitoring to its command prompt. Any
-// frames still in flight arrive before the prompt does, so they are observed
-// rather than discarded.
+// leaveStream returns the adapter from monitoring to its command prompt.
+//
+// The carriage return is what stops the monitor. What comes back before the
+// prompt is whatever the adapter had already queued behind it — trailing frames
+// and its own STOPPED line — so it is parsed rather than dropped. A window that
+// closes first observes nothing at all, because readUntil hands back what it
+// collected only when the terminator arrives; that is why the stop is asked for
+// twice before it is called a failure.
+//
+// The window is the adapter's ordinary command window. Leaving a stream is a
+// command like any other, and bounding it tightly made every late prompt — on a
+// busy bus, during the unfiltered verification, in can-capture — escalate
+// through an adapter reset, a re-prepare, a reopen and a USB reset.
 //
 // The buffer is emptied once the prompt is in hand. Bytes that arrived after the
 // adapter stopped streaming belong to no reply, and leaving them there made them
 // the beginning of the next one: an identity read taken after a monitor came
 // back as raw CAN frames rather than as the adapter's name.
 func (adapter *OBDAdapter) leaveStream(observe func(string)) error {
-	if _, err := adapter.port.Write([]byte("\r")); err != nil {
-		return err
-	}
-	response, err := adapter.readUntil('>', adapter.CommandWindow)
-	for _, line := range strings.FieldsFunc(response, func(r rune) bool { return r == '\r' || r == '\n' }) {
-		observe(line)
+	var err error
+	for attempt := 0; attempt < monitorExitAttempts; attempt++ {
+		if _, writeErr := adapter.port.Write([]byte("\r")); writeErr != nil {
+			return writeErr
+		}
+		var response string
+		response, err = adapter.readUntil('>', adapter.CommandWindow)
+		for _, line := range strings.FieldsFunc(response, func(r rune) bool { return r == '\r' || r == '\n' }) {
+			observe(line)
+		}
+		if err == nil {
+			break
+		}
 	}
 	adapter.discardResidue()
-	return err
+	if err != nil {
+		return fmt.Errorf("%w: %w", errMonitorExitTimeout, err)
+	}
+	return nil
 }
 
 // discardResidue drops anything buffered behind a command prompt. Only a stream
@@ -681,6 +704,22 @@ func observeMonitorLine(line string, onFrame func(model.CANFrame), report *Monit
 // monitorReadWindow bounds one read so a stopped monitor does not wait out a
 // silent bus before noticing.
 const monitorReadWindow = 300 * time.Millisecond
+
+// monitorExitAttempts is how many times the stop is written before the adapter
+// counts as not having answered it. One retry costs a carriage return and buys
+// back the prompt an adapter swallowed while it was still draining its buffer.
+const monitorExitAttempts = 2
+
+// errMonitorExitTimeout marks a monitor that listened but could not get its
+// command prompt back, so a caller can tell it apart from an adapter that never
+// started streaming.
+var errMonitorExitTimeout = errors.New("adapter did not return to its command prompt after monitoring")
+
+func (adapter *OBDAdapter) prepareRawCAN() error {
+	// Broadcast payloads are raw CAN, not ISO 15765 messages for CAF to validate.
+	_, err := adapter.Command("ATCAF0", 0)
+	return err
+}
 
 func ParseCANFrame(line string, timestamp float64) (model.CANFrame, error) {
 	if marker := strings.Index(strings.ToUpper(line), "<DATA ERROR"); marker >= 0 {

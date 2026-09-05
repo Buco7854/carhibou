@@ -186,10 +186,23 @@ Updated: 2026-09-04
   process-isolated: a timed-out open is killed and reaped before the next interface,
   and a failed sweep preserves the last working roles rather than erasing the only
   safe recovery route. If a proven NMEA stream genuinely stops, recovery escalates
-  from a GNSS-only AT cycle to `AT+CRESET`, then to one vendor-checked SIMCom USB reset
-  at most every 15 minutes. Installation grants only the service group access to
-  SIMCom usbfs nodes and disables autosuspend for those devices; FTDI adapters and hubs
-  cannot be reset through this path. Valid NMEA traffic without a satellite fix is
+  from a GNSS-only AT cycle to `AT+CRESET`, then to one USB reset of the configured receiver
+  at most every 15 minutes; the CAN burst ladder ends in the same cooled-down reset for
+  the adapter. Reset rights are not a vendor list: at install, update and `devices set`
+  the agent resolves each configured tty through the sysfs walk to its USB
+  vendor:product (and serial when present) and writes a udev rule granting the service
+  group exactly those usb_device nodes, with autosuspend off for them; nothing else on
+  the bus is granted, hubs are refused by device class even when named, and a tty that
+  is not USB yields no rule and a warning naming what was found. The agent therefore
+  works with whatever modem and adapter it was configured with (the owner's OBDLink SX
+  is an FT-X, 0403:6015; a rule pinned to 6001 would have matched nothing). A fresh
+  install runs one discovery sweep before starting the service so the first rule is
+  not empty. An independent review on 2026-09-04 of the first cut of that ladder
+  (ff85aee) found it granting every FTDI device, restarting its cooldown per
+  acquisition, racing Close() into a fresh acquisition, starving the watchdog during a
+  backlog upload, and (in its own first fix) escalating a slow stream exit into
+  retracting the whole CAN channel; all were corrected and re-verified before that
+  build was deployed. Valid NMEA traffic without a satellite fix is
   treated as a live receiver, not a hardware failure. The sweep persists through the
   wake-up commands a SIM7600 control port swallows after being opened, and every phase
   of the conversation reads against its own deadline so the watchdog derived from that

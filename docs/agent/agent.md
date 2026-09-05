@@ -19,9 +19,17 @@ downloads one executable and its SHA-256 file. Releases provide `linux-armv6`,
 `carhibou-agent` account with serial access, enrolls, installs
 `carhibou-agent.service`, and runs diagnostics. Its permanent agent credential is
 returned once and stored mode-restricted under `/etc/carhibou-agent`.
-Installation also grants that account reset access to SIMCom USB devices only and
-disables autosuspend for them. This lets the service recover a wedged SIM7600 without
-running as root or resetting the OBD adapter or USB hub.
+Installation grants that account reset access to the USB devices the agent was
+configured with, whatever they are, and disables autosuspend for them. Each selected
+serial port — the GPS receiver, the cellular control port and the OBD adapter — is
+resolved to the physical USB device that owns it, and the udev rule names exactly
+those devices by vendor and product, plus their serial when they publish one.
+The rule is written by `install`, `update` and `devices set`, so if the service is left
+in `auto` and later re-probes onto different hardware, a USB reset of that new device
+fails with a permission error in the journal until one of those three is run again.
+Nothing else is granted: a device the agent was not configured with is refused, and a
+USB hub is refused even if a selection resolves to one, because a hub owns every port
+beneath it.
 
 HTTPS is required by default. A trusted-LAN development server using HTTP adds
 `--allow-insecure-http`; that choice is stored so configuration, uploads and updates use
@@ -76,13 +84,15 @@ sudo carhibou-agent config --pull
 sudo systemctl restart carhibou-agent
 ```
 
-For a raw-CAN profile, the adapter listens in bounded one-second bursts at the sampling
-cadence. The C-Zero identifiers repeat every 10–100 ms, so one second covers each one
-several times without leaving the adapter in a stream indefinitely. While parked, a
-one-second wake poll runs once a minute; traffic raises an immediate sample and restores
-the driving cadence instead of waiting for the next ten-minute parked sample. Passive
-monitoring cannot ask the adapter to discover its protocol, so preparation tries the four
-CAN variants until one carries a frame and applies the profile filters before each burst.
+For a raw-CAN profile, the adapter listens in bounded bursts at the sampling cadence.
+The window is one third of that cadence, bounded between 300 ms and one second. The
+C-Zero identifiers repeat every 10–100 ms, so even the shortest window covers each one
+at least three times without leaving the adapter in a stream indefinitely. While parked,
+a separate one-second wake poll runs once a minute; traffic raises an immediate sample
+and restores the driving cadence instead of waiting for the next ten-minute parked
+sample. Passive monitoring cannot ask the adapter to discover its protocol, so
+preparation tries the four CAN variants until one carries a frame and installs the
+profile filters once for the following bursts.
 
 ## Select serial hardware
 
@@ -106,8 +116,10 @@ service.
 
 Manual pinning is optional. In `auto`, the service remembers the last working NMEA and
 AT roles and recovers them in stages when position traffic genuinely stops: restart the
-GNSS engine, ask the SIMCom firmware to restart, then reset only the SIMCom USB parent as
-a rate-limited last resort. Discovery probes run in disposable child processes, so an
+GNSS engine, ask the SIMCom firmware to restart, then reset the USB device the configured
+receiver or control port belongs to, as a rate-limited last resort. The wider search for
+a module that came back on different port numbers cannot widen what may be reset: the
+reset still needs one of the configured devices. Discovery probes run in disposable child processes, so an
 unresponsive serial interface cannot remain open after its timeout. A valid NMEA stream
 without a satellite position is left alone; it needs a clearer sky, not a reset.
 
@@ -115,6 +127,12 @@ without a satellite position is left alone; it needs a clearer sky, not a reset.
 
 The OBDLink boundary supports ELM/STN identity, firmware and protocol selection,
 standard diagnostic queries, read-only CAN monitoring, one-ID filters and reconnection.
+`obd-selftest --seconds` uses that longer value for its diagnostic protocol survey;
+its output separately names the shorter burst window used by the deployed service. It
+also reports how many frames were parsed after CAN auto formatting was disabled, which
+now follows protocol selection and filter installation: an STN adapter can clear that
+setting when a protocol is selected, so disabling it earlier is silently undone and only
+that count proves the order on the car.
 `carhibou-agent obd-info` reports adapter details, supply voltage, VIN and trouble codes
 when the vehicle supports them. Unsupported services return no value rather than an
 agent error.

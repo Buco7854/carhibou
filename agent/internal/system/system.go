@@ -15,14 +15,18 @@ import (
 
 	"github.com/Buco7854/carhibou/agent/internal/client"
 	"github.com/Buco7854/carhibou/agent/internal/store"
+	"github.com/Buco7854/carhibou/agent/internal/usbrecovery"
 )
 
 const (
-	ServiceName        = "carhibou-agent.service"
-	BinaryPath         = "/usr/local/bin/carhibou-agent"
-	ConfigDir          = "/etc/carhibou-agent"
-	DataDir            = "/var/lib/carhibou-agent"
-	simcomUdevRulePath = "/etc/udev/rules.d/99-carhibou-agent-simcom.rules"
+	ServiceName = "carhibou-agent.service"
+	BinaryPath  = "/usr/local/bin/carhibou-agent"
+	ConfigDir   = "/etc/carhibou-agent"
+	DataDir     = "/var/lib/carhibou-agent"
+	// udevRulePath keeps the filename an earlier release used, so installing the
+	// current rule replaces that one instead of leaving a second file granting
+	// rights the agent no longer asks for.
+	udevRulePath = "/etc/udev/rules.d/99-carhibou-agent-simcom.rules"
 )
 
 type udevOperations struct {
@@ -122,9 +126,16 @@ func ServiceRunning() bool {
 	return strings.TrimSpace(string(output)) == "active"
 }
 
+// InstallUSBRecoveryRule grants the service group reset access to exactly the
+// USB devices the agent was configured with, and keeps them out of autosuspend.
+// The caller resolves its own serial selections to those devices, so nothing
+// here is written against a particular modem or adapter.
+func InstallUSBRecoveryRule(devices []usbrecovery.DeviceID) error {
+	return installUdevRule(hostUdevOperations(), udevRulePath, devices)
+}
+
 func InstallService() error {
 	operations := hostUdevOperations()
-	warnIfSIMComUdevRuleUnavailable(installSIMComUdevRule(operations, simcomUdevRulePath))
 	if err := writeServiceUnit(operations, "/etc/systemd/system/"+ServiceName); err != nil {
 		return err
 	}
@@ -158,6 +169,7 @@ ExecStart=/usr/local/bin/carhibou-agent run
 Restart=always
 RestartSec=10
 WatchdogSec=90
+NotifyAccess=main
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -186,7 +198,7 @@ func Uninstall(yes bool) error {
 		}
 	}
 	ignoreCommand("systemctl", "disable", "--now", ServiceName)
-	warnIfSIMComUdevRuleUnavailable(uninstallSIMComUdevRule(hostUdevOperations(), simcomUdevRulePath))
+	WarnIfUSBRecoveryRuleUnavailable(uninstallUdevRule(hostUdevOperations(), udevRulePath))
 	if err := os.Remove("/etc/systemd/system/" + ServiceName); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -228,7 +240,6 @@ func Update(api *client.Client, version, target string) error {
 	if !strings.EqualFold(expected[0], hex.EncodeToString(actual[:])) {
 		return fmt.Errorf("release checksum mismatch")
 	}
-	warnIfSIMComUdevRuleUnavailable(installSIMComUdevRule(hostUdevOperations(), simcomUdevRulePath))
 	temporary, err := os.CreateTemp(filepath.Dir(BinaryPath), ".carhibou-agent-*")
 	if err != nil {
 		return err
@@ -297,59 +308,94 @@ func LoadCredentials(path string) (store.Credentials, error) {
 	return credentials, nil
 }
 
-// warnIfSIMComUdevRuleUnavailable reports a udev problem without failing the
+// WarnIfUSBRecoveryRuleUnavailable reports a udev problem without failing the
 // operation that hit it.
 //
 // The rule only grants the unprivileged service permission to reset a wedged
-// SIMCom modem over usbfs, which is the last resort of position recovery and is
-// reached after every AT-level remedy has failed. A host without udev, or one
-// that refuses the trigger, still runs the agent perfectly well. Aborting an
-// install or an update over it would trade the whole agent for its fallback.
-func warnIfSIMComUdevRuleUnavailable(err error) {
+// modem or adapter over usbfs, which is the last resort of each recovery ladder
+// and is reached after every command-level remedy has failed. A host without
+// udev, or one that refuses the trigger, still runs the agent perfectly well.
+// Aborting an install or an update over it would trade the whole agent for its
+// fallback.
+func WarnIfUSBRecoveryRuleUnavailable(err error) {
 	if err == nil {
 		return
 	}
-	fmt.Fprintln(os.Stderr, "Warning: SIMCom USB recovery permissions were not configured:", err)
-	fmt.Fprintln(os.Stderr, "The agent runs normally; recovering a wedged modem may need a manual replug.")
+	fmt.Fprintln(os.Stderr, "Warning: USB recovery permissions were not configured:", err)
+	fmt.Fprintln(os.Stderr, "The agent runs normally; recovering wedged hardware may need a manual replug.")
 }
 
-func simcomUdevRule() string {
-	return `# Managed by Carhibou. Grants USB reset access only to supported telemetry devices.
-ACTION=="add|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1e0e", GROUP="carhibou-agent", MODE="0660"
-ACTION=="add|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1e0e", TEST=="power/control", ATTR{power/control}="on"
-ACTION=="add|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0403", GROUP="carhibou-agent", MODE="0660"
-`
+// usbRecoveryRule matches the devices by identity rather than by make.
+//
+// An earlier version listed vendors — SIMCom, then FTDI, then FTDI narrowed by
+// ScanTool's manufacturer string — and every narrowing was another guess about
+// which parts the owner happened to own. The rule now follows the ttys the agent
+// was configured with: each is resolved to the USB device that owns it, and only
+// those devices are named. A serial is matched when the device publishes one, so
+// two identical adapters on one host are still told apart.
+func usbRecoveryRule(devices []usbrecovery.DeviceID) string {
+	rule := "# Managed by Carhibou. Grants USB reset access only to the devices this agent was configured with.\n"
+	for _, device := range devices {
+		match := fmt.Sprintf(
+			`ACTION=="add|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="%s", ATTR{idProduct}=="%s"`,
+			device.VendorID, device.ProductID,
+		)
+		if device.Serial != "" {
+			match += fmt.Sprintf(`, ATTR{serial}=="%s"`, device.Serial)
+		}
+		rule += match + `, GROUP="carhibou-agent", MODE="0660"` + "\n"
+		rule += match + `, TEST=="power/control", ATTR{power/control}="on"` + "\n"
+	}
+	return rule
 }
 
-func installSIMComUdevRule(operations udevOperations, path string) error {
-	if err := operations.writeFile(path, []byte(simcomUdevRule()), 0o644); err != nil {
-		return fmt.Errorf("install SIMCom udev rule: %w", err)
+func installUdevRule(operations udevOperations, path string, devices []usbrecovery.DeviceID) error {
+	if len(devices) == 0 {
+		return fmt.Errorf("no configured device to grant USB reset access to")
+	}
+	if err := operations.writeFile(path, []byte(usbRecoveryRule(devices)), 0o644); err != nil {
+		return fmt.Errorf("install USB recovery udev rule: %w", err)
 	}
 	if err := operations.chmod(path, 0o644); err != nil {
-		return fmt.Errorf("set SIMCom udev rule permissions: %w", err)
+		return fmt.Errorf("set USB recovery udev rule permissions: %w", err)
 	}
-	return reloadSIMComUdevRules(operations)
+	return reloadUdevRules(operations, devices)
 }
 
-func uninstallSIMComUdevRule(operations udevOperations, path string) error {
+func uninstallUdevRule(operations udevOperations, path string) error {
 	if err := operations.remove(path); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("remove SIMCom udev rule: %w", err)
+		return fmt.Errorf("remove USB recovery udev rule: %w", err)
 	}
-	return reloadSIMComUdevRules(operations)
+	// Removal re-triggers the whole subsystem rather than the devices the rule
+	// named, because the rule is already gone and with it the record of which
+	// they were.
+	return runUdev(operations, [][]string{
+		{"udevadm", "control", "--reload-rules"},
+		{"udevadm", "trigger", "--settle", "--subsystem-match=usb", "--action=change"},
+	})
 }
 
-func reloadSIMComUdevRules(operations udevOperations) error {
-	for _, command := range [][]string{
-		{"udevadm", "control", "--reload-rules"},
-		{"udevadm", "trigger", "--settle", "--subsystem-match=usb", "--attr-match=idVendor=1e0e", "--action=change"},
-		{"udevadm", "trigger", "--settle", "--subsystem-match=usb", "--attr-match=idVendor=0403", "--action=change"},
-	} {
+func reloadUdevRules(operations udevOperations, devices []usbrecovery.DeviceID) error {
+	commands := [][]string{{"udevadm", "control", "--reload-rules"}}
+	for _, device := range devices {
+		commands = append(commands, []string{
+			"udevadm", "trigger", "--settle", "--subsystem-match=usb",
+			"--attr-match=idVendor=" + device.VendorID,
+			"--attr-match=idProduct=" + device.ProductID,
+			"--action=change",
+		})
+	}
+	return runUdev(operations, commands)
+}
+
+func runUdev(operations udevOperations, commands [][]string) error {
+	for _, command := range commands {
 		output, err := operations.run(command[0], command[1:]...)
 		if err != nil {
-			return fmt.Errorf("refresh SIMCom udev devices: %s: %w", strings.TrimSpace(string(output)), err)
+			return fmt.Errorf("refresh udev devices: %s: %w", strings.TrimSpace(string(output)), err)
 		}
 	}
 	return nil

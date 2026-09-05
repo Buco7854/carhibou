@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -51,9 +52,20 @@ const (
 	// interval leaves the serial line idle for two thirds of it, preserving the
 	// separation from the continuous stream that could freeze the service.
 	minimumProfileBurstWindow = 300 * time.Millisecond
-	// burstCompletionAllowance covers the bounded command round-trips that enter
-	// and leave STM without letting a sample wait on adapter recovery.
-	burstCompletionAllowance = 500 * time.Millisecond
+	// monitorExitRoundTrip is what leaving STM costs when the adapter answers
+	// promptly. It sizes how long a sample waits, not how long the adapter is
+	// given: the exit itself keeps the ordinary command window, and one that runs
+	// long times the waiter out into the carried snapshot instead of holding the
+	// sample. That is what the carried snapshot is for.
+	monitorExitRoundTrip = 200 * time.Millisecond
+	// burstCompletionSlack keeps that bound strictly above the work it bounds. A
+	// silent adapter measured 502 ms against a 500 ms allowance: two timers each
+	// fire a little late, and the goroutine reading them is not scheduled the
+	// instant they do.
+	burstCompletionSlack = 100 * time.Millisecond
+	// burstCompletionAllowance follows the two bounded operations around the
+	// listen timer: one possible read-window overshoot and leaving STM.
+	burstCompletionAllowance = monitorReadWindow + monitorExitRoundTrip + burstCompletionSlack
 	// parkedWakePollInterval listens for one second each minute while ordinary
 	// parked samples remain ten minutes apart, a roughly 1.7% serial duty cycle.
 	parkedWakePollInterval = time.Minute
@@ -84,6 +96,13 @@ const (
 	// the threshold the activity detector uses, so the event and the cadence
 	// change it triggers agree about what motion is.
 	motionOnsetKMH = 3.0
+	// consecutiveExitTimeoutLimit is how many stream exits in a row may go
+	// unanswered before the adapter counts as wedged. A burst that listened and
+	// then waited too long for its prompt has still heard the bus, while the
+	// ladder it would otherwise enter costs an ATZ, a re-prepare bounded at 90 s,
+	// a reopen and a physical USB reset, and ends by failing the session and
+	// retracting the whole CAN channel. One late prompt does not buy that.
+	consecutiveExitTimeoutLimit = 3
 	// quietSettleMargin is added to the liveness window before a gap in frames is
 	// called sleep. A momentary pause between broadcasts is not the ignition
 	// going off, and reporting it as one would park a moving car.
@@ -103,6 +122,8 @@ const AuxVoltageMetric = "battery.aux_voltage"
 // these flipping is news, and waiting out a parked cadence to report it is how a
 // charge that started at 02:00 first appears at 02:10.
 var eventMetrics = []string{"vehicle.ready", "charging.active", "vehicle.in_use", "vehicle.state"}
+
+var errProfileSessionClosed = errors.New("profile session closed")
 
 type profileBurstCycle struct {
 	done   chan struct{}
@@ -150,9 +171,8 @@ type ProfileProvider struct {
 	burstRequests    chan struct{}
 	burstCycle       *profileBurstCycle
 	carriedSnapshot  bool
+	exitTimeouts     int
 	resetUSB         func(string) error
-	lastUSBReset     time.Time
-	now              func() time.Time
 
 	sessionDone sync.WaitGroup
 
@@ -174,7 +194,6 @@ func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *Pr
 		burstWindow: profileBurstWindow, wakePollInterval: parkedWakePollInterval,
 		burstRequests: make(chan struct{}, 1),
 		resetUSB:      func(string) error { return fmt.Errorf("USB reset is not configured") },
-		now:           time.Now,
 	}
 }
 
@@ -449,7 +468,10 @@ func (provider *ProfileProvider) runSession(stop <-chan struct{}) {
 			if cycle == nil {
 				continue
 			}
-			if err := provider.runBurstCycle(cycle); err != nil {
+			if err := provider.runBurstCycle(cycle, stop); err != nil {
+				if errors.Is(err, errProfileSessionClosed) {
+					return
+				}
 				provider.fail("CAN listen burst failed: " + err.Error())
 				return
 			}
@@ -459,7 +481,10 @@ func (provider *ProfileProvider) runSession(stop <-chan struct{}) {
 			provider.mutex.Unlock()
 			if due {
 				cycle := provider.ensureBurstCycle(profileBurstWindow)
-				if err := provider.runBurstCycle(cycle); err != nil {
+				if err := provider.runBurstCycle(cycle, stop); err != nil {
+					if errors.Is(err, errProfileSessionClosed) {
+						return
+					}
 					provider.fail("CAN wake poll failed: " + err.Error())
 					return
 				}
@@ -487,8 +512,8 @@ func (provider *ProfileProvider) ensureBurstCycle(window time.Duration) *profile
 	return provider.burstCycle
 }
 
-func (provider *ProfileProvider) runBurstCycle(cycle *profileBurstCycle) error {
-	err := provider.runBurstWithRecovery(cycle.window)
+func (provider *ProfileProvider) runBurstCycle(cycle *profileBurstCycle, stop <-chan struct{}) error {
+	err := provider.runBurstWithRecovery(cycle.window, stop)
 	provider.mutex.Lock()
 	if provider.burstCycle == cycle {
 		provider.burstCycle = nil
@@ -498,30 +523,85 @@ func (provider *ProfileProvider) runBurstCycle(cycle *profileBurstCycle) error {
 	return err
 }
 
-func (provider *ProfileProvider) runBurstWithRecovery(window time.Duration) error {
-	if err := provider.runBurstFor(window); err == nil {
+func (provider *ProfileProvider) runBurstWithRecovery(window time.Duration, stop <-chan struct{}) error {
+	err := provider.runBurstFor(window)
+	switch {
+	case err == nil:
+		provider.noteStreamExit(false)
+		return nil
+	// A burst that listened and could not get its prompt back has still heard the
+	// bus, so it is a burst failure rather than a reason to start the ladder.
+	case errors.Is(err, errMonitorExitTimeout) &&
+		provider.noteStreamExit(true) < consecutiveExitTimeoutLimit:
 		return nil
 	}
+	provider.noteStreamExit(false)
+	if profileSessionStopped(stop) {
+		return errProfileSessionClosed
+	}
 	if err := provider.adapter.Reset(); err == nil {
+		if profileSessionStopped(stop) {
+			return errProfileSessionClosed
+		}
 		if err = provider.prepare(); err == nil {
 			return nil
 		}
 	}
+	if profileSessionStopped(stop) {
+		return errProfileSessionClosed
+	}
 	provider.adapter.Close()
+	if profileSessionStopped(stop) {
+		return errProfileSessionClosed
+	}
 	if err := provider.adapter.Connect(); err == nil {
+		if profileSessionStopped(stop) {
+			provider.adapter.Close()
+			return errProfileSessionClosed
+		}
 		if err = provider.prepare(); err == nil {
 			return nil
 		}
 	}
 	provider.adapter.Close()
-	now := provider.now()
-	if provider.lastUSBReset.IsZero() || now.Sub(provider.lastUSBReset) >= usbrecovery.Cooldown {
-		provider.lastUSBReset = now
-		if err := provider.resetUSB(provider.adapter.device); err != nil {
-			return fmt.Errorf("reset, reopen, and USB recovery failed: %w", err)
-		}
+	if profileSessionStopped(stop) {
+		return errProfileSessionClosed
 	}
-	return fmt.Errorf("adapter remained unavailable after reset and reopen")
+	// The ladder ends either way, but the reason it ends has to name its last
+	// rung: a physical reset that ran and did not help is a different fault, with
+	// a different next step for the owner, from one that was skipped because the
+	// previous one was too recent to repeat.
+	switch err := provider.resetUSB(provider.adapter.device); {
+	case err == nil:
+		return errors.New("adapter remained unavailable after reset, reopen, and a USB reset")
+	case errors.Is(err, usbrecovery.ErrCoolingDown):
+		return fmt.Errorf("adapter remained unavailable after reset and reopen, and no USB reset was performed: %w", err)
+	default:
+		return fmt.Errorf("reset, reopen, and USB recovery failed: %w", err)
+	}
+}
+
+// noteStreamExit counts unanswered stream exits in a row and returns the run
+// length. Any other outcome ends the run: the limit is about an adapter that has
+// stopped answering, not about how many late prompts a session has ever seen.
+func (provider *ProfileProvider) noteStreamExit(timedOut bool) int {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	if !timedOut {
+		provider.exitTimeouts = 0
+		return 0
+	}
+	provider.exitTimeouts++
+	return provider.exitTimeouts
+}
+
+func profileSessionStopped(stop <-chan struct{}) bool {
+	select {
+	case <-stop:
+		return true
+	default:
+		return false
+	}
 }
 
 func (provider *ProfileProvider) prepare() error {
@@ -538,10 +618,6 @@ func (provider *ProfileProvider) prepare() error {
 	provider.monitorReport = provider.baseReport
 	provider.mutex.Unlock()
 	return nil
-}
-
-func (provider *ProfileProvider) runBurst() error {
-	return provider.runBurstFor(provider.burstWindow)
 }
 
 func (provider *ProfileProvider) runBurstFor(window time.Duration) error {

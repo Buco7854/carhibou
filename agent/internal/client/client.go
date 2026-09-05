@@ -52,7 +52,8 @@ type enrollmentRequest struct {
 }
 
 const (
-	ProtocolVersion = 2
+	ProtocolVersion               = 2
+	maxReportedResponseSignatures = 64
 	// MaxTelemetryBatchSize keeps one request, one ingest transaction, and the
 	// hook trigger produced from it small enough for a Pi and the server to hold
 	// comfortably. Two hundred samples still amortize HTTP overhead while a
@@ -193,23 +194,30 @@ func (client *Client) request(method, path string, body, destination any, authen
 		return err
 	}
 	if err := json.Unmarshal(content, destination); err != nil {
-		preview := content
-		if len(preview) > 200 {
-			preview = preview[:200]
+		collapsed := "response body omitted"
+		if path != "/api/v1/agent/enroll" {
+			preview := content
+			if len(preview) > 200 {
+				preview = preview[:200]
+			}
+			collapsed = strings.Join(strings.Fields(string(preview)), " ")
 		}
-		collapsed := strings.Join(strings.Fields(string(preview)), " ")
+		finalURL := response.Request.URL
 		message := fmt.Sprintf(
 			"server answered %s %s from %s for %s: %q",
-			response.Status, response.Header.Get("Content-Type"), remoteAddress, response.Request.URL.String(), collapsed,
+			response.Status, response.Header.Get("Content-Type"), remoteAddress, finalURL.String(), collapsed,
 		)
-		return &responseFormatError{message: message, signature: message}
+		signature := fmt.Sprintf("%d|%s|%s%s", response.StatusCode,
+			response.Header.Get("Content-Type"), finalURL.Host, finalURL.EscapedPath())
+		return &responseFormatError{message: message, signature: signature}
 	}
 	return nil
 }
 
 // ShouldReport suppresses a repeated malformed-response diagnosis while still
 // returning the error to callers, so retries and durable outbox semantics stay
-// unchanged. Any changed route, peer, headers, status, or preview is new evidence.
+// unchanged. Signatures deliberately exclude body content and peers so a proxy
+// cannot grow this set with arbitrary responses.
 func (client *Client) ShouldReport(err error) bool {
 	var formatErr *responseFormatError
 	if !errors.As(err, &formatErr) {
@@ -217,11 +225,14 @@ func (client *Client) ShouldReport(err error) bool {
 	}
 	client.reportMutex.Lock()
 	defer client.reportMutex.Unlock()
+	if client.reportedResponses == nil {
+		client.reportedResponses = make(map[string]struct{})
+	}
 	if _, reported := client.reportedResponses[formatErr.signature]; reported {
 		return false
 	}
-	if client.reportedResponses == nil {
-		client.reportedResponses = make(map[string]struct{})
+	if len(client.reportedResponses) >= maxReportedResponseSignatures {
+		clear(client.reportedResponses)
 	}
 	client.reportedResponses[formatErr.signature] = struct{}{}
 	return true

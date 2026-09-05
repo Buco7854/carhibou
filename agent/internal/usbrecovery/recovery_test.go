@@ -40,16 +40,33 @@ func newFakeUSBTree(t *testing.T) *fakeUSBTree {
 	return tree
 }
 
-func (tree *fakeUSBTree) recovery() *Recovery {
+// recovery allows exactly the devices named, the way the agent allows the ones
+// its configured ttys resolve to.
+func (tree *fakeUSBTree) recovery(allowed ...DeviceID) *Recovery {
 	return New(Config{
 		SysClassTTYRoot: tree.sysClassTTY,
 		USBBusRoot:      tree.usbBusRoot,
+		AllowedDevices:  allowed,
 		Reset: func(path string) error {
 			tree.resetPaths = append(tree.resetPaths, path)
 			return tree.resetError
 		},
 	})
 }
+
+func (tree *fakeUSBTree) setAttributes(name string, attributes map[string]string) {
+	tree.t.Helper()
+	for attribute, value := range attributes {
+		tree.write(filepath.Join(tree.physicalPaths[name], attribute), value+"\n")
+	}
+}
+
+var (
+	simcom9011 = DeviceID{VendorID: "1e0e", ProductID: "9011"}
+	simcom9001 = DeviceID{VendorID: "1e0e", ProductID: "9001"}
+	ftdi6015   = DeviceID{VendorID: "0403", ProductID: "6015"}
+	ftdi6001   = DeviceID{VendorID: "0403", ProductID: "6001"}
+)
 
 func (tree *fakeUSBTree) addUSBDevice(name, parent, vendor, product, bus, device string) string {
 	tree.t.Helper()
@@ -111,17 +128,17 @@ func (tree *fakeUSBTree) write(path, content string) {
 	}
 }
 
-func TestResetTTYResolvesSIMComPhysicalDevice(t *testing.T) {
+func TestResetTTYResolvesTheConfiguredPhysicalDevice(t *testing.T) {
 	tree := newFakeUSBTree(t)
 	tree.addUSBDevice("1-1", "", "1E0E", "9011", "1", "7")
 	tty := tree.addTTY("ttyUSB3", "1-1", 3)
 
-	device, err := tree.recovery().ResetTTY(tty)
+	device, err := tree.recovery(simcom9011).ResetTTY(tty)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantPath := filepath.Join(tree.usbBusRoot, "001", "007")
-	if device.VendorID != SIMComVendorID || device.ProductID != "9011" || device.BusNumber != 1 || device.DeviceNumber != 7 || device.Path != wantPath {
+	if device.VendorID != "1e0e" || device.ProductID != "9011" || device.BusNumber != 1 || device.DeviceNumber != 7 || device.Path != wantPath {
 		t.Fatalf("unexpected resolved device: %+v", device)
 	}
 	if len(tree.resetPaths) != 1 || tree.resetPaths[0] != wantPath {
@@ -129,30 +146,87 @@ func TestResetTTYResolvesSIMComPhysicalDevice(t *testing.T) {
 	}
 }
 
-func TestFTDIResetRequiresExplicitRecoveryPolicy(t *testing.T) {
+// Reset rights follow the devices the agent was configured with, not a list of
+// parts written into the program. The same adapter is refused or accepted purely
+// by whether it is one of them, and a sibling product of the same vendor is not.
+func TestResetRequiresTheDeviceToBeOneOfTheConfiguredOnes(t *testing.T) {
 	tree := newFakeUSBTree(t)
-	tree.addUSBDevice("1-2", "", FTDIVendorID, "6015", "1", "8")
+	tree.addUSBDevice("1-2", "", "0403", "6015", "1", "8")
 	tty := tree.addTTY("ttyUSB0", "1-2", 0)
-	if _, err := tree.recovery().ResetTTY(tty); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("default recovery accepted FTDI: %v", err)
+
+	if _, err := tree.recovery(simcom9011).ResetTTY(tty); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("an unconfigured device was reset: %v", err)
 	}
-	recovery := New(Config{
-		SysClassTTYRoot:  tree.sysClassTTY,
-		USBBusRoot:       tree.usbBusRoot,
-		AllowedVendorIDs: []string{FTDIVendorID},
-		Reset: func(path string) error {
-			tree.resetPaths = append(tree.resetPaths, path)
-			return nil
-		},
-	})
-	if _, err := recovery.ResetTTY(tty); err != nil {
+	if _, err := tree.recovery(ftdi6001).ResetTTY(tty); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("another product of the same vendor was accepted: %v", err)
+	}
+	if len(tree.resetPaths) != 0 {
+		t.Fatalf("reset invoked for an unconfigured device: %v", tree.resetPaths)
+	}
+	if _, err := tree.recovery(ftdi6015).ResetTTY(tty); err != nil {
 		t.Fatal(err)
+	}
+	if len(tree.resetPaths) != 1 {
+		t.Fatalf("reset paths=%v, want the configured device reset once", tree.resetPaths)
+	}
+}
+
+// Two units of one product are told apart by the serial they publish, and a
+// device that publishes none is matched by product alone rather than refused.
+func TestConfiguredSerialSelectsBetweenIdenticalDevices(t *testing.T) {
+	tree := newFakeUSBTree(t)
+	tree.addUSBDevice("1-1", "", "0403", "6015", "1", "4")
+	tree.setAttributes("1-1", map[string]string{"serial": "SX-ONE", "manufacturer": "ScanTool.net LLC"})
+	first := tree.addTTY("ttyUSB0", "1-1", 0)
+	tree.addUSBDevice("1-2", "", "0403", "6015", "1", "5")
+	tree.setAttributes("1-2", map[string]string{"serial": "SX-TWO"})
+	second := tree.addTTY("ttyUSB1", "1-2", 0)
+
+	configured := DeviceID{VendorID: "0403", ProductID: "6015", Serial: "SX-ONE"}
+	if _, err := tree.recovery(configured).ResetTTY(second); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("the other unit of the same product was reset: %v", err)
+	}
+	device, err := tree.recovery(configured).ResetTTY(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device.Serial != "SX-ONE" || device.Manufacturer != "ScanTool.net LLC" {
+		t.Fatalf("descriptors lost: %+v", device)
+	}
+	if _, err := tree.recovery(ftdi6015).ResetTTY(second); err != nil {
+		t.Fatalf("a product-only selection refused a unit: %v", err)
+	}
+}
+
+// Identify is how the allowed set is built, so it cannot be gated by it; it
+// still refuses a hub, and it carries the descriptor strings an operator needs
+// when nothing the agent was configured with could be found.
+func TestIdentifyNamesTheDeviceWithoutConsultingTheAllowedSet(t *testing.T) {
+	tree := newFakeUSBTree(t)
+	tree.addUSBDevice("1-1", "", "1E0E", "9011", "1", "7")
+	tree.setAttributes("1-1", map[string]string{"manufacturer": "SimTech", "product": "SIM7600", "serial": "0123"})
+	tty := tree.addTTY("ttyUSB2", "1-1", 2)
+
+	device, err := tree.recovery().Identify(tty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device.ID() != (DeviceID{VendorID: "1e0e", ProductID: "9011", Serial: "0123"}) {
+		t.Fatalf("identity=%+v", device.ID())
+	}
+	for _, descriptor := range []string{"1e0e:9011", `"SimTech"`, `"SIM7600"`, "serial 0123"} {
+		if !strings.Contains(device.String(), descriptor) {
+			t.Fatalf("description %q is missing %s", device.String(), descriptor)
+		}
+	}
+	if len(tree.resetPaths) != 0 {
+		t.Fatalf("identifying a device reset it: %v", tree.resetPaths)
 	}
 }
 
 func TestResetTTYAcceptsStableDevSymlink(t *testing.T) {
 	tree := newFakeUSBTree(t)
-	tree.addUSBDevice("1-2", "", SIMComVendorID, "9001", "2", "12")
+	tree.addUSBDevice("1-2", "", "1e0e", "9001", "2", "12")
 	tty := tree.addTTY("ttyUSB0", "1-2", 0)
 	stableDirectory := filepath.Join(tree.devRoot, "serial", "by-id")
 	tree.mkdir(stableDirectory)
@@ -161,7 +235,7 @@ func TestResetTTYAcceptsStableDevSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	device, err := tree.recovery().ResetTTY(stable)
+	device, err := tree.recovery(simcom9001).ResetTTY(stable)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,14 +248,15 @@ func TestResetCandidatesUsesPriorityAndResetsOnce(t *testing.T) {
 	tree := newFakeUSBTree(t)
 	tree.addUSBDevice("1-3", "", "0403", "6001", "1", "3")
 	ftdi := tree.addTTY("ttyUSB0", "1-3", 0)
-	tree.addUSBDevice("1-4", "", SIMComVendorID, "9011", "1", "4")
+	tree.addUSBDevice("1-4", "", "1e0e", "9011", "1", "4")
 	modem := tree.addTTY("ttyUSB1", "1-4", 2)
 	sameModem := tree.addTTY("ttyUSB2", "1-4", 3)
-	tree.addUSBDevice("1-5", "", SIMComVendorID, "9001", "1", "5")
+	tree.addUSBDevice("1-5", "", "1e0e", "9001", "1", "5")
 	secondModem := tree.addTTY("ttyUSB4", "1-5", 0)
 
 	missing := filepath.Join(tree.devRoot, "ttyUSB99")
-	device, err := tree.recovery().ResetCandidates([]string{missing, ftdi, modem, sameModem, secondModem})
+	device, err := tree.recovery(simcom9011, simcom9001).
+		ResetCandidates([]string{missing, ftdi, modem, sameModem, secondModem})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,26 +268,16 @@ func TestResetCandidatesUsesPriorityAndResetsOnce(t *testing.T) {
 	}
 }
 
-func TestResetTTYRefusesFTDIWithoutReset(t *testing.T) {
-	tree := newFakeUSBTree(t)
-	tree.addUSBDevice("1-3", "", "0403", "6001", "1", "3")
-	tty := tree.addTTY("ttyUSB0", "1-3", 0)
-
-	_, err := tree.recovery().ResetTTY(tty)
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("error = %v, want ErrUnsupported", err)
-	}
-	if len(tree.resetPaths) != 0 {
-		t.Fatalf("reset unexpectedly invoked for FTDI: %v", tree.resetPaths)
-	}
-}
-
-func TestResetTTYRefusesRootHubWithoutReset(t *testing.T) {
+// A hub owns every tty below it, so it is refused even when it is named: a
+// configuration that resolved to one would otherwise take down devices nobody
+// asked about, including the root hub the agent's own modem hangs from.
+func TestResetTTYRefusesAHubEvenWhenItIsConfigured(t *testing.T) {
 	tree := newFakeUSBTree(t)
 	tree.addUSBDevice("usb1", "", "1d6b", "0002", "1", "1")
+	tree.setAttributes("usb1", map[string]string{"bDeviceClass": "09"})
 	tty := tree.addTTY("ttyUSB0", "usb1", 0)
 
-	_, err := tree.recovery().ResetTTY(tty)
+	_, err := tree.recovery(DeviceID{VendorID: "1d6b", ProductID: "0002"}).ResetTTY(tty)
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("error = %v, want ErrUnsupported", err)
 	}
@@ -223,11 +288,11 @@ func TestResetTTYRefusesRootHubWithoutReset(t *testing.T) {
 
 func TestResetTTYNeverSkipsNearestUSBDevice(t *testing.T) {
 	tree := newFakeUSBTree(t)
-	tree.addUSBDevice("simcom-parent", "", SIMComVendorID, "9011", "1", "2")
+	tree.addUSBDevice("simcom-parent", "", "1e0e", "9011", "1", "2")
 	tree.addUSBDevice("ftdi-child", "simcom-parent", "0403", "6001", "1", "3")
 	tty := tree.addTTY("ttyUSB0", "ftdi-child", 0)
 
-	_, err := tree.recovery().ResetTTY(tty)
+	_, err := tree.recovery(simcom9011).ResetTTY(tty)
 	if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "0403") {
 		t.Fatalf("error = %v, want nearest FTDI rejection", err)
 	}
@@ -240,7 +305,7 @@ func TestResetTTYRefusesNonUSBTTY(t *testing.T) {
 	tree := newFakeUSBTree(t)
 	tty := tree.addNonUSBTTY("ttyAMA0")
 
-	_, err := tree.recovery().ResetTTY(tty)
+	_, err := tree.recovery(simcom9011).ResetTTY(tty)
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("error = %v, want ErrUnsupported", err)
 	}
@@ -251,7 +316,7 @@ func TestResetTTYRefusesNonUSBTTY(t *testing.T) {
 
 func TestResetTTYReportsMissingCandidate(t *testing.T) {
 	tree := newFakeUSBTree(t)
-	_, err := tree.recovery().ResetTTY(filepath.Join(tree.devRoot, "ttyUSB99"))
+	_, err := tree.recovery(simcom9011).ResetTTY(filepath.Join(tree.devRoot, "ttyUSB99"))
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("error = %v, want ErrNotFound", err)
 	}
@@ -263,26 +328,26 @@ func TestResetTTYReportsMissingCandidate(t *testing.T) {
 func TestResetCandidatesDistinguishesAbsentFromUnsupported(t *testing.T) {
 	tree := newFakeUSBTree(t)
 	missing := filepath.Join(tree.devRoot, "ttyUSB99")
-	if _, err := tree.recovery().ResetCandidates([]string{missing}); !errors.Is(err, ErrNotFound) {
+	if _, err := tree.recovery(simcom9011).ResetCandidates([]string{missing}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("all-missing error = %v, want ErrNotFound", err)
 	}
 
 	tree.addUSBDevice("1-6", "", "0403", "6001", "1", "6")
 	ftdi := tree.addTTY("ttyUSB0", "1-6", 0)
-	if _, err := tree.recovery().ResetCandidates([]string{missing, ftdi}); !errors.Is(err, ErrUnsupported) {
+	if _, err := tree.recovery(simcom9011).ResetCandidates([]string{missing, ftdi}); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("unsupported error = %v, want ErrUnsupported", err)
 	}
 }
 
 func TestResetTTYRejectsIncompleteUSBIdentity(t *testing.T) {
 	tree := newFakeUSBTree(t)
-	physical := tree.addUSBDevice("1-7", "", SIMComVendorID, "9011", "1", "7")
+	physical := tree.addUSBDevice("1-7", "", "1e0e", "9011", "1", "7")
 	if err := os.Remove(filepath.Join(physical, "devnum")); err != nil {
 		t.Fatal(err)
 	}
 	tty := tree.addTTY("ttyUSB0", "1-7", 0)
 
-	_, err := tree.recovery().ResetTTY(tty)
+	_, err := tree.recovery(simcom9011).ResetTTY(tty)
 	if err == nil || !strings.Contains(err.Error(), "devnum is missing") {
 		t.Fatalf("error = %v, want missing devnum", err)
 	}
@@ -305,11 +370,11 @@ func TestResetTTYRejectsMalformedUSBIdentity(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			tree := newFakeUSBTree(t)
-			physical := tree.addUSBDevice("1-8", "", SIMComVendorID, "9011", "1", "8")
+			physical := tree.addUSBDevice("1-8", "", "1e0e", "9011", "1", "8")
 			tree.write(filepath.Join(physical, test.field), test.value)
 			tty := tree.addTTY("ttyUSB0", "1-8", 0)
 
-			_, err := tree.recovery().ResetTTY(tty)
+			_, err := tree.recovery(simcom9011).ResetTTY(tty)
 			if err == nil || !strings.Contains(err.Error(), "invalid") {
 				t.Fatalf("error = %v, want invalid identity", err)
 			}
@@ -324,11 +389,11 @@ func TestResetTTYClassifiesPermissionErrors(t *testing.T) {
 	for _, permissionError := range []error{syscall.EACCES, syscall.EPERM} {
 		t.Run(permissionError.Error(), func(t *testing.T) {
 			tree := newFakeUSBTree(t)
-			tree.addUSBDevice("1-9", "", SIMComVendorID, "9011", "3", "9")
+			tree.addUSBDevice("1-9", "", "1e0e", "9011", "3", "9")
 			tty := tree.addTTY("ttyUSB0", "1-9", 0)
 			tree.resetError = permissionError
 
-			device, err := tree.recovery().ResetTTY(tty)
+			device, err := tree.recovery(simcom9011).ResetTTY(tty)
 			if !errors.Is(err, ErrPermission) || !errors.Is(err, permissionError) {
 				t.Fatalf("error = %v, want ErrPermission wrapping %v", err, permissionError)
 			}
@@ -341,12 +406,12 @@ func TestResetTTYClassifiesPermissionErrors(t *testing.T) {
 
 func TestResetTTYClassifiesOtherResetFailure(t *testing.T) {
 	tree := newFakeUSBTree(t)
-	tree.addUSBDevice("1-10", "", SIMComVendorID, "9011", "4", "10")
+	tree.addUSBDevice("1-10", "", "1e0e", "9011", "4", "10")
 	tty := tree.addTTY("ttyUSB0", "1-10", 0)
 	operationError := errors.New("device disappeared")
 	tree.resetError = operationError
 
-	device, err := tree.recovery().ResetTTY(tty)
+	device, err := tree.recovery(simcom9011).ResetTTY(tty)
 	if !errors.Is(err, ErrReset) || !errors.Is(err, operationError) {
 		t.Fatalf("error = %v, want ErrReset wrapping operation error", err)
 	}

@@ -248,6 +248,10 @@ func (provider *RetryingVehicleProvider) retryLoop() {
 
 func (provider *RetryingVehicleProvider) attemptAcquire() {
 	provider.mutex.Lock()
+	if provider.closed {
+		provider.mutex.Unlock()
+		return
+	}
 	provider.acquiring = true
 	provider.mutex.Unlock()
 	defer func() {

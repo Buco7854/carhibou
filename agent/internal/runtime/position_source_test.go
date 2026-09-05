@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"errors"
+	"math/rand"
 	"strings"
 	"sync"
 	"testing"
@@ -168,6 +169,58 @@ func TestPositionSourceIsReacquiredWhenTheDeviceAppears(t *testing.T) {
 	if _, reported := sample.Agent["position_source_error"]; reported {
 		t.Fatalf("the error outlived the fault: %v", sample.Agent["position_source_error"])
 	}
+}
+
+func TestClosedPositionOwnerCannotBeginALateAcquisition(t *testing.T) {
+	acquired := false
+	source := NewRetryingPositionProvider(func() (PositionProvider, error) {
+		acquired = true
+		time.Sleep(400 * time.Millisecond)
+		return &fakePositionSource{}, nil
+	})
+	source.Close()
+	started := time.Now()
+	source.attemptAcquire()
+	if elapsed := time.Since(started); elapsed > 20*time.Millisecond {
+		t.Fatalf("closed acquisition took %s", elapsed)
+	}
+	if acquired {
+		t.Fatal("acquirer ran after Close won the lifecycle lock")
+	}
+}
+
+// The same gap on the position side, where a retry that is signalled rather than
+// timed out falls through to the acquisition as well.
+func TestPositionCloseLandingOnTheRetryExpiryStaysBounded(t *testing.T) {
+	for attempt := 0; attempt < closeRaceAttempts; attempt++ {
+		source := NewRetryingPositionProvider(func() (PositionProvider, error) {
+			time.Sleep(closeRaceAcquisition)
+			return &fakePositionSource{}, nil
+		})
+		source.retryDelay = closeRaceRetryDelay
+		source.Start()
+		time.Sleep(jitteredRetryExpiry())
+		started := time.Now()
+		source.Close()
+		if elapsed := time.Since(started); elapsed > closeRaceBound {
+			t.Fatalf("Close attempt %d took %s, want under %s", attempt, elapsed, closeRaceBound)
+		}
+	}
+}
+
+const (
+	closeRaceAttempts    = 400
+	closeRaceRetryDelay  = 2 * time.Millisecond
+	closeRaceAcquisition = 400 * time.Millisecond
+	closeRaceBound       = 100 * time.Millisecond
+	closeRaceJitter      = 400 * time.Microsecond
+)
+
+// jitteredRetryExpiry is a sleep centred on the retry delay, so repeated attempts
+// walk across the instant the timer fires instead of all landing at one offset
+// from it.
+func jitteredRetryExpiry() time.Duration {
+	return closeRaceRetryDelay - closeRaceJitter/2 + time.Duration(rand.Int63n(int64(closeRaceJitter)))
 }
 
 // A source that fails while in use is dropped and reacquired, and the port it

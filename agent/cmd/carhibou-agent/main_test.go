@@ -2,8 +2,10 @@ package main
 
 import (
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -55,9 +57,147 @@ func TestStartupSystemdNotifierSendsImmediately(t *testing.T) {
 	}
 }
 
+func TestSystemdNotifierReusesOneConnectedSocket(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notify.sock")
+	listener, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	notifier, err := newSystemdNotifier(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer notifier.Close()
+	connection := notifier.connection
+	for range 2 {
+		notifier.Notify()
+		buffer := make([]byte, 32)
+		if err := listener.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		count, _, err := listener.ReadFromUnix(buffer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(buffer[:count]) != "WATCHDOG=1" {
+			t.Fatalf("notification=%q", buffer[:count])
+		}
+	}
+	if notifier.connection != connection {
+		t.Fatal("watchdog notifier replaced its connected socket")
+	}
+}
+
+func TestSystemdWatchdogWarnsWhenNotifySocketIsMissing(t *testing.T) {
+	if warning := systemdWatchdogWarning("90000000", "", nil); !strings.Contains(warning, "NOTIFY_SOCKET") {
+		t.Fatalf("warning=%q", warning)
+	}
+	if warning := systemdWatchdogWarning("", "", nil); warning != "" {
+		t.Fatalf("foreground run warning=%q", warning)
+	}
+}
+
+func TestOBDUSBResetCooldownSurvivesProviderReplacement(t *testing.T) {
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	resets := 0
+	sharedResetter := cooledDownOBDResetter(func(string) error {
+		resets++
+		return nil
+	}, func() time.Time { return now })
+	firstProviderReset := sharedResetter
+	secondProviderReset := sharedResetter
+	if err := firstProviderReset("/dev/ttyUSB0"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	// A skip has to say so. Returning success made a device that was never
+	// touched read, in the failure that ends the session, as one a physical reset
+	// had failed to revive.
+	err := secondProviderReset("/dev/ttyUSB0")
+	if !errors.Is(err, usbrecovery.ErrCoolingDown) {
+		t.Fatalf("cooled-down reset returned %v, want the skip named", err)
+	}
+	if resets != 1 {
+		t.Fatalf("physical resets=%d, want cooldown shared across provider replacement", resets)
+	}
+	now = now.Add(physicalRecoveryCooldown)
+	if err := secondProviderReset("/dev/ttyUSB0"); err != nil {
+		t.Fatal(err)
+	}
+	if resets != 2 {
+		t.Fatalf("physical resets=%d, want reset after cooldown", resets)
+	}
+}
+
 type cadencePosition struct{ fix *model.PositionFix }
 
 func (position *cadencePosition) Read() (*model.PositionFix, error) { return position.fix, nil }
+
+type burstTransitionVehicle struct {
+	event string
+}
+
+func (vehicle *burstTransitionVehicle) ReadObservations() (model.MetricObservations, error) {
+	vehicle.event = "charging.active changed to true"
+	return model.MetricObservations{}, nil
+}
+func (vehicle *burstTransitionVehicle) TakeEvent() string {
+	event := vehicle.event
+	vehicle.event = ""
+	return event
+}
+func (vehicle *burstTransitionVehicle) Close() {}
+
+type countingUploadClient struct {
+	uploads int
+}
+
+func (client *countingUploadClient) Upload(_ string, samples []model.Sample) ([]string, error) {
+	client.uploads++
+	acknowledged := make([]string, 0, len(samples))
+	for _, sample := range samples {
+		acknowledged = append(acknowledged, sample.ID)
+	}
+	return acknowledged, nil
+}
+
+func TestTransitionRaisedInsideBurstProducesOneSampleAndOneUpload(t *testing.T) {
+	queue, err := store.OpenQueue(filepath.Join(t.TempDir(), "queue.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer queue.Close()
+	transport := &countingUploadClient{}
+	agent := &agentruntime.Agent{
+		Queue: queue, Client: transport, Position: agentruntime.EmptyPosition{},
+		Vehicle: &burstTransitionVehicle{}, BootID: model.NewUUID(),
+	}
+	configuration := store.Configuration{
+		Sampling: store.Interval{DefaultSeconds: 15, ParkedSeconds: 600},
+		Upload:   store.Interval{DefaultSeconds: 30, ParkedSeconds: 600},
+	}
+	now := time.Now()
+	_, nextUpload, err := collectAtCadence(agent, configuration, now, now.Add(10*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !nextUpload.Equal(now) {
+		t.Fatalf("next upload=%s, want transition sample flushed at %s", nextUpload, now)
+	}
+	if _, err := agent.Upload(nil); err != nil {
+		t.Fatal(err)
+	}
+	if transport.uploads != 1 {
+		t.Fatalf("uploads=%d, want one", transport.uploads)
+	}
+	if reason := agent.PendingEvent(); reason != "" {
+		t.Fatalf("transition survived its sample: %q", reason)
+	}
+	if agent.Sequence != 1 {
+		t.Fatalf("samples=%d, want one", agent.Sequence)
+	}
+}
 
 func TestCollectAtCadenceClampsUploadWhenTheVehicleStartsMoving(t *testing.T) {
 	configuration := store.Configuration{
@@ -268,7 +408,7 @@ func testPositionRecovery(initial resolvedDevices) *positionRecovery {
 		},
 		restartGNSS:   func(resolvedDevices) error { return nil },
 		restartModule: func(resolvedDevices) error { return nil },
-		resetUSB: func([]string) (usbrecovery.Device, error) {
+		resetUSB: func(_, _ []string) (usbrecovery.Device, error) {
 			return usbrecovery.Device{}, errors.New("unexpected USB reset")
 		},
 		candidates: func() []string { return nil },
@@ -313,7 +453,7 @@ func TestPositionRecoveryEscalatesFromATToOneVettedUSBReset(t *testing.T) {
 	recovery.restartModule = func(resolvedDevices) error { return errors.New("modem command timed out") }
 	recovery.candidates = func() []string { return []string{"/dev/control", "/dev/other"} }
 	resetCalls := 0
-	recovery.resetUSB = func(candidates []string) (usbrecovery.Device, error) {
+	recovery.resetUSB = func(_, candidates []string) (usbrecovery.Device, error) {
 		resetCalls++
 		want := []string{"/dev/gps", "/dev/control", "/dev/other"}
 		if strings.Join(candidates, ",") != strings.Join(want, ",") {
@@ -356,7 +496,7 @@ func TestMissingPositionGetsASecondSweepBeforeUSBRecovery(t *testing.T) {
 		return resolvedDevices{}
 	}
 	resetCalls := 0
-	recovery.resetUSB = func([]string) (usbrecovery.Device, error) {
+	recovery.resetUSB = func(_, _ []string) (usbrecovery.Device, error) {
 		resetCalls++
 		return usbrecovery.Device{}, usbrecovery.ErrNotFound
 	}
@@ -410,5 +550,140 @@ func TestForceIsAcceptedBeforeTheCommand(t *testing.T) {
 	}
 	if locations.data != "/tmp/x" || len(remaining) != 1 || remaining[0] != "gps-info" {
 		t.Fatalf("data=%q remaining=%v", locations.data, remaining)
+	}
+}
+
+// fakeUSBSysfs builds the part of /sys a tty-to-USB-device walk reads.
+type fakeUSBSysfs struct {
+	root        string
+	sysClassTTY string
+	devRoot     string
+	devices     map[string]string
+}
+
+func newFakeUSBSysfs(t *testing.T) *fakeUSBSysfs {
+	t.Helper()
+	root := t.TempDir()
+	tree := &fakeUSBSysfs{
+		root:        root,
+		sysClassTTY: filepath.Join(root, "sys", "class", "tty"),
+		devRoot:     filepath.Join(root, "dev"),
+		devices:     map[string]string{},
+	}
+	for _, path := range []string{tree.sysClassTTY, tree.devRoot} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return tree
+}
+
+func (tree *fakeUSBSysfs) addDevice(t *testing.T, name string, attributes map[string]string) {
+	t.Helper()
+	directory := filepath.Join(tree.root, "sys", "devices", name)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for attribute, value := range attributes {
+		if err := os.WriteFile(filepath.Join(directory, attribute), []byte(value+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tree.devices[name] = directory
+}
+
+func (tree *fakeUSBSysfs) addTTY(t *testing.T, name, device string) string {
+	t.Helper()
+	interfacePath := filepath.Join(tree.devices[device], device+":1.0", "tty", name)
+	if err := os.MkdirAll(interfacePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	classPath := filepath.Join(tree.sysClassTTY, name)
+	if err := os.MkdirAll(classPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(interfacePath, filepath.Join(classPath, "device")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(tree.devRoot, name)
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func (tree *fakeUSBSysfs) install(t *testing.T) *[][]usbrecovery.DeviceID {
+	t.Helper()
+	previousResolver, previousInstall := newUSBResolver, installUSBRecoveryRule
+	granted := &[][]usbrecovery.DeviceID{}
+	newUSBResolver = func() *usbrecovery.Recovery {
+		return usbrecovery.New(usbrecovery.Config{
+			SysClassTTYRoot: tree.sysClassTTY,
+			USBBusRoot:      filepath.Join(tree.devRoot, "bus", "usb"),
+		})
+	}
+	installUSBRecoveryRule = func(devices []usbrecovery.DeviceID) error {
+		*granted = append(*granted, devices)
+		return nil
+	}
+	t.Cleanup(func() { newUSBResolver, installUSBRecoveryRule = previousResolver, previousInstall })
+	return granted
+}
+
+// Reset rights follow the devices the configured ttys belong to, whatever they
+// are, and a modem publishing several interfaces is granted once rather than
+// once per interface.
+func TestUSBRecoveryRightsFollowTheConfiguredDevices(t *testing.T) {
+	tree := newFakeUSBSysfs(t)
+	tree.addDevice(t, "1-1", map[string]string{
+		"idVendor": "1e0e", "idProduct": "9001", "busnum": "1", "devnum": "4",
+		"serial": "0123456789", "manufacturer": "SimTech, Incorporated",
+	})
+	tree.addDevice(t, "1-2", map[string]string{
+		"idVendor": "0403", "idProduct": "6015", "busnum": "1", "devnum": "5",
+		"manufacturer": "ScanTool.net LLC",
+	})
+	gps := tree.addTTY(t, "ttyUSB1", "1-1")
+	modem := tree.addTTY(t, "ttyUSB2", "1-1")
+	obd := tree.addTTY(t, "ttyUSB0", "1-2")
+	granted := tree.install(t)
+
+	grantUSBRecoveryRights([]string{gps, obd, modem})
+	if len(*granted) != 1 {
+		t.Fatalf("granted %d rules, want one", len(*granted))
+	}
+	want := []usbrecovery.DeviceID{
+		{VendorID: "1e0e", ProductID: "9001", Serial: "0123456789"},
+		{VendorID: "0403", ProductID: "6015"},
+	}
+	if !reflect.DeepEqual((*granted)[0], want) {
+		t.Fatalf("granted %+v, want %+v", (*granted)[0], want)
+	}
+}
+
+// With nothing to grant, no rule is written — an empty one would revoke the
+// rights a working installation already has — and the diagnosis names the
+// devices that are actually attached rather than the ones expected.
+func TestUSBRecoveryRightsReportWhatWasFoundWhenNothingMatches(t *testing.T) {
+	tree := newFakeUSBSysfs(t)
+	tree.addDevice(t, "1-1", map[string]string{
+		"idVendor": "0403", "idProduct": "6001", "busnum": "1", "devnum": "3",
+		"manufacturer": "FTDI", "product": "FT232R USB UART",
+	})
+	present := tree.addTTY(t, "ttyUSB0", "1-1")
+	granted := tree.install(t)
+
+	grantUSBRecoveryRights([]string{filepath.Join(tree.devRoot, "ttyUSB9")})
+	if len(*granted) != 0 {
+		t.Fatalf("granted a rule with nothing resolved: %+v", *granted)
+	}
+	devices, descriptions := usbRecoveryTargets([]string{present})
+	if len(devices) != 1 || len(descriptions) != 1 {
+		t.Fatalf("devices=%+v descriptions=%v", devices, descriptions)
+	}
+	for _, descriptor := range []string{present, "0403:6001", `"FTDI"`, `"FT232R USB UART"`} {
+		if !strings.Contains(descriptions[0], descriptor) {
+			t.Fatalf("description %q is missing %s", descriptions[0], descriptor)
+		}
 	}
 }

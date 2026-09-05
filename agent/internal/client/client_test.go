@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -106,5 +107,43 @@ func TestMalformedResponseNamesTheRoutePeerAndBoundedPreviewOnce(t *testing.T) {
 	_, repeated := api.FetchConfiguration()
 	if api.ShouldReport(repeated) {
 		t.Fatal("repeated response signature was reported twice")
+	}
+}
+
+func TestMalformedEnrollmentResponseNeverPreviewsCredential(t *testing.T) {
+	secret := "credential-must-not-reach-the-journal"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		response.Write([]byte(`{"agent_id":"agent-1","credential":"` + secret + `"`))
+	}))
+	defer server.Close()
+
+	_, err := Enroll(server.URL, "one-time-token", "agent", "test", nil, true)
+	if err == nil {
+		t.Fatal("truncated enrollment response was accepted")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("enrollment error exposed credential: %q", err)
+	}
+	if !strings.Contains(err.Error(), "response body omitted") {
+		t.Fatalf("enrollment error=%q, want explicit omission", err)
+	}
+}
+
+func TestMalformedResponseSignatureCacheIsBoundedAndIgnoresPreview(t *testing.T) {
+	api, err := New("http://localhost:8000", "secret", "test", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := &responseFormatError{message: "first body", signature: "200|text/html|example.test/config"}
+	second := &responseFormatError{message: "different body", signature: first.signature}
+	if !api.ShouldReport(first) || api.ShouldReport(second) {
+		t.Fatal("body-only changes should retain one diagnostic signature")
+	}
+	for index := 0; index < 3*maxReportedResponseSignatures; index++ {
+		api.ShouldReport(&responseFormatError{signature: fmt.Sprintf("route-%d", index)})
+	}
+	if len(api.reportedResponses) > maxReportedResponseSignatures {
+		t.Fatalf("response signature cache grew to %d", len(api.reportedResponses))
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/Buco7854/carhibou/agent/internal/usbrecovery"
 )
 
 func TestReleaseArtifactName(t *testing.T) {
@@ -16,13 +18,10 @@ func TestReleaseArtifactName(t *testing.T) {
 
 func TestServiceAlwaysRestartsAndUsesSystemdWatchdog(t *testing.T) {
 	unit := serviceUnit()
-	for _, line := range []string{"Restart=always", "RestartSec=10", "WatchdogSec=90"} {
+	for _, line := range []string{"Restart=always", "RestartSec=10", "WatchdogSec=90", "NotifyAccess=main"} {
 		if !strings.Contains(unit, line) {
 			t.Fatalf("service unit is missing %q:\n%s", line, unit)
 		}
-	}
-	if strings.Contains(unit, "NotifyAccess=none") {
-		t.Fatalf("service unit disables watchdog notifications:\n%s", unit)
 	}
 }
 
@@ -84,49 +83,63 @@ func (recorder *udevRecorder) operations() udevOperations {
 	}
 }
 
-func TestSIMComUdevRuleIsNarrowlyScoped(t *testing.T) {
-	rule := simcomUdevRule()
+// The rule names the devices the agent was configured with, whatever they are.
+// Every earlier version listed makes — SIMCom, then FTDI, then FTDI narrowed by
+// ScanTool's manufacturer string — and each narrowing was another guess about
+// which parts the owner happened to own.
+func TestUdevRuleGrantsOnlyTheConfiguredDevices(t *testing.T) {
+	configured := []usbrecovery.DeviceID{
+		{VendorID: "1e0e", ProductID: "9001", Serial: "0123456789"},
+		{VendorID: "0403", ProductID: "6015"},
+	}
+	rule := usbRecoveryRule(configured)
 	lines := strings.Split(strings.TrimSpace(rule), "\n")
-	if len(lines) != 4 {
+	if len(lines) != 1+2*len(configured) {
 		t.Fatalf("rule has %d lines:\n%s", len(lines), rule)
 	}
 	for _, line := range lines[1:] {
-		for _, scope := range []string{
-			`SUBSYSTEM=="usb"`,
-			`ENV{DEVTYPE}=="usb_device"`,
-		} {
+		for _, scope := range []string{`SUBSYSTEM=="usb"`, `ENV{DEVTYPE}=="usb_device"`, `ATTR{idProduct}==`} {
 			if !strings.Contains(line, scope) {
 				t.Errorf("rule line is missing scope %q: %s", scope, line)
 			}
 		}
-		if !strings.Contains(line, `ATTR{idVendor}=="1e0e"`) && !strings.Contains(line, `ATTR{idVendor}=="0403"`) {
-			t.Errorf("rule line allows an unexpected vendor: %s", line)
+	}
+	for _, want := range []string{
+		`ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9001", ATTR{serial}=="0123456789", GROUP="carhibou-agent", MODE="0660"`,
+		`ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9001", ATTR{serial}=="0123456789", TEST=="power/control", ATTR{power/control}="on"`,
+		`ATTR{idVendor}=="0403", ATTR{idProduct}=="6015", GROUP="carhibou-agent", MODE="0660"`,
+		`ATTR{idVendor}=="0403", ATTR{idProduct}=="6015", TEST=="power/control", ATTR{power/control}="on"`,
+	} {
+		if !strings.Contains(rule, want) {
+			t.Errorf("rule is missing %q:\n%s", want, rule)
 		}
 	}
-	if !strings.Contains(lines[1], `GROUP="carhibou-agent"`) || !strings.Contains(lines[1], `MODE="0660"`) ||
-		!strings.Contains(lines[3], `ATTR{idVendor}=="0403"`) {
-		t.Errorf("device permission rule is incomplete: %s", lines[1])
+	// A device with no serial is matched by product alone, so a rule for it must
+	// not carry an empty serial match that nothing can satisfy.
+	if strings.Contains(rule, `ATTR{serial}==""`) {
+		t.Errorf("a device without a serial was pinned to an empty one:\n%s", rule)
 	}
-	if !strings.Contains(lines[2], `ATTR{power/control}="on"`) {
-		t.Errorf("autosuspend rule is incomplete: %s", lines[2])
-	}
-	for _, forbidden := range []string{`SUBSYSTEM=="tty"`, `MODE="0666"`, `TAG+="uaccess"`} {
+	for _, forbidden := range []string{`SUBSYSTEM=="tty"`, `MODE="0666"`, `TAG+="uaccess"`, "ScanTool"} {
 		if strings.Contains(rule, forbidden) {
-			t.Errorf("rule contains broad permission %q:\n%s", forbidden, rule)
+			t.Errorf("rule contains %q:\n%s", forbidden, rule)
 		}
 	}
 }
 
-func TestInstallSIMComUdevRuleWritesAndRefreshesOnlyMatchingUSBDevices(t *testing.T) {
+func TestInstallUdevRuleWritesAndRefreshesOnlyTheConfiguredDevices(t *testing.T) {
 	recorder := &udevRecorder{}
 	path := "/test/rules.d/carhibou.rules"
-	if err := installSIMComUdevRule(recorder.operations(), path); err != nil {
+	configured := []usbrecovery.DeviceID{
+		{VendorID: "1e0e", ProductID: "9001"},
+		{VendorID: "0403", ProductID: "6015"},
+	}
+	if err := installUdevRule(recorder.operations(), path, configured); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(recorder.writes, []string{path}) {
 		t.Fatalf("writes = %v", recorder.writes)
 	}
-	if string(recorder.writeData) != simcomUdevRule() {
+	if string(recorder.writeData) != usbRecoveryRule(configured) {
 		t.Fatalf("written rule = %q", recorder.writeData)
 	}
 	if recorder.writeMode != 0o644 || recorder.chmodMode != 0o644 {
@@ -137,17 +150,37 @@ func TestInstallSIMComUdevRuleWritesAndRefreshesOnlyMatchingUSBDevices(t *testin
 	}
 	wantCommands := [][]string{
 		{"udevadm", "control", "--reload-rules"},
-		{"udevadm", "trigger", "--settle", "--subsystem-match=usb", "--attr-match=idVendor=1e0e", "--action=change"},
-		{"udevadm", "trigger", "--settle", "--subsystem-match=usb", "--attr-match=idVendor=0403", "--action=change"},
+		{
+			"udevadm", "trigger", "--settle", "--subsystem-match=usb",
+			"--attr-match=idVendor=1e0e", "--attr-match=idProduct=9001", "--action=change",
+		},
+		{
+			"udevadm", "trigger", "--settle", "--subsystem-match=usb",
+			"--attr-match=idVendor=0403", "--attr-match=idProduct=6015", "--action=change",
+		},
 	}
 	if !reflect.DeepEqual(recorder.commands, wantCommands) {
 		t.Fatalf("commands = %#v", recorder.commands)
 	}
 }
 
-func TestInstallSIMComUdevRuleStopsAfterWriteOrRefreshFailure(t *testing.T) {
+// Writing a rule with nothing in it would revoke the rights a working
+// installation already has, which is worse than leaving them alone and saying so.
+func TestInstallUdevRuleRefusesToWriteAnEmptyRule(t *testing.T) {
+	recorder := &udevRecorder{}
+	if err := installUdevRule(recorder.operations(), "/rule", nil); err == nil {
+		t.Fatal("an empty device list was written as a rule")
+	}
+	if len(recorder.writes) != 0 || len(recorder.commands) != 0 {
+		t.Fatalf("touched udev with nothing to grant: %#v", recorder)
+	}
+}
+
+func TestInstallUdevRuleStopsAfterWriteOrRefreshFailure(t *testing.T) {
+	configured := []usbrecovery.DeviceID{{VendorID: "1e0e", ProductID: "9001"}}
 	writeFailure := &udevRecorder{writeErr: errors.New("read-only")}
-	if err := installSIMComUdevRule(writeFailure.operations(), "/rule"); err == nil || !strings.Contains(err.Error(), "install SIMCom udev rule") {
+	err := installUdevRule(writeFailure.operations(), "/rule", configured)
+	if err == nil || !strings.Contains(err.Error(), "install USB recovery udev rule") {
 		t.Fatalf("write error = %v", err)
 	}
 	if len(writeFailure.chmods) != 0 || len(writeFailure.commands) != 0 {
@@ -155,7 +188,8 @@ func TestInstallSIMComUdevRuleStopsAfterWriteOrRefreshFailure(t *testing.T) {
 	}
 
 	commandFailure := &udevRecorder{commandErrAt: 1}
-	if err := installSIMComUdevRule(commandFailure.operations(), "/rule"); err == nil || !strings.Contains(err.Error(), "command failed") {
+	err = installUdevRule(commandFailure.operations(), "/rule", configured)
+	if err == nil || !strings.Contains(err.Error(), "command failed") {
 		t.Fatalf("command error = %v", err)
 	}
 	if len(commandFailure.commands) != 1 {
@@ -163,23 +197,29 @@ func TestInstallSIMComUdevRuleStopsAfterWriteOrRefreshFailure(t *testing.T) {
 	}
 }
 
-func TestUninstallSIMComUdevRuleRemovesOwnedFileAndRefreshes(t *testing.T) {
+func TestUninstallUdevRuleRemovesOwnedFileAndRefreshes(t *testing.T) {
 	recorder := &udevRecorder{}
 	path := "/test/rules.d/carhibou.rules"
-	if err := uninstallSIMComUdevRule(recorder.operations(), path); err != nil {
+	if err := uninstallUdevRule(recorder.operations(), path); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(recorder.removes, []string{path}) {
 		t.Fatalf("removes = %v", recorder.removes)
 	}
-	if len(recorder.commands) != 3 {
+	// The rule is gone and with it the record of which devices it named, so the
+	// refresh is the whole subsystem.
+	wantCommands := [][]string{
+		{"udevadm", "control", "--reload-rules"},
+		{"udevadm", "trigger", "--settle", "--subsystem-match=usb", "--action=change"},
+	}
+	if !reflect.DeepEqual(recorder.commands, wantCommands) {
 		t.Fatalf("commands = %#v", recorder.commands)
 	}
 }
 
-func TestUninstallSIMComUdevRuleIsIdempotent(t *testing.T) {
+func TestUninstallUdevRuleIsIdempotent(t *testing.T) {
 	recorder := &udevRecorder{removeErr: &os.PathError{Op: "remove", Path: "/rule", Err: os.ErrNotExist}}
-	if err := uninstallSIMComUdevRule(recorder.operations(), "/rule"); err != nil {
+	if err := uninstallUdevRule(recorder.operations(), "/rule"); err != nil {
 		t.Fatal(err)
 	}
 	if len(recorder.commands) != 0 {

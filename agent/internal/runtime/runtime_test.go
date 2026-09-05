@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Buco7854/carhibou/agent/internal/client"
 	"github.com/Buco7854/carhibou/agent/internal/model"
 	"github.com/Buco7854/carhibou/agent/internal/store"
 )
@@ -63,7 +64,7 @@ func TestUploadRetainsTheFailedChunkAndEverythingAfterIt(t *testing.T) {
 		}
 	}
 
-	uploaded, err := agent.Upload()
+	uploaded, err := agent.Upload(nil)
 	if err == nil || uploaded != 200 {
 		t.Fatalf("first flush uploaded=%d, error=%v; want 200 and the network error", uploaded, err)
 	}
@@ -73,7 +74,7 @@ func TestUploadRetainsTheFailedChunkAndEverythingAfterIt(t *testing.T) {
 	}
 
 	transport.failRequest = 0
-	uploaded, err = agent.Upload()
+	uploaded, err = agent.Upload(nil)
 	if err != nil || uploaded != 250 {
 		t.Fatalf("retry uploaded=%d, want 250 (error=%v)", uploaded, err)
 	}
@@ -94,7 +95,7 @@ func TestUploadFlushesALargeOutboxInBoundedRequests(t *testing.T) {
 		}
 	}
 
-	uploaded, err := agent.Upload()
+	uploaded, err := agent.Upload(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,6 +122,47 @@ func TestUploadFlushesALargeOutboxInBoundedRequests(t *testing.T) {
 	depth, err := agent.Queue.Depth()
 	if err != nil || depth != 0 {
 		t.Fatalf("queue depth=%d, want 0 (error=%v)", depth, err)
+	}
+}
+
+type slowTelemetryClient struct {
+	delay time.Duration
+}
+
+func (client *slowTelemetryClient) Upload(_ string, samples []model.Sample) ([]string, error) {
+	time.Sleep(client.delay)
+	acknowledged := make([]string, 0, len(samples))
+	for _, sample := range samples {
+		acknowledged = append(acknowledged, sample.ID)
+	}
+	return acknowledged, nil
+}
+
+func TestCatchUpUploadRefreshesHeartbeatBetweenSlowChunks(t *testing.T) {
+	agent := newAgent(t, EmptyPosition{})
+	agent.Client = &slowTelemetryClient{delay: 20 * time.Millisecond}
+	for sequence := int64(1); sequence <= 10*client.MaxTelemetryBatchSize; sequence++ {
+		if err := agent.Queue.Enqueue(model.NewSample(sequence, nil, nil, nil)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	last := time.Now()
+	maxGap := time.Duration(0)
+	heartbeats := 0
+	uploaded, err := agent.Upload(func() {
+		now := time.Now()
+		maxGap = max(maxGap, now.Sub(last))
+		last = now
+		heartbeats++
+	})
+	if err != nil || uploaded != 10*client.MaxTelemetryBatchSize {
+		t.Fatalf("uploaded=%d err=%v", uploaded, err)
+	}
+	if heartbeats != 10 {
+		t.Fatalf("heartbeats=%d, want one after each full chunk", heartbeats)
+	}
+	if maxGap >= 100*time.Millisecond {
+		t.Fatalf("heartbeat gap=%s, slow chunks were not refreshing it", maxGap)
 	}
 }
 

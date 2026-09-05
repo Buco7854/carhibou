@@ -2,13 +2,16 @@ package providers
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Buco7854/carhibou/agent/internal/model"
 	"github.com/Buco7854/carhibou/agent/internal/profile"
+	"github.com/Buco7854/carhibou/agent/internal/usbrecovery"
 	"go.bug.st/serial"
 )
 
@@ -98,7 +101,46 @@ func TestProfileStartsMonitoringAndRetainsFramesBeforeTheFirstRead(t *testing.T)
 	}
 }
 
-func TestProfileBurstStopsAfterItsWindow(t *testing.T) {
+// Selecting a protocol can clear CAN auto formatting on an STN adapter, so
+// disabling it first is silently undone and the monitor spends the session
+// waiting for ISO 15765 messages on a bus that broadcasts raw CAN.
+func TestPreparationDisablesCANFormattingAfterSelectingAndFiltering(t *testing.T) {
+	port := &profilePipelinePort{protocolFrame: true, filteredFrame: true}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+	adapter := NewOBDAdapter("scripted")
+	adapter.CommandWindow = 100 * time.Millisecond
+	if err := adapter.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(adapter.Close)
+	before := len(port.recordedCommands())
+
+	preparation, err := PrepareProfileMonitor(
+		adapter, []int{884}, 10*time.Millisecond, 0, false, func(model.CANFrame) {}, nil, time.Time{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commands := port.recordedCommands()[before:]
+	selected := commandIndex(commands, "ATSP6", 0)
+	filtered := commandIndex(commands, "STFAP 374,FFF", 0)
+	raw := commandIndex(commands, "ATCAF0", 0)
+	listened := commandIndex(commands, "STM", 0)
+	if selected < 0 || filtered < 0 || raw < 0 || listened < 0 {
+		t.Fatalf("commands=%v, want a select, a filter, ATCAF0 and a listen", commands)
+	}
+	if selected > filtered || filtered > raw || raw > listened {
+		t.Fatalf("ATSP=%d STFAP=%d ATCAF0=%d STM=%d, want select, filter, disable formatting, listen",
+			selected, filtered, raw, listened)
+	}
+	if preparation.FramesAfterRawCAN == 0 {
+		t.Fatal("preparation parsed no frames after the raw-CAN ordering it reports")
+	}
+}
+
+func TestProfileBurstUsesPreparedRawCANAndStopsWithinItsBound(t *testing.T) {
 	port := &profilePipelinePort{protocolFrame: true, filteredFrame: true}
 	previousOpen := openOBDPort
 	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
@@ -110,15 +152,20 @@ func TestProfileBurstStopsAfterItsWindow(t *testing.T) {
 	provider.auditInterval = time.Hour
 	defer provider.Close()
 	provider.Start()
+	preparedCommands := port.recordedCommands()
+	preparedCAF := countCommand(preparedCommands, "ATCAF0")
 
 	started := time.Now()
-	if err := provider.runBurst(); err != nil {
+	if _, err := provider.ReadObservations(); err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); elapsed < provider.burstWindow || elapsed > time.Second {
-		t.Fatalf("burst duration=%s, want one bounded window", elapsed)
+	if elapsed := time.Since(started); elapsed < provider.burstWindow || elapsed > provider.burstWindow+burstCompletionAllowance {
+		t.Fatalf("burst duration=%s, want %s..%s", elapsed, provider.burstWindow, provider.burstWindow+burstCompletionAllowance)
 	}
 	before := port.recordedCommands()
+	if got := countCommand(before, "ATCAF0"); got != preparedCAF {
+		t.Fatalf("ATCAF0 count=%d after sample, want preparation-only count %d", got, preparedCAF)
+	}
 	time.Sleep(2 * provider.burstWindow)
 	after := port.recordedCommands()
 	if len(after) != len(before) || after[len(after)-1] != "" {
@@ -192,7 +239,7 @@ func TestWakePollRaisesEventAfterAQuietBurst(t *testing.T) {
 	provider.mutex.Lock()
 	provider.lastAnyFrame = time.Now().Add(-time.Minute)
 	provider.mutex.Unlock()
-	if err := provider.runBurst(); err != nil {
+	if _, err := provider.ReadObservations(); err != nil {
 		t.Fatal(err)
 	}
 	if reason := provider.TakeEvent(); !strings.Contains(reason, "quiet") {
@@ -202,7 +249,7 @@ func TestWakePollRaisesEventAfterAQuietBurst(t *testing.T) {
 	provider.lastEventAt = time.Now().Add(-2 * eventDebounce)
 	provider.mutex.Unlock()
 	port.setBus(true, true)
-	if err := provider.runBurst(); err != nil {
+	if _, err := provider.ReadObservations(); err != nil {
 		t.Fatal(err)
 	}
 	if reason := provider.TakeEvent(); !strings.Contains(reason, "woke") {
@@ -246,9 +293,9 @@ func TestBurstFailureEscalatesResetReopenThenUSB(t *testing.T) {
 	provider.adapter.CommandWindow = 10 * time.Millisecond
 	provider.wakePollInterval = time.Hour
 	provider.auditInterval = time.Hour
-	usbCalls := 0
+	var usbCalls atomic.Int32
 	provider.SetUSBRecovery(func(device string) error {
-		usbCalls++
+		usbCalls.Add(1)
 		if opens < 2 {
 			t.Fatal("USB reset ran before reopen")
 		}
@@ -259,16 +306,244 @@ func TestBurstFailureEscalatesResetReopenThenUSB(t *testing.T) {
 	commandsBefore := len(port.recordedCommands())
 	port.mute = true
 
-	err := provider.runBurstWithRecovery(provider.burstWindow)
-	if err == nil {
-		t.Fatal("dead adapter recovered unexpectedly")
+	// An adapter that has gone quiet is heard as a run of unanswered stream
+	// exits, so the ladder is what a repeated failure escalates to, not one.
+	for burst := 0; burst < consecutiveExitTimeoutLimit; burst++ {
+		if _, err := provider.ReadObservations(); err != nil {
+			t.Fatal(err)
+		}
 	}
+	waitFor(t, "the session recovery ladder to reach USB", func() bool { return usbCalls.Load() == 1 })
 	commands := port.recordedCommands()[commandsBefore:]
 	if commandIndex(commands, "ATZ", 0) < 0 {
 		t.Fatalf("commands=%v, want ATZ before reopen", commands)
 	}
-	if opens < 2 || usbCalls != 1 {
-		t.Fatalf("opens=%d usb resets=%d, want reopen then one reset", opens, usbCalls)
+	if opens < 2 || usbCalls.Load() != 1 {
+		t.Fatalf("opens=%d usb resets=%d, want reopen then one reset", opens, usbCalls.Load())
+	}
+}
+
+// latePromptPort streams continuously and takes its time returning to the
+// command prompt after a monitor stops, which is what a real adapter does while
+// it is still draining a busy bus. promptNever is the wedged case, where the
+// prompt never comes back at all.
+type latePromptPort struct {
+	profilePipelinePort
+	promptDelay time.Duration
+	// wedged is set after preparation, so a port that never returns its prompt
+	// still gets the session started before the bursts have to cope with it.
+	wedged atomic.Bool
+	// silent is the adapter that answers nothing at all: a monitor that neither
+	// delivers frames nor comes back to its prompt.
+	silent    bool
+	streaming bool
+	held      string
+	promptAt  time.Time
+	exits     atomic.Int32
+}
+
+func (port *latePromptPort) Write(payload []byte) (int, error) {
+	command := strings.TrimSuffix(string(payload), "\r")
+	count, err := port.profilePipelinePort.Write(payload)
+	switch command {
+	case "STM", "STMA":
+		port.streaming = true
+	case "":
+		port.streaming = false
+		port.exits.Add(1)
+		port.held, port.pending = port.pending, ""
+		port.promptAt = time.Now().Add(port.promptDelay)
+		if port.wedged.Load() {
+			port.held = ""
+		}
+	}
+	return count, err
+}
+
+func (port *latePromptPort) Read(buffer []byte) (int, error) {
+	if port.held != "" {
+		if time.Now().Before(port.promptAt) {
+			time.Sleep(5 * time.Millisecond)
+			return 0, nil
+		}
+		port.pending, port.held = port.held, ""
+	}
+	if port.streaming && !port.silent && port.pending == "" {
+		port.pending = "374 8 00 90 00 00 00 00 00 00\r"
+	}
+	return port.profilePipelinePort.Read(buffer)
+}
+
+func latePromptProvider(t *testing.T, port *latePromptPort) *ProfileProvider {
+	t.Helper()
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 5 * time.Millisecond
+	provider.burstWindow = 20 * time.Millisecond
+	provider.wakePollInterval = time.Hour
+	provider.auditInterval = time.Hour
+	t.Cleanup(provider.Close)
+	return provider
+}
+
+// A prompt that comes back a third of a second later is a busy adapter, not a
+// wedged one. The exit keeps the adapter's own command window, so no number of
+// slow-but-answered exits reaches the recovery ladder.
+// A preparation stage that collected its frames and then waited too long for the
+// prompt has proved what it was asked to prove. Failing on that cost the whole
+// acquisition — backoff, and the CAN channel retracted — over one slow reply on
+// a live bus, while the service bursts the same preparation feeds tolerate three
+// unanswered exits in a row.
+func TestPreparationKeepsAStageThatHeardFramesBeforeALateExit(t *testing.T) {
+	prepare := func(t *testing.T, port *latePromptPort) (ProfileMonitorPreparation, error) {
+		t.Helper()
+		previousOpen := openOBDPort
+		openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+		t.Cleanup(func() { openOBDPort = previousOpen })
+		adapter := NewOBDAdapter("scripted")
+		if err := adapter.Connect(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(adapter.Close)
+		adapter.CommandWindow = 60 * time.Millisecond
+		port.wedged.Store(true)
+		// inspectUnfiltered reaches the STMA window, which is the exit with the
+		// most buffered traffic behind it and the one the reviewer tripped.
+		return PrepareProfileMonitor(
+			adapter, []int{884}, 10*time.Millisecond, 0, true, func(model.CANFrame) {}, nil, time.Time{},
+		)
+	}
+
+	t.Run("frames heard", func(t *testing.T) {
+		port := &latePromptPort{profilePipelinePort: profilePipelinePort{protocolFrame: true, filteredFrame: true}}
+		preparation, err := prepare(t, port)
+		if err != nil {
+			t.Fatalf("preparation failed on a late prompt: %v", err)
+		}
+		if !preparation.HardwareFilterGood || preparation.FramesAfterRawCAN == 0 {
+			t.Fatalf("preparation kept no evidence: %+v", preparation)
+		}
+		if preparation.ProtocolTrials[0].Error == "" {
+			t.Fatal("the late prompt was not recorded on the trial that survived it")
+		}
+	})
+
+	t.Run("nothing heard", func(t *testing.T) {
+		port := &latePromptPort{profilePipelinePort: profilePipelinePort{}, silent: true}
+		if _, err := prepare(t, port); !errors.Is(err, errMonitorExitTimeout) {
+			t.Fatalf("a stage with no frames and no prompt was accepted: %v", err)
+		}
+	})
+}
+
+func TestSlowStreamExitNeverReachesTheRecoveryLadder(t *testing.T) {
+	port := &latePromptPort{
+		profilePipelinePort: profilePipelinePort{protocolFrame: true, filteredFrame: true},
+		promptDelay:         350 * time.Millisecond,
+	}
+	provider := latePromptProvider(t, port)
+	provider.SetUSBRecovery(func(string) error {
+		t.Error("a slow stream exit reached the USB reset")
+		return nil
+	})
+	provider.Start()
+	resets := countCommand(port.recordedCommands(), "ATZ")
+
+	for burst := 1; burst <= consecutiveExitTimeoutLimit; burst++ {
+		if _, err := provider.ReadObservations(); err != nil {
+			t.Fatal(err)
+		}
+		if state := provider.State(); strings.Contains(state, "carried") {
+			t.Fatalf("burst %d missed its bound: %s", burst, state)
+		}
+		if got := countCommand(port.recordedCommands(), "ATZ"); got != resets {
+			t.Fatalf("burst %d sent %d ATZ, want the %d it started with", burst, got, resets)
+		}
+		if status := provider.Status(); status != "" {
+			t.Fatalf("burst %d failed the session: %s", burst, status)
+		}
+	}
+	if got := port.exits.Load(); got < int32(consecutiveExitTimeoutLimit) {
+		t.Fatalf("stream exits=%d, want one per burst", got)
+	}
+}
+
+// An exit that never answers is tolerated until it repeats, because the ladder
+// it leads to ends by failing the session and retracting the CAN channel.
+func TestUnansweredStreamExitsEscalateOnlyAfterTheLimit(t *testing.T) {
+	port := &latePromptPort{profilePipelinePort: profilePipelinePort{protocolFrame: true, filteredFrame: true}}
+	provider := latePromptProvider(t, port)
+	provider.adapter.CommandWindow = 60 * time.Millisecond
+	provider.Start()
+	port.wedged.Store(true)
+	// The adapter reset is the ladder's first rung. How far up it goes from
+	// there depends on whether the adapter comes back, which is a different
+	// question from the one this test asks.
+	resets := countCommand(port.recordedCommands(), "ATZ")
+
+	for burst := 1; burst < consecutiveExitTimeoutLimit; burst++ {
+		if _, err := provider.ReadObservations(); err != nil {
+			t.Fatal(err)
+		}
+		if got := countCommand(port.recordedCommands(), "ATZ"); got != resets {
+			t.Fatalf("exit timeout %d escalated: ATZ count %d, want %d", burst, got, resets)
+		}
+		if status := provider.Status(); status != "" {
+			t.Fatalf("exit timeout %d failed the session: %s", burst, status)
+		}
+	}
+	if _, err := provider.ReadObservations(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the run of unanswered exits to reach the adapter reset", func() bool {
+		return countCommand(port.recordedCommands(), "ATZ") > resets
+	})
+}
+
+// The failure that ends a session has to name the rung it stopped on: a USB
+// reset that ran and did not revive the adapter and one that was never
+// performed are different faults, and they ask different things of the owner.
+func TestFailedRecoveryNamesWhetherTheUSBResetRan(t *testing.T) {
+	for _, scenario := range []struct {
+		name  string
+		reset func(string) error
+		want  string
+	}{
+		{"performed", func(string) error { return nil }, "after reset, reopen, and a USB reset"},
+		{
+			"skipped",
+			func(string) error { return fmt.Errorf("%w: 1m0s ago", usbrecovery.ErrCoolingDown) },
+			"no USB reset was performed",
+		},
+		{"failed", func(string) error { return errors.New("usbfs is not writable") }, "USB recovery failed"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			port := &escalationPort{profilePipelinePort: profilePipelinePort{protocolFrame: true, filteredFrame: true}}
+			previousOpen := openOBDPort
+			openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+			t.Cleanup(func() { openOBDPort = previousOpen })
+			provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+			provider.trial = 5 * time.Millisecond
+			provider.burstWindow = 5 * time.Millisecond
+			provider.adapter.CommandWindow = 10 * time.Millisecond
+			provider.wakePollInterval = time.Hour
+			provider.auditInterval = time.Hour
+			provider.SetUSBRecovery(scenario.reset)
+			t.Cleanup(provider.Close)
+			provider.Start()
+			port.mute = true
+
+			for burst := 0; burst < consecutiveExitTimeoutLimit; burst++ {
+				if _, err := provider.ReadObservations(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			waitFor(t, "the session to report why recovery ended", func() bool {
+				return strings.Contains(provider.Status(), scenario.want)
+			})
+		})
 	}
 }
 
@@ -561,6 +836,13 @@ func TestStalledBurstReturnsCarriedSnapshotWithinBound(t *testing.T) {
 	provider.Start()
 	port.mute = true
 
+	// The run of unanswered exits that puts the session into its stalled
+	// recovery. Those bursts each finish inside the bound; the next one does not.
+	for burst := 1; burst < consecutiveExitTimeoutLimit; burst++ {
+		if _, err := provider.ReadObservations(); err != nil {
+			t.Fatal(err)
+		}
+	}
 	started := time.Now()
 	observations, err := provider.ReadObservations()
 	elapsed := time.Since(started)
@@ -578,6 +860,60 @@ func TestStalledBurstReturnsCarriedSnapshotWithinBound(t *testing.T) {
 		t.Fatalf("state=%q, want the carried reading disclosed", state)
 	}
 	t.Logf("stalled ReadObservations returned in %s (hard bound %s)", elapsed, bound)
+}
+
+func TestProfileCloseStopsRecoveryBeforeTheNextStep(t *testing.T) {
+	port := &escalationPort{profilePipelinePort: profilePipelinePort{protocolFrame: true, filteredFrame: true}}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 5 * time.Millisecond
+	provider.burstWindow = 20 * time.Millisecond
+	provider.adapter.CommandWindow = 20 * time.Millisecond
+	provider.wakePollInterval = time.Hour
+	provider.auditInterval = time.Hour
+	provider.SetUSBRecovery(func(string) error {
+		time.Sleep(2 * time.Second)
+		return errors.New("still stalled")
+	})
+	provider.Start()
+	port.mute = true
+	// The adapter reset is the ladder's first step, so its ATZ is the evidence
+	// that recovery is under way. Anchoring on the burst that precedes it proved
+	// nothing about Close: a preparation command can fail before the stream even
+	// starts, and then the burst being waited for never appears.
+	baseline := countCommand(port.recordedCommands(), "ATZ")
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		for attempt := 0; attempt < 10; attempt++ {
+			if _, err := provider.ReadObservations(); err != nil {
+				return
+			}
+			if countCommand(port.recordedCommands(), "ATZ") > baseline {
+				return
+			}
+		}
+	}()
+	waitFor(t, "recovery to reach the adapter reset", func() bool {
+		return countCommand(port.recordedCommands(), "ATZ") > baseline
+	})
+
+	started := time.Now()
+	provider.Close()
+	// The step already running still has to end: an ATZ deliberately waits a
+	// second for the adapter to come back up. What must not happen is the rest of
+	// the ladder — a re-prepare, a reopen and a stalled USB reset — running on
+	// after the session was closed.
+	if elapsed := time.Since(started); elapsed > 1500*time.Millisecond {
+		t.Fatalf("Close waited %s behind recovery", elapsed)
+	}
+	select {
+	case <-readDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("sample waiter outlived the closed recovery session")
+	}
 }
 
 // Closing must be safe whether or not a monitor ever started, because an agent

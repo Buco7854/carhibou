@@ -200,6 +200,10 @@ func (provider *RetryingPositionProvider) waitFor(delay time.Duration) bool {
 
 func (provider *RetryingPositionProvider) attemptAcquire() {
 	provider.mutex.Lock()
+	if provider.closed {
+		provider.mutex.Unlock()
+		return
+	}
 	provider.acquiring = true
 	provider.mutex.Unlock()
 	defer func() {
