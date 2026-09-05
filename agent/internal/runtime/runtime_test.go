@@ -125,12 +125,14 @@ func TestUploadFlushesALargeOutboxInBoundedRequests(t *testing.T) {
 	}
 }
 
-type slowTelemetryClient struct {
-	delay time.Duration
+// countingTelemetryClient records how many chunks the drain has sent, which is
+// what a heartbeat has to interleave with.
+type countingTelemetryClient struct {
+	uploads int
 }
 
-func (client *slowTelemetryClient) Upload(_ string, samples []model.Sample) ([]string, error) {
-	time.Sleep(client.delay)
+func (client *countingTelemetryClient) Upload(_ string, samples []model.Sample) ([]string, error) {
+	client.uploads++
 	acknowledged := make([]string, 0, len(samples))
 	for _, sample := range samples {
 		acknowledged = append(acknowledged, sample.ID)
@@ -138,31 +140,39 @@ func (client *slowTelemetryClient) Upload(_ string, samples []model.Sample) ([]s
 	return acknowledged, nil
 }
 
-func TestCatchUpUploadRefreshesHeartbeatBetweenSlowChunks(t *testing.T) {
+// A backlog drains in chunks and each one is a request that can spend its whole
+// timeout, so the heartbeat has to come between them rather than after the drain
+// finishes, or a long catch-up starves the loop watchdog.
+//
+// The evidence is which chunk each heartbeat follows, not how many milliseconds
+// apart they were. The wall-clock form of this test measured the machine rather
+// than the code and failed on a loaded CI runner at 127 ms against a 100 ms
+// bound, while the guarantee it was trying to state is exact: one heartbeat per
+// chunk, in step with them.
+func TestCatchUpUploadRefreshesHeartbeatBetweenChunks(t *testing.T) {
+	const chunks = 10
 	agent := newAgent(t, EmptyPosition{})
-	agent.Client = &slowTelemetryClient{delay: 20 * time.Millisecond}
-	for sequence := int64(1); sequence <= 10*client.MaxTelemetryBatchSize; sequence++ {
+	transport := &countingTelemetryClient{}
+	agent.Client = transport
+	for sequence := int64(1); sequence <= chunks*client.MaxTelemetryBatchSize; sequence++ {
 		if err := agent.Queue.Enqueue(model.NewSample(sequence, nil, nil, nil)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	last := time.Now()
-	maxGap := time.Duration(0)
-	heartbeats := 0
-	uploaded, err := agent.Upload(func() {
-		now := time.Now()
-		maxGap = max(maxGap, now.Sub(last))
-		last = now
-		heartbeats++
-	})
-	if err != nil || uploaded != 10*client.MaxTelemetryBatchSize {
+
+	chunksSent := []int{}
+	uploaded, err := agent.Upload(func() { chunksSent = append(chunksSent, transport.uploads) })
+	if err != nil || uploaded != chunks*client.MaxTelemetryBatchSize {
 		t.Fatalf("uploaded=%d err=%v", uploaded, err)
 	}
-	if heartbeats != 10 {
-		t.Fatalf("heartbeats=%d, want one after each full chunk", heartbeats)
+	if len(chunksSent) != chunks {
+		t.Fatalf("heartbeats=%d, want one after each full chunk", len(chunksSent))
 	}
-	if maxGap >= 100*time.Millisecond {
-		t.Fatalf("heartbeat gap=%s, slow chunks were not refreshing it", maxGap)
+	for index, sent := range chunksSent {
+		if sent != index+1 {
+			t.Fatalf("heartbeat %d came after %d chunks, want exactly one chunk between heartbeats",
+				index+1, sent)
+		}
 	}
 }
 

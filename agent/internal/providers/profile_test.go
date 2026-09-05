@@ -517,9 +517,14 @@ func TestSlowSupplyReadingStillLeavesTheSampleBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// What has to be shown is that the bound returned the sample rather than the
+	// adapter: its reply is 1.2 s away, so anything well short of that proves the
+	// waiter did not wait for it. The margin above the bound is scheduling slack
+	// on a loaded machine, not part of the claim.
 	bound := provider.burstWindow + burstCompletionAllowance
-	if elapsed < bound || elapsed > bound+150*time.Millisecond {
-		t.Fatalf("slow supply reading took %s, want %s..%s", elapsed, bound, bound+150*time.Millisecond)
+	margin := 300 * time.Millisecond
+	if elapsed < bound || elapsed > bound+margin {
+		t.Fatalf("slow supply reading took %s, want %s..%s", elapsed, bound, bound+margin)
 	}
 	if got := observations["battery.soc"].Value; got != float64(67) {
 		t.Fatalf("carried battery.soc=%v, want 67", got)
@@ -943,9 +948,13 @@ func TestStalledBurstReturnsCarriedSnapshotWithinBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The stalled recovery below is twice the bound away, so the margin can be
+	// generous and still prove that the bound is what returned the sample. It is
+	// scheduling slack on a loaded machine, not part of the claim.
 	bound := provider.burstWindow + burstCompletionAllowance
-	if elapsed < bound || elapsed > bound+150*time.Millisecond {
-		t.Fatalf("stalled read took %s, want %s..%s", elapsed, bound, bound+150*time.Millisecond)
+	margin := 300 * time.Millisecond
+	if elapsed < bound || elapsed > bound+margin {
+		t.Fatalf("stalled read took %s, want %s..%s", elapsed, bound, bound+margin)
 	}
 	if got := observations["battery.soc"].Value; got != float64(67) {
 		t.Fatalf("carried battery.soc=%v, want 67", got)
