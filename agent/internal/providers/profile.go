@@ -58,24 +58,30 @@ const (
 	// long times the waiter out into the carried snapshot instead of holding the
 	// sample. That is what the carried snapshot is for.
 	monitorExitRoundTrip = 200 * time.Millisecond
+	// auxVoltageRoundTrip is what the adapter's supply reading costs when it
+	// answers promptly. It is deliberately half the exit's allowance: ATRV is a
+	// local query answered from the adapter's own measurement on a line that has
+	// just gone idle, not something that waits on the vehicle. One that runs long
+	// times the waiter out into the carried snapshot like anything else here.
+	auxVoltageRoundTrip = 100 * time.Millisecond
 	// burstCompletionSlack keeps that bound strictly above the work it bounds. A
 	// silent adapter measured 502 ms against a 500 ms allowance: two timers each
 	// fire a little late, and the goroutine reading them is not scheduled the
 	// instant they do.
 	burstCompletionSlack = 100 * time.Millisecond
-	// burstCompletionAllowance follows the two bounded operations around the
-	// listen timer: one possible read-window overshoot and leaving STM.
-	burstCompletionAllowance = monitorReadWindow + monitorExitRoundTrip + burstCompletionSlack
+	// burstCompletionAllowance follows the three bounded operations after the
+	// listen timer: one possible read-window overshoot, leaving STM, and the
+	// supply reading the same cycle takes. At the shortest cadence the server
+	// allows it still fits: a 300 ms window plus 700 ms is one second.
+	burstCompletionAllowance = monitorReadWindow + monitorExitRoundTrip + auxVoltageRoundTrip + burstCompletionSlack
 	// parkedWakePollInterval listens for one second each minute while ordinary
 	// parked samples remain ten minutes apart, a roughly 1.7% serial duty cycle.
 	parkedWakePollInterval = time.Minute
-	// auxVoltageInterval paces the adapter's own supply reading. It answers with
-	// the vehicle asleep, which is the whole point of it, so it is the one thing
-	// worth asking for on a bus that has gone quiet. Asking often would spend
-	// serial time for nothing: a 12V battery does not move quickly.
-	auxVoltageInterval = 5 * time.Minute
 	// auxVoltageFailureLimit is how many consecutive unanswered readings mean the
 	// adapter itself has gone, rather than one reading being lost to a busy bus.
+	// The readings are now one per burst cycle rather than one per five minutes,
+	// so this is three samples in a row on an otherwise idle line: an adapter
+	// that cannot answer its own supply three times running is not there.
 	auxVoltageFailureLimit = 3
 	// eventDebounce is the shortest gap between two event-triggered samples. A
 	// signal that chatters at frame rate must not turn into an upload storm.
@@ -145,7 +151,6 @@ type ProfileProvider struct {
 	baseReport    MonitorReport
 	monitorReport MonitorReport
 
-	voltageInterval time.Duration
 	lastVoltageAt   time.Time
 	voltageFailures int
 	attached        bool
@@ -187,8 +192,7 @@ func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *Pr
 	return &ProfileProvider{
 		adapter: adapter, decoder: decoder, trial: protocolTrial,
 		allowed: allowed, observations: model.MetricObservations{},
-		voltageInterval: auxVoltageInterval,
-		eventGap:        eventDebounce, eventValues: map[string]any{},
+		eventGap: eventDebounce, eventValues: map[string]any{},
 		auditInterval: filterAuditInterval, auditBurst: filterAuditBurst,
 		quietSettle: protocolTrial + quietSettleMargin,
 		burstWindow: profileBurstWindow, wakePollInterval: parkedWakePollInterval,
@@ -454,10 +458,8 @@ func (provider *ProfileProvider) Close() {
 func (provider *ProfileProvider) runSession(stop <-chan struct{}) {
 	defer provider.sessionDone.Done()
 	wake := time.NewTicker(provider.wakePollInterval)
-	voltage := time.NewTicker(provider.voltageInterval)
 	audit := time.NewTicker(provider.auditInterval)
 	defer wake.Stop()
-	defer voltage.Stop()
 	defer audit.Stop()
 	for {
 		select {
@@ -489,8 +491,6 @@ func (provider *ProfileProvider) runSession(stop <-chan struct{}) {
 					return
 				}
 			}
-		case <-voltage.C:
-			provider.readVoltage()
 		case <-audit.C:
 			provider.runFilterAudit()
 		}
@@ -514,6 +514,17 @@ func (provider *ProfileProvider) ensureBurstCycle(window time.Duration) *profile
 
 func (provider *ProfileProvider) runBurstCycle(cycle *profileBurstCycle, stop <-chan struct{}) error {
 	err := provider.runBurstWithRecovery(cycle.window, stop)
+	if err == nil {
+		// The supply reading belongs to the burst that carries it, so it is taken
+		// here rather than on a timer of its own: the line is idle again the
+		// moment the stream exits, the reading is one bounded command, and it
+		// does not depend on the car's bus. Every sample therefore reports a 12 V
+		// figure it measured itself, and a parked sample reports the one the wake
+		// poll took less than a minute earlier. It doubles as the proof that the
+		// adapter is still answering, which is worth most exactly after an exit
+		// that had to be tolerated.
+		provider.readVoltage()
+	}
 	provider.mutex.Lock()
 	if provider.burstCycle == cycle {
 		provider.burstCycle = nil
@@ -630,7 +641,8 @@ func (provider *ProfileProvider) runBurstFor(window time.Duration) error {
 	return err
 }
 
-// readVoltage runs between listen bursts on the session goroutine.
+// readVoltage runs at the end of a burst cycle on the session goroutine, and
+// once at startup before the first stream.
 func (provider *ProfileProvider) readVoltage() {
 	reading, err := provider.adapter.Voltage()
 	value, ok := ParseSupplyVoltage(reading)
@@ -639,6 +651,14 @@ func (provider *ProfileProvider) readVoltage() {
 		return
 	}
 	provider.storeVoltage(value)
+}
+
+// supplyReadingTime is when the adapter's supply was last read. Tests use it to
+// watch a burst cycle take its own reading without asking for a sample.
+func (provider *ProfileProvider) supplyReadingTime() time.Time {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	return provider.lastVoltageAt
 }
 
 func (provider *ProfileProvider) storeVoltage(value float64) {

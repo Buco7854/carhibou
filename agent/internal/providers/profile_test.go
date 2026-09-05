@@ -168,7 +168,9 @@ func TestProfileBurstUsesPreparedRawCANAndStopsWithinItsBound(t *testing.T) {
 	}
 	time.Sleep(2 * provider.burstWindow)
 	after := port.recordedCommands()
-	if len(after) != len(before) || after[len(after)-1] != "" {
+	// A cycle ends with the stream exit and the supply reading it carries, and
+	// then the line goes quiet until the next sample asks for one.
+	if len(after) != len(before) || after[len(after)-1] != "ATRV" {
 		t.Fatalf("commands continued after burst: before=%v after=%v", before, after)
 	}
 	if provider.observations["battery.soc"].Value != float64(67) {
@@ -330,6 +332,9 @@ func TestBurstFailureEscalatesResetReopenThenUSB(t *testing.T) {
 type latePromptPort struct {
 	profilePipelinePort
 	promptDelay time.Duration
+	// voltageDelay holds the supply reply back, which is the one command a burst
+	// cycle runs after its stream has already exited.
+	voltageDelay time.Duration
 	// wedged is set after preparation, so a port that never returns its prompt
 	// still gets the session started before the bursts have to cope with it.
 	wedged atomic.Bool
@@ -348,6 +353,9 @@ func (port *latePromptPort) Write(payload []byte) (int, error) {
 	switch command {
 	case "STM", "STMA":
 		port.streaming = true
+	case "ATRV":
+		port.held, port.pending = port.pending, ""
+		port.promptAt = time.Now().Add(port.voltageDelay)
 	case "":
 		port.streaming = false
 		port.exits.Add(1)
@@ -388,9 +396,6 @@ func latePromptProvider(t *testing.T, port *latePromptPort) *ProfileProvider {
 	return provider
 }
 
-// A prompt that comes back a third of a second later is a busy adapter, not a
-// wedged one. The exit keeps the adapter's own command window, so no number of
-// slow-but-answered exits reaches the recovery ladder.
 // A preparation stage that collected its frames and then waited too long for the
 // prompt has proved what it was asked to prove. Failing on that cost the whole
 // acquisition — backoff, and the CAN channel retracted — over one slow reply on
@@ -438,6 +443,95 @@ func TestPreparationKeepsAStageThatHeardFramesBeforeALateExit(t *testing.T) {
 	})
 }
 
+// The 12 V reading does not depend on the car's bus and doubles as proof the
+// adapter is still answering, so every sample measures its own rather than
+// republishing whatever a five-minute timer last left behind.
+func TestEverySampleCarriesASupplyReadingFromItsOwnBurst(t *testing.T) {
+	port := &profilePipelinePort{protocolFrame: true, filteredFrame: true}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 5 * time.Millisecond
+	provider.burstWindow = 20 * time.Millisecond
+	provider.wakePollInterval = time.Hour
+	provider.auditInterval = time.Hour
+	t.Cleanup(provider.Close)
+	provider.Start()
+
+	for sample := 1; sample <= 2; sample++ {
+		requested := time.Now().UTC()
+		observations, err := provider.ReadObservations()
+		if err != nil {
+			t.Fatal(err)
+		}
+		supply, present := observations[AuxVoltageMetric]
+		if !present {
+			t.Fatalf("sample %d carried no %s: %#v", sample, AuxVoltageMetric, observations)
+		}
+		if supply.Value != 12.4 || supply.Metadata.Channel != model.ChannelOBD {
+			t.Fatalf("sample %d supply=%#v", sample, supply)
+		}
+		if supply.Metadata.ObservedAt.Before(requested) {
+			t.Fatalf("sample %d carried a reading from %s, taken before the sample asked at %s",
+				sample, supply.Metadata.ObservedAt, requested)
+		}
+	}
+}
+
+// A parked sample is ten minutes apart, so without this it would report a supply
+// reading up to ten minutes old. The wake poll runs every minute and takes one.
+func TestWakePollRefreshesTheSupplyReading(t *testing.T) {
+	port := &profilePipelinePort{protocolFrame: true, filteredFrame: true}
+	previousOpen := openOBDPort
+	openOBDPort = func(string, *serial.Mode) (serial.Port, error) { return port, nil }
+	t.Cleanup(func() { openOBDPort = previousOpen })
+	provider := NewProfileProvider(NewOBDAdapter("scripted"), testDecoder(t))
+	provider.trial = 5 * time.Millisecond
+	provider.burstWindow = 20 * time.Millisecond
+	provider.wakePollInterval = 50 * time.Millisecond
+	provider.auditInterval = time.Hour
+	t.Cleanup(provider.Close)
+	provider.Start()
+	atStart := provider.supplyReadingTime()
+
+	waitFor(t, "a wake poll to take its own supply reading", func() bool {
+		return provider.supplyReadingTime().After(atStart)
+	})
+}
+
+// The reading runs inside the cycle the sample waits on, so an adapter slow to
+// answer it must time the waiter out into the carried snapshot rather than hold
+// the sampling thread past the bound.
+func TestSlowSupplyReadingStillLeavesTheSampleBounded(t *testing.T) {
+	port := &latePromptPort{
+		profilePipelinePort: profilePipelinePort{protocolFrame: true, filteredFrame: true},
+		voltageDelay:        1200 * time.Millisecond,
+	}
+	provider := latePromptProvider(t, port)
+	provider.Start()
+
+	started := time.Now()
+	observations, err := provider.ReadObservations()
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound := provider.burstWindow + burstCompletionAllowance
+	if elapsed < bound || elapsed > bound+150*time.Millisecond {
+		t.Fatalf("slow supply reading took %s, want %s..%s", elapsed, bound, bound+150*time.Millisecond)
+	}
+	if got := observations["battery.soc"].Value; got != float64(67) {
+		t.Fatalf("carried battery.soc=%v, want 67", got)
+	}
+	if state := provider.State(); !strings.Contains(state, "carried observations") {
+		t.Fatalf("state=%q, want the carried reading disclosed", state)
+	}
+}
+
+// A prompt that comes back a third of a second later is a busy adapter, not a
+// wedged one. The exit keeps the adapter's own command window, so no number of
+// slow-but-answered exits reaches the recovery ladder.
 func TestSlowStreamExitNeverReachesTheRecoveryLadder(t *testing.T) {
 	port := &latePromptPort{
 		profilePipelinePort: profilePipelinePort{protocolFrame: true, filteredFrame: true},
@@ -952,6 +1046,8 @@ func (port *profilePipelinePort) Write(payload []byte) (int, error) {
 	switch {
 	case command == "STBRT 500":
 		port.pending = "?\r>"
+	case command == "ATRV":
+		port.pending = "12.4V\r>"
 	case command == "STM":
 		port.stmCount++
 		if (port.stmCount == 1 && port.protocolFrame) || (port.stmCount > 1 && port.filteredFrame) {

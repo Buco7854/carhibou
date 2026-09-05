@@ -169,9 +169,11 @@ Updated: 2026-09-04
   cadence-driven with event-triggered extras: a change in readiness, charging or
   reported state takes a debounced sample immediately and flushes the upload,
   stamped `sample_trigger` and leaving the declared cadence promise unchanged.
-  The adapter's own supply reading is polled slowly as canonical
-  `battery.aux_voltage` (channel obd), interleaved with CAN monitoring, and
-  doubles as the probe that separates a sleeping bus from a missing adapter.
+  The adapter's own supply reading is taken inside every listen burst (and every
+  parked wake poll) as canonical `battery.aux_voltage` (channel obd), so each sample
+  carries it whether or not the car's bus is awake, and it doubles as the probe that
+  separates a sleeping bus from a missing adapter; three unanswered in a row is the
+  adapter gone.
   Host-local hardware selection persists GPS, OBD and the cellular control port as
   `auto`, `off`, or a stable `/dev/serial/by-id` path. `auto` now probes: each candidate
   is opened and classified by what it answers (NMEA stream, ELM identity, AT modem),
